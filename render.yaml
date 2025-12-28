@@ -1,0 +1,50 @@
+# Render.yaml - Infrastructure as Code for MLC E-Logistics Inventory
+# https://render.com/docs/blueprint-spec
+
+services:
+  # Main Next.js Web Application
+  - type: web
+    name: mlc-inventory
+    runtime: node
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SENDCLOUD_API_KEY
+        sync: false
+      - key: SENDCLOUD_SECRET
+        sync: false
+      - key: SENDCLOUD_USE_MOCK
+        value: "false"
+
+  # Cron Job for Sendcloud Sync (daily at 6:00 AM UTC)
+  - type: cron
+    name: mlc-sync-sendcloud
+    runtime: node
+    schedule: "0 6 * * *"
+    buildCommand: npm ci
+    startCommand: npx tsx scripts/cron-sync.ts
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SENDCLOUD_API_KEY
+        sync: false
+      - key: SENDCLOUD_SECRET
+        sync: false
+      - key: SENDCLOUD_USE_MOCK
+        value: "false"
