@@ -6,18 +6,40 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
-import { Download, MapPin, Package, CheckCircle, XCircle, Loader2, Search, X } from 'lucide-react'
-import { useLocations, Location } from '@/hooks/useLocations'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Download, MapPin, Package, CheckCircle, XCircle, Loader2, Search, X, Plus, MoreHorizontal, Pencil, Trash2, Link2, Unlink } from 'lucide-react'
+import { useLocations, useCreateLocation, useUpdateLocation, useDeleteLocation, Location } from '@/hooks/useLocations'
+import { useSkus } from '@/hooks/useSkus'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { toast } from 'sonner'
 
 export function EmplacementsClient() {
   const [isExporting, setIsExporting] = useState(false)
   const [searchInput, setSearchInput] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'occupied' | 'empty'>('all')
 
+  // CRUD Dialog states
+  const [createOpen, setCreateOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [assignOpen, setAssignOpen] = useState(false)
+  const [selectedLocation, setSelectedLocation] = useState<Location | null>(null)
+
+  // Form states
+  const [formCode, setFormCode] = useState('')
+  const [formLabel, setFormLabel] = useState('')
+  const [formActive, setFormActive] = useState(true)
+  const [formSkuCode, setFormSkuCode] = useState('')
+
   const { data, isLoading, isFetching } = useLocations()
+  const { data: skusData } = useSkus()
+
+  const createMutation = useCreateLocation()
+  const updateMutation = useUpdateLocation()
+  const deleteMutation = useDeleteLocation()
 
   const allLocations = data?.locations || []
   const stats = data?.stats || {
@@ -27,6 +49,7 @@ export function EmplacementsClient() {
     active: 0,
     occupancyRate: 0,
   }
+  const skus = skusData?.skus || []
 
   // Filter locations based on search and status
   const locations = useMemo(() => {
@@ -78,6 +101,113 @@ export function EmplacementsClient() {
     }
   }
 
+  // Open create dialog
+  const openCreate = () => {
+    setFormCode('')
+    setFormLabel('')
+    setFormActive(true)
+    setCreateOpen(true)
+  }
+
+  // Open edit dialog
+  const openEdit = (location: Location) => {
+    setSelectedLocation(location)
+    setFormCode(location.code)
+    setFormLabel(location.label || '')
+    setFormActive(location.active)
+    setEditOpen(true)
+  }
+
+  // Open delete dialog
+  const openDelete = (location: Location) => {
+    setSelectedLocation(location)
+    setDeleteOpen(true)
+  }
+
+  // Open assign dialog
+  const openAssign = (location: Location) => {
+    setSelectedLocation(location)
+    setFormSkuCode(location.assignment?.sku?.sku_code || '')
+    setAssignOpen(true)
+  }
+
+  // Handle unassign
+  const handleUnassign = async (location: Location) => {
+    try {
+      await updateMutation.mutateAsync({
+        id: location.id,
+        sku_code: null,
+      })
+      toast.success('SKU desassigne')
+    } catch {
+      // Error handled by mutation
+    }
+  }
+
+  // Handle create submit
+  const handleCreate = async () => {
+    if (!formCode.trim()) {
+      toast.error('Le code est requis')
+      return
+    }
+
+    try {
+      await createMutation.mutateAsync({
+        code: formCode.trim(),
+        label: formLabel.trim() || undefined,
+        active: formActive,
+      })
+      setCreateOpen(false)
+    } catch {
+      // Error handled by mutation
+    }
+  }
+
+  // Handle edit submit
+  const handleEdit = async () => {
+    if (!selectedLocation || !formCode.trim()) return
+
+    try {
+      await updateMutation.mutateAsync({
+        id: selectedLocation.id,
+        code: formCode.trim(),
+        label: formLabel.trim() || undefined,
+        active: formActive,
+      })
+      setEditOpen(false)
+    } catch {
+      // Error handled by mutation
+    }
+  }
+
+  // Handle assign submit
+  const handleAssign = async () => {
+    if (!selectedLocation) return
+
+    try {
+      await updateMutation.mutateAsync({
+        id: selectedLocation.id,
+        sku_code: formSkuCode || null,
+      })
+      toast.success(formSkuCode ? 'SKU assigne' : 'SKU desassigne')
+      setAssignOpen(false)
+    } catch {
+      // Error handled by mutation
+    }
+  }
+
+  // Handle delete submit
+  const handleDelete = async () => {
+    if (!selectedLocation) return
+
+    try {
+      await deleteMutation.mutateAsync(selectedLocation.id)
+      setDeleteOpen(false)
+    } catch {
+      // Error handled by mutation
+    }
+  }
+
   if (isLoading) {
     return <EmplacementsLoadingSkeleton />
   }
@@ -96,6 +226,10 @@ export function EmplacementsClient() {
           <Button variant="outline" size="sm" onClick={handleExport} disabled={isExporting}>
             {isExporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
             Export
+          </Button>
+          <Button size="sm" onClick={openCreate}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nouvel emplacement
           </Button>
         </div>
       </div>
@@ -172,7 +306,7 @@ export function EmplacementsClient() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Tous</SelectItem>
-            <SelectItem value="occupied">Occupés</SelectItem>
+            <SelectItem value="occupied">Occupes</SelectItem>
             <SelectItem value="empty">Libres</SelectItem>
           </SelectContent>
         </Select>
@@ -186,7 +320,7 @@ export function EmplacementsClient() {
 
         {hasFilters && (
           <span className="text-sm text-muted-foreground">
-            {locations.length} résultat(s)
+            {locations.length} resultat(s)
           </span>
         )}
       </div>
@@ -197,7 +331,9 @@ export function EmplacementsClient() {
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
             <MapPin className="h-12 w-12 mb-4 opacity-50" />
             <p className="text-sm">Aucun emplacement configure</p>
-            <p className="text-xs mt-1">Importez des emplacements via Parametres &gt; Import</p>
+            <Button variant="link" size="sm" className="mt-2" onClick={openCreate}>
+              Creer un emplacement
+            </Button>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -208,7 +344,8 @@ export function EmplacementsClient() {
                   <TableHead className="hidden sm:table-cell">Label</TableHead>
                   <TableHead className="whitespace-nowrap">SKU</TableHead>
                   <TableHead className="text-center whitespace-nowrap">Actif</TableHead>
-                  <TableHead className="text-right pr-4 lg:pr-6 whitespace-nowrap">Statut</TableHead>
+                  <TableHead className="text-right whitespace-nowrap">Statut</TableHead>
+                  <TableHead className="w-[60px] pr-4 lg:pr-6"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -235,10 +372,40 @@ export function EmplacementsClient() {
                         <XCircle className="h-4 w-4 text-red-600 inline" />
                       )}
                     </TableCell>
-                    <TableCell className="text-right pr-4 lg:pr-6">
+                    <TableCell className="text-right">
                       <Badge variant={location.assignment ? 'success' : 'muted'} className="text-xs">
                         {location.assignment ? 'Occupe' : 'Libre'}
                       </Badge>
+                    </TableCell>
+                    <TableCell className="pr-4 lg:pr-6">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => openAssign(location)}>
+                            <Link2 className="mr-2 h-4 w-4" />
+                            Assigner SKU
+                          </DropdownMenuItem>
+                          {location.assignment && (
+                            <DropdownMenuItem onClick={() => handleUnassign(location)}>
+                              <Unlink className="mr-2 h-4 w-4" />
+                              Desassigner
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => openEdit(location)}>
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Modifier
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="text-error" onClick={() => openDelete(location)}>
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Supprimer
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -247,6 +414,164 @@ export function EmplacementsClient() {
           </div>
         )}
       </Card>
+
+      {/* Create Dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Nouvel emplacement</DialogTitle>
+            <DialogDescription>
+              Creez un nouvel emplacement dans votre entrepot.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Code *</label>
+              <Input
+                placeholder="ex: A-01-001"
+                value={formCode}
+                onChange={(e) => setFormCode(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Label</label>
+              <Input
+                placeholder="Description optionnelle"
+                value={formLabel}
+                onChange={(e) => setFormLabel(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="formActive"
+                checked={formActive}
+                onChange={(e) => setFormActive(e.target.checked)}
+                className="h-4 w-4"
+              />
+              <label htmlFor="formActive" className="text-sm">Emplacement actif</label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>
+              Annuler
+            </Button>
+            <Button onClick={handleCreate} disabled={createMutation.isPending}>
+              {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Creer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Modifier l&apos;emplacement</DialogTitle>
+            <DialogDescription>
+              Modifiez les informations de l&apos;emplacement {selectedLocation?.code}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Code *</label>
+              <Input
+                placeholder="ex: A-01-001"
+                value={formCode}
+                onChange={(e) => setFormCode(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Label</label>
+              <Input
+                placeholder="Description optionnelle"
+                value={formLabel}
+                onChange={(e) => setFormLabel(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="editActive"
+                checked={formActive}
+                onChange={(e) => setFormActive(e.target.checked)}
+                className="h-4 w-4"
+              />
+              <label htmlFor="editActive" className="text-sm">Emplacement actif</label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>
+              Annuler
+            </Button>
+            <Button onClick={handleEdit} disabled={updateMutation.isPending}>
+              {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Enregistrer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Dialog */}
+      <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assigner un SKU</DialogTitle>
+            <DialogDescription>
+              Assignez un produit a l&apos;emplacement {selectedLocation?.code}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">SKU</label>
+              <select
+                className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                value={formSkuCode}
+                onChange={(e) => setFormSkuCode(e.target.value)}
+              >
+                <option value="">Aucun (liberer l&apos;emplacement)</option>
+                {skus.map((sku) => (
+                  <option key={sku.id} value={sku.sku_code}>
+                    {sku.sku_code} - {sku.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAssignOpen(false)}>
+              Annuler
+            </Button>
+            <Button onClick={handleAssign} disabled={updateMutation.isPending}>
+              {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Enregistrer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Dialog */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Supprimer l&apos;emplacement</DialogTitle>
+            <DialogDescription>
+              Etes-vous sur de vouloir supprimer l&apos;emplacement {selectedLocation?.code} ?
+              Cette action est irreversible.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
+              Annuler
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleteMutation.isPending}>
+              {deleteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Supprimer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -259,7 +584,10 @@ function EmplacementsLoadingSkeleton() {
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-4 w-36" />
         </div>
-        <Skeleton className="h-9 w-24" />
+        <div className="flex gap-2">
+          <Skeleton className="h-9 w-24" />
+          <Skeleton className="h-9 w-40" />
+        </div>
       </div>
       <div className="grid grid-cols-4 gap-4">
         {Array.from({ length: 4 }).map((_, i) => (

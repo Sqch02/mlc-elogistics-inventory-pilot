@@ -19,6 +19,12 @@ export interface Pagination {
   totalPages: number
 }
 
+export interface ShipmentStats {
+  totalCost: number
+  totalValue: number
+  missingPricing: number
+}
+
 export interface Shipment {
   id: string
   sendcloud_id: string
@@ -59,7 +65,7 @@ export interface Shipment {
   }>
 }
 
-async function fetchShipments(filters: ShipmentFilters): Promise<{ shipments: Shipment[]; carriers: string[]; pagination: Pagination }> {
+async function fetchShipments(filters: ShipmentFilters): Promise<{ shipments: Shipment[]; carriers: string[]; pagination: Pagination; stats: ShipmentStats }> {
   const params = new URLSearchParams()
   if (filters.from) params.set('from', filters.from)
   if (filters.to) params.set('to', filters.to)
@@ -80,7 +86,8 @@ async function fetchShipments(filters: ShipmentFilters): Promise<{ shipments: Sh
   return {
     shipments: data.shipments,
     carriers,
-    pagination: data.pagination || { page: 1, pageSize: 100, total: data.shipments.length, totalPages: 1 }
+    pagination: data.pagination || { page: 1, pageSize: 100, total: data.shipments.length, totalPages: 1 },
+    stats: data.stats || { totalCost: 0, totalValue: 0, missingPricing: 0 }
   }
 }
 

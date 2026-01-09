@@ -6,7 +6,6 @@ interface SKUWithStock {
   id: string
   sku_code: string
   name: string
-  description: string | null
   weight_grams: number | null
   alert_threshold: number
   created_at: string
@@ -19,19 +18,20 @@ export async function GET() {
     const tenantId = await requireTenant()
     const supabase = await getServerDb()
 
+    // Use left join (no !inner) to get all SKUs even without stock snapshots
     const { data, error } = await supabase
       .from('skus')
       .select(`
         id,
         sku_code,
         name,
-        description,
         weight_grams,
         alert_threshold,
         created_at,
-        stock_snapshots!inner(qty_current, updated_at)
+        stock_snapshots(qty_current, updated_at)
       `)
       .eq('tenant_id', tenantId)
+      .eq('active', true)
       .order('sku_code')
 
     if (error) throw error
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     const supabase = await getServerDb()
     const body = await request.json()
 
-    const { sku_code, name, description, weight_grams, alert_threshold, qty_initial } = body
+    const { sku_code, name, weight_grams, alert_threshold, qty_initial } = body
 
     if (!sku_code || !name) {
       return NextResponse.json(
@@ -90,7 +90,6 @@ export async function POST(request: NextRequest) {
         tenant_id: tenantId,
         sku_code,
         name,
-        description: description || null,
         weight_grams: weight_grams || null,
         alert_threshold: alert_threshold || 10,
       })

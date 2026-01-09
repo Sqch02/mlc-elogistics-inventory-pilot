@@ -6,10 +6,13 @@ import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { FileText, Receipt, Euro, AlertTriangle, CheckCircle, Loader2 } from 'lucide-react'
-import { useInvoices, useGenerateInvoice, useUpdateInvoiceStatus } from '@/hooks/useInvoices'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { FileText, Receipt, Euro, AlertTriangle, CheckCircle, Loader2, MoreHorizontal, Download, Trash2, Send, CreditCard } from 'lucide-react'
+import { useInvoices, useGenerateInvoice, useUpdateInvoiceStatus, useDeleteInvoice, Invoice } from '@/hooks/useInvoices'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ExportInvoicesButton } from './FacturationActions'
+import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 
 function formatMonth(month: string) {
   const [year, monthNum] = month.split('-')
@@ -23,10 +26,13 @@ function formatDate(dateStr: string) {
 
 export function FacturationClient() {
   const [selectedMonth, setSelectedMonth] = useState('')
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null)
 
   const { data, isLoading, isFetching } = useInvoices()
   const generateMutation = useGenerateInvoice()
   const updateStatusMutation = useUpdateInvoiceStatus()
+  const deleteMutation = useDeleteInvoice()
 
   const invoices = data?.invoices || []
   const stats = data?.stats || {
@@ -56,11 +62,57 @@ export function FacturationClient() {
     }
   }
 
-  const handleUpdateStatus = (id: string, currentStatus: string) => {
-    const nextStatus = currentStatus === 'draft' ? 'sent' : currentStatus === 'sent' ? 'paid' : null
-    if (nextStatus) {
-      updateStatusMutation.mutate({ id, status: nextStatus })
+  const handleUpdateStatus = (id: string, status: string) => {
+    updateStatusMutation.mutate({ id, status })
+  }
+
+  const handleDelete = (invoice: Invoice) => {
+    setInvoiceToDelete(invoice)
+    setDeleteDialogOpen(true)
+  }
+
+  const confirmDelete = async () => {
+    if (invoiceToDelete) {
+      await deleteMutation.mutateAsync(invoiceToDelete.id)
+      setDeleteDialogOpen(false)
+      setInvoiceToDelete(null)
     }
+  }
+
+  const handleDownloadCSV = (invoice: Invoice) => {
+    type ExportRow = {
+      periode: string
+      transporteur: string
+      poids_min_g: number | string
+      poids_max_g: number | string
+      nb_expeditions: number
+      prix_unitaire_eur: number | string
+      total_eur: number
+    }
+
+    const exportData: ExportRow[] = invoice.invoice_lines.map(line => ({
+      periode: invoice.month,
+      transporteur: line.carrier,
+      poids_min_g: line.weight_min_grams,
+      poids_max_g: line.weight_max_grams,
+      nb_expeditions: line.shipment_count,
+      prix_unitaire_eur: line.unit_price_eur || '',
+      total_eur: line.total_eur,
+    }))
+
+    // Add summary row
+    exportData.push({
+      periode: invoice.month,
+      transporteur: 'TOTAL',
+      poids_min_g: '',
+      poids_max_g: '',
+      nb_expeditions: invoice.invoice_lines.reduce((sum, l) => sum + l.shipment_count, 0),
+      prix_unitaire_eur: '',
+      total_eur: invoice.total_eur,
+    })
+
+    const csv = generateCSV(exportData, { delimiter: ';' })
+    downloadCSV(csv, `facture_${invoice.month}.csv`)
   }
 
   if (isLoading) {
@@ -96,7 +148,7 @@ export function FacturationClient() {
             disabled={!selectedMonth || generateMutation.isPending}
           >
             {generateMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
-            Generer
+            Générer
           </Button>
         </div>
       </div>
@@ -117,7 +169,7 @@ export function FacturationClient() {
         <Card className="shadow-sm border-border">
           <CardContent className="p-3 lg:p-4 flex items-center justify-between">
             <div className="space-y-1">
-              <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Total paye</p>
+              <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Total payé</p>
               <p className="text-lg lg:text-2xl font-bold text-green-600">{stats.totalPaid.toFixed(2)} EUR</p>
             </div>
             <div className="p-1.5 lg:p-2 bg-green-100 rounded-lg text-green-600">
@@ -154,8 +206,8 @@ export function FacturationClient() {
         {invoices.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
             <FileText className="h-12 w-12 mb-4 opacity-50" />
-            <p className="text-sm">Aucune facture generee</p>
-            <p className="text-xs mt-1">Selectionnez un mois et cliquez sur Generer</p>
+            <p className="text-sm">Aucune facture générée</p>
+            <p className="text-xs mt-1">Sélectionnez un mois et cliquez sur Générer</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -186,22 +238,54 @@ export function FacturationClient() {
                       <TableCell className="text-right font-bold whitespace-nowrap">{Number(inv.total_eur).toFixed(2)} EUR</TableCell>
                       <TableCell className="text-center">
                         <Badge variant={inv.status === 'paid' ? 'success' : inv.status === 'sent' ? 'info' : 'secondary'} className="text-xs">
-                          {inv.status === 'sent' ? 'Envoyee' : inv.status === 'paid' ? 'Payee' : 'Brouillon'}
+                          {inv.status === 'sent' ? 'Envoyée' : inv.status === 'paid' ? 'Payée' : 'Brouillon'}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right pr-4 lg:pr-6">
-                        {inv.status !== 'paid' && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleUpdateStatus(inv.id, inv.status)}
-                            disabled={updateStatusMutation.isPending}
-                            className="text-xs h-8 px-2"
-                          >
-                            <span className="hidden sm:inline">{inv.status === 'draft' ? 'Marquer envoyee' : 'Marquer payee'}</span>
-                            <span className="sm:hidden">{inv.status === 'draft' ? 'Envoyer' : 'Payer'}</span>
-                          </Button>
-                        )}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => handleDownloadCSV(inv)}>
+                              <Download className="mr-2 h-4 w-4" />
+                              Télécharger CSV
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            {inv.status === 'draft' && (
+                              <DropdownMenuItem onClick={() => handleUpdateStatus(inv.id, 'sent')}>
+                                <Send className="mr-2 h-4 w-4" />
+                                Marquer envoyée
+                              </DropdownMenuItem>
+                            )}
+                            {inv.status === 'sent' && (
+                              <DropdownMenuItem onClick={() => handleUpdateStatus(inv.id, 'paid')}>
+                                <CreditCard className="mr-2 h-4 w-4" />
+                                Marquer payée
+                              </DropdownMenuItem>
+                            )}
+                            {inv.status !== 'draft' && inv.status !== 'paid' && (
+                              <DropdownMenuItem onClick={() => handleUpdateStatus(inv.id, 'draft')}>
+                                <FileText className="mr-2 h-4 w-4" />
+                                Remettre en brouillon
+                              </DropdownMenuItem>
+                            )}
+                            {inv.status === 'draft' && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onClick={() => handleDelete(inv)}
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  Supprimer
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
                   )
@@ -211,6 +295,32 @@ export function FacturationClient() {
           </div>
         )}
       </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Supprimer la facture</DialogTitle>
+            <DialogDescription>
+              Êtes-vous sûr de vouloir supprimer la facture de {invoiceToDelete ? formatMonth(invoiceToDelete.month) : ''} ?
+              Cette action est irréversible.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+              Annuler
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Supprimer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

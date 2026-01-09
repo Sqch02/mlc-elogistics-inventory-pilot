@@ -77,13 +77,10 @@ export async function PATCH(
     }
 
     if (components && Array.isArray(components)) {
-      // Delete existing components
-      await supabase
-        .from('bundle_components')
-        .delete()
-        .eq('bundle_id', id)
+      // Validate all component SKUs exist first
+      const missingSkus: string[] = []
+      const validComponents: Array<{ sku_id: string; qty: number }> = []
 
-      // Add new components
       for (const comp of components) {
         const { data: componentSku } = await supabase
           .from('skus')
@@ -93,15 +90,36 @@ export async function PATCH(
           .single()
 
         if (!componentSku) {
-          console.warn(`Component SKU not found: ${comp.sku_code}`)
-          continue
+          missingSkus.push(comp.sku_code)
+        } else {
+          validComponents.push({
+            sku_id: componentSku.id,
+            qty: comp.qty || 1
+          })
         }
+      }
 
+      // Return error if any SKUs are missing (don't modify anything)
+      if (missingSkus.length > 0) {
+        return NextResponse.json({
+          error: `SKUs composants non trouvés: ${missingSkus.join(', ')}`,
+          missing_skus: missingSkus
+        }, { status: 400 })
+      }
+
+      // Delete existing components
+      await supabase
+        .from('bundle_components')
+        .delete()
+        .eq('bundle_id', id)
+
+      // Add validated components
+      for (const comp of validComponents) {
         await supabase.from('bundle_components').insert({
           tenant_id: tenantId,
           bundle_id: id,
-          component_sku_id: componentSku.id,
-          qty_component: comp.qty || 1,
+          component_sku_id: comp.sku_id,
+          qty_component: comp.qty,
         })
       }
     }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getFastUser } from '@/lib/supabase/fast-auth'
+import { calculateSKUMetrics } from '@/lib/utils/stock'
 
 export const revalidate = 60 // Cache for 60 seconds
 
@@ -43,7 +44,8 @@ export async function GET(request: NextRequest) {
     const [
       shipmentsResult,
       shipmentsCostResult,
-      missingPricingResult,
+      missingPricingMonthResult,
+      missingPricingTotalResult,
       claimsResult,
       stockResult,
       dailyShipmentsResult
@@ -60,6 +62,14 @@ export async function GET(request: NextRequest) {
         .select('computed_cost_eur')
         .eq('tenant_id', tenantId)
         .eq('pricing_status', 'ok')
+        .gte('shipped_at', startOfMonth.toISOString())
+        .lte('shipped_at', endOfMonth.toISOString()),
+
+      supabase
+        .from('shipments')
+        .select('*', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .eq('pricing_status', 'missing')
         .gte('shipped_at', startOfMonth.toISOString())
         .lte('shipped_at', endOfMonth.toISOString()),
 
@@ -101,7 +111,8 @@ export async function GET(request: NextRequest) {
     const totalIndemnity = claimsData?.reduce((sum, c) => sum + (Number(c.indemnity_eur) || 0), 0) || 0
 
     const shipmentsCount = shipmentsResult.count || 0
-    const missingPricingCount = missingPricingResult.count || 0
+    const missingPricingMonthCount = missingPricingMonthResult.count || 0
+    const missingPricingTotalCount = missingPricingTotalResult.count || 0
     const criticalStockCount = stockResult.data?.filter((s: { qty_current: number }) => s.qty_current < 20).length || 0
 
     // Group daily shipments
@@ -127,17 +138,24 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const stockWithSkusData = stockResult.data as { qty_current: number; skus: { sku_code: string; name: string } | null }[] | null
-    const stockHealth = (stockWithSkusData || []).map((item) => ({
-      sku: item.skus?.sku_code || 'UNKNOWN',
-      stock: item.qty_current,
-      avgConsumption90d: 2,
-      consumption30d: Math.min(item.qty_current * 2, 30),
-      daysRemaining: Math.max(1, Math.floor(item.qty_current / 2)),
-      isBundle: false
-    })).sort((a, b) => a.daysRemaining - b.daysRemaining)
+    // Get real consumption metrics for stock health
+    const skuMetrics = await calculateSKUMetrics(tenantId)
 
-    const missingPricingStatus = missingPricingCount > 0 ? 'warning' : 'success'
+    // Filter to critical stock (low qty or low days remaining) and sort by criticality
+    const stockHealth = skuMetrics
+      .filter(m => m.qty_current < 50 || (m.days_remaining !== null && m.days_remaining < 30))
+      .map(m => ({
+        sku: m.sku_code,
+        stock: m.qty_current,
+        avgConsumption90d: m.avg_daily_90d,
+        consumption30d: m.consumption_30d,
+        daysRemaining: m.days_remaining !== null ? Math.max(1, m.days_remaining) : 999,
+        isBundle: false
+      }))
+      .sort((a, b) => a.daysRemaining - b.daysRemaining)
+      .slice(0, 10)
+
+    const missingPricingStatus = missingPricingMonthCount > 0 ? 'warning' : 'success'
     const indemnityStatus = totalIndemnity > 0 ? 'success' : 'default'
     const criticalStockStatus = criticalStockCount > 0 ? 'danger' : 'success'
 
@@ -146,7 +164,7 @@ export async function GET(request: NextRequest) {
       kpis: {
         shipments: { label: "Expéditions", value: shipmentsCount, subValue: "ce mois-ci", status: 'default' },
         cost: { label: "Coût transport", value: `${totalCost.toFixed(2)} €`, subValue: "ce mois-ci", status: 'default' },
-        missingPricing: { label: "Tarifs manquants", value: missingPricingCount, status: missingPricingStatus },
+        missingPricing: { label: "Tarifs manquants", value: missingPricingMonthCount, subValue: "ce mois-ci", status: missingPricingStatus },
         indemnity: { label: "Total indemnisé", value: `${totalIndemnity.toFixed(2)} €`, subValue: "ce mois-ci", status: indemnityStatus },
         criticalStock: { label: "SKUs critiques", value: criticalStockCount, subValue: "stock < 20", status: criticalStockStatus },
         shipmentsWithoutItems: { label: "Sans items", value: 0, status: 'success' },
@@ -155,9 +173,9 @@ export async function GET(request: NextRequest) {
       stockHealth,
       alerts: [
         ...(criticalStockCount > 0 ? [{ id: 'stock-critique', type: 'stock_critique', title: 'Stock critique', description: `${criticalStockCount} SKU(s) faibles`, count: criticalStockCount, actionLabel: 'Gérer', actionLink: '/produits?filter=critique' }] : []),
-        ...(missingPricingCount > 0 ? [{ id: 'tarif-manquant', type: 'tarif_manquant', title: 'Tarifs manquants', description: `${missingPricingCount} sans tarif`, count: missingPricingCount, actionLabel: 'Corriger', actionLink: '/expeditions?filter=missing_pricing' }] : [])
+        ...(missingPricingTotalCount > 0 ? [{ id: 'tarif-manquant', type: 'tarif_manquant', title: 'Tarifs manquants', description: `${missingPricingTotalCount} total (${missingPricingMonthCount} ce mois)`, count: missingPricingTotalCount, actionLabel: 'Corriger', actionLink: '/expeditions?pricing_status=missing' }] : [])
       ],
-      billing: { status: 'pending', totalCost, missingPricingCount, totalIndemnity },
+      billing: { status: 'pending', totalCost, missingPricingCount: missingPricingMonthCount, missingPricingTotal: missingPricingTotalCount, totalIndemnity },
       lastSync: { date: new Date().toISOString(), status: 'ok' }
     }, {
       headers: {

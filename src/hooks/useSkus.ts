@@ -7,7 +7,6 @@ export interface SKU {
   id: string
   sku_code: string
   name: string
-  description: string | null
   weight_grams: number | null
   alert_threshold: number
   qty_current: number
@@ -36,7 +35,6 @@ export function useCreateSku() {
     mutationFn: async (data: {
       sku_code: string
       name: string
-      description?: string
       weight_grams?: number
       alert_threshold?: number
       qty_initial?: number
@@ -71,7 +69,6 @@ export function useUpdateSku() {
       id: string
       sku_code?: string
       name?: string
-      description?: string
       weight_grams?: number
       alert_threshold?: number
     }) => {

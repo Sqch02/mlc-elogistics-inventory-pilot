@@ -51,11 +51,19 @@ async function fetchInvoices(): Promise<{ invoices: Invoice[]; stats: InvoiceSta
     .filter(inv => inv.status !== 'paid')
     .reduce((sum, inv) => sum + Number(inv.total_eur), 0)
 
+  // Find current month's invoice and calculate stats
+  const currentMonthInvoice = invoices.find(inv => inv.month === currentMonth)
+  const currentMonthTotal = currentMonthInvoice?.total_eur || 0
+  const currentMonthCount = currentMonthInvoice?.invoice_lines?.reduce(
+    (sum, line) => sum + (line.shipment_count || 0), 0
+  ) || 0
+  const missingPricing = currentMonthInvoice?.missing_pricing_count || 0
+
   const stats: InvoiceStats = {
     currentMonth,
-    currentMonthTotal: 0,
-    currentMonthCount: 0,
-    missingPricing: 0,
+    currentMonthTotal: Number(currentMonthTotal),
+    currentMonthCount,
+    missingPricing,
     totalPaid,
     totalPending,
   }
@@ -124,6 +132,30 @@ export function useUpdateInvoiceStatus() {
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Erreur lors de la mise à jour')
+    },
+  })
+}
+
+export function useDeleteInvoice() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const response = await fetch(`/api/invoices/${id}`, {
+        method: 'DELETE',
+      })
+      if (!response.ok) {
+        const err = await response.json()
+        throw new Error(err.error || 'Erreur lors de la suppression')
+      }
+      return response.json()
+    },
+    onSuccess: () => {
+      toast.success('Facture supprimée')
+      queryClient.invalidateQueries({ queryKey: ['invoices'] })
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Erreur lors de la suppression')
     },
   })
 }

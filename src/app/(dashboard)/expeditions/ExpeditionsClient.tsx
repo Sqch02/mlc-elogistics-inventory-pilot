@@ -10,8 +10,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   Truck, Package, DollarSign, AlertTriangle, ExternalLink, Search, X, Download, Loader2,
   ChevronDown, ChevronUp, MapPin, Phone, Mail, User, Calendar, Globe, Tag, FileText, Eye,
-  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, AlertCircle
 } from 'lucide-react'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { useCreateClaim } from '@/hooks/useClaims'
+import { toast } from 'sonner'
 import { useShipments, useCarriers, ShipmentFilters, Shipment } from '@/hooks/useShipments'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -47,15 +50,38 @@ function formatWeight(grams: number) {
 function getStatusBadge(statusId: number | null, statusMessage: string | null) {
   if (!statusId) return <Badge variant="muted">Inconnu</Badge>
 
-  const statusColors: Record<number, { variant: 'success' | 'warning' | 'error' | 'info' | 'muted', label: string }> = {
-    1: { variant: 'muted', label: 'Créé' },
+  // Sendcloud status IDs: https://support.sendcloud.com/hc/en-us/articles/360024799612-Parcel-statuses
+  const statusColors: Record<number, { variant: 'success' | 'warning' | 'error' | 'info' | 'muted' | 'blue' | 'cyan' | 'purple' | 'indigo', label: string }> = {
+    // Initial states
+    1: { variant: 'muted', label: 'Brouillon' },
+    1000: { variant: 'cyan', label: 'Prêt' },
+    1001: { variant: 'cyan', label: 'En attente' },
+
+    // In progress states
+    11: { variant: 'blue', label: 'Annoncé' },
+    12: { variant: 'indigo', label: 'En transit' },
+    22: { variant: 'indigo', label: 'Centre de tri' },
+    31: { variant: 'blue', label: 'En douane' },
+    32: { variant: 'warning', label: 'Douane bloquée' },
+
+    // Delivery states
+    13: { variant: 'purple', label: 'En livraison' },
+    62: { variant: 'purple', label: 'Livré au voisin' },
+    80: { variant: 'blue', label: 'Point relais' },
+
+    // Final states
     3: { variant: 'success', label: 'Livré' },
-    11: { variant: 'info', label: 'Annoncé' },
-    12: { variant: 'info', label: 'En transit' },
-    13: { variant: 'info', label: 'En livraison' },
+    4: { variant: 'success', label: 'Livré' },
+
+    // Problem states
     91: { variant: 'warning', label: 'Exception' },
-    1000: { variant: 'info', label: 'Prêt' },
+    92: { variant: 'warning', label: 'Retour' },
+    93: { variant: 'warning', label: 'Non livrable' },
+    99: { variant: 'error', label: 'Perdu' },
+
+    // Cancelled
     2000: { variant: 'error', label: 'Annulé' },
+    2001: { variant: 'error', label: 'Refusé' },
   }
 
   const status = statusColors[statusId] || { variant: 'muted' as const, label: statusMessage || `Status ${statusId}` }
@@ -64,9 +90,10 @@ function getStatusBadge(statusId: number | null, statusMessage: string | null) {
 
 interface ShipmentRowProps {
   shipment: Shipment
+  onCreateClaim: (shipment: Shipment) => void
 }
 
-function ShipmentRow({ shipment }: ShipmentRowProps) {
+function ShipmentRow({ shipment, onCreateClaim }: ShipmentRowProps) {
   const [isExpanded, setIsExpanded] = useState(false)
 
   return (
@@ -286,6 +313,18 @@ function ShipmentRow({ shipment }: ShipmentRowProps) {
                     </a>
                   </Button>
                 )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onCreateClaim(shipment)
+                  }}
+                  className="text-amber-600 border-amber-300 hover:bg-amber-50 hover:border-amber-400"
+                >
+                  <AlertCircle className="h-4 w-4 mr-2" />
+                  Créer une réclamation
+                </Button>
               </div>
 
               {/* Items */}
@@ -317,17 +356,24 @@ export function ExpeditionsClient() {
   const [searchInput, setSearchInput] = useState('')
   const [isExporting, setIsExporting] = useState(false)
 
+  // Claim dialog state
+  const [claimDialogOpen, setClaimDialogOpen] = useState(false)
+  const [selectedShipmentForClaim, setSelectedShipmentForClaim] = useState<Shipment | null>(null)
+  const [claimDescription, setClaimDescription] = useState('')
+
   const { data, isLoading, isFetching } = useShipments(filters)
   const { data: carriers = [] } = useCarriers()
+  const createClaimMutation = useCreateClaim()
 
   const shipments = data?.shipments || []
   const pagination = data?.pagination || { page: 1, pageSize: 100, total: 0, totalPages: 1 }
+  const stats = data?.stats || { totalCost: 0, totalValue: 0, missingPricing: 0 }
 
-  // Stats
+  // Stats (from API - covers all filtered shipments, not just current page)
   const totalShipments = pagination.total
-  const totalCost = shipments.reduce((sum, s) => sum + (s.computed_cost_eur || 0), 0)
-  const totalValue = shipments.reduce((sum, s) => sum + (s.total_value || 0), 0)
-  const missingPricing = shipments.filter(s => s.pricing_status === 'missing').length
+  const totalCost = stats.totalCost
+  const totalValue = stats.totalValue
+  const missingPricing = stats.missingPricing
 
   const updateFilter = (key: 'from' | 'to' | 'carrier' | 'pricing_status' | 'search', value: string | undefined) => {
     setFilters(prev => {
@@ -385,6 +431,36 @@ export function ExpeditionsClient() {
   }
 
   const hasFilters = Object.keys(filters).length > 0
+
+  // Handle opening claim dialog
+  const handleOpenClaimDialog = (shipment: Shipment) => {
+    setSelectedShipmentForClaim(shipment)
+    setClaimDescription('')
+    setClaimDialogOpen(true)
+  }
+
+  // Handle creating claim
+  const handleCreateClaim = async () => {
+    if (!selectedShipmentForClaim) return
+
+    try {
+      await createClaimMutation.mutateAsync({
+        shipment_id: selectedShipmentForClaim.id,
+        order_ref: selectedShipmentForClaim.order_ref || undefined,
+        description: claimDescription || undefined,
+      })
+      setClaimDialogOpen(false)
+      toast.success('Réclamation créée avec succès', {
+        description: `Réf: ${selectedShipmentForClaim.order_ref || selectedShipmentForClaim.tracking || 'N/A'}`,
+        action: {
+          label: 'Voir',
+          onClick: () => window.location.href = '/reclamations'
+        }
+      })
+    } catch {
+      // Error handled by mutation
+    }
+  }
 
   if (isLoading) {
     return <ExpeditionsLoadingSkeleton />
@@ -553,7 +629,7 @@ export function ExpeditionsClient() {
               </TableHeader>
               <TableBody>
                 {shipments.map((shipment) => (
-                  <ShipmentRow key={shipment.id} shipment={shipment} />
+                  <ShipmentRow key={shipment.id} shipment={shipment} onCreateClaim={handleOpenClaimDialog} />
                 ))}
               </TableBody>
             </Table>
@@ -630,6 +706,72 @@ export function ExpeditionsClient() {
           </div>
         </div>
       )}
+
+      {/* Claim Creation Dialog */}
+      <Dialog open={claimDialogOpen} onOpenChange={setClaimDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-amber-500" />
+              Nouvelle réclamation
+            </DialogTitle>
+            <DialogDescription>
+              Créer une réclamation pour cette expédition
+            </DialogDescription>
+          </DialogHeader>
+          {selectedShipmentForClaim && (
+            <div className="space-y-4 py-4">
+              {/* Shipment Info Summary */}
+              <div className="rounded-lg bg-muted/50 p-4 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Référence</span>
+                  <span className="font-mono font-medium">{selectedShipmentForClaim.order_ref || '-'}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Tracking</span>
+                  <span className="font-mono">{selectedShipmentForClaim.tracking || '-'}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Transporteur</span>
+                  <Badge variant="muted">{selectedShipmentForClaim.carrier}</Badge>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Destinataire</span>
+                  <span>{selectedShipmentForClaim.recipient_name || '-'}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Date expédition</span>
+                  <span>{selectedShipmentForClaim.shipped_at ? new Date(selectedShipmentForClaim.shipped_at).toLocaleDateString('fr-FR') : '-'}</span>
+                </div>
+              </div>
+
+              {/* Description Field */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Description du problème</label>
+                <textarea
+                  className="w-full min-h-[100px] rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  placeholder="Décrivez le problème rencontré (colis endommagé, non reçu, contenu manquant...)"
+                  value={claimDescription}
+                  onChange={(e) => setClaimDescription(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setClaimDialogOpen(false)}>
+              Annuler
+            </Button>
+            <Button
+              onClick={handleCreateClaim}
+              disabled={createClaimMutation.isPending}
+              className="bg-amber-500 hover:bg-amber-600 text-white"
+            >
+              {createClaimMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Créer la réclamation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

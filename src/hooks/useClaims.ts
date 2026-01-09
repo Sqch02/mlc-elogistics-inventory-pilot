@@ -9,6 +9,7 @@ export interface Claim {
   description: string | null
   status: 'ouverte' | 'en_analyse' | 'indemnisee' | 'refusee' | 'cloturee'
   indemnity_eur: number | null
+  decision_note: string | null
   opened_at: string
   shipments: {
     sendcloud_id: string
@@ -57,44 +58,89 @@ export function useCreateClaim() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (data: { order_ref?: string; description?: string }) => {
+    mutationFn: async (data: {
+      shipment_id?: string
+      order_ref?: string
+      description?: string
+    }) => {
       const response = await fetch('/api/claims', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...data, status: 'ouverte' }),
       })
-      if (!response.ok) throw new Error('Erreur lors de la création de la réclamation')
+      if (!response.ok) {
+        const err = await response.json()
+        throw new Error(err.error || 'Erreur lors de la creation')
+      }
       return response.json()
     },
     onSuccess: () => {
-      toast.success('Réclamation créée avec succès')
+      toast.success('Reclamation creee')
       queryClient.invalidateQueries({ queryKey: ['claims'] })
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Erreur lors de la création')
+      toast.error(error.message)
     },
   })
 }
 
-export function useUpdateClaimStatus() {
+export function useUpdateClaim() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: string }) => {
+    mutationFn: async ({ id, ...data }: {
+      id: string
+      status?: string
+      description?: string | null
+      indemnity_eur?: number | null
+      decision_note?: string | null
+    }) => {
       const response = await fetch(`/api/claims/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(data),
       })
-      if (!response.ok) throw new Error('Erreur lors de la mise à jour du statut')
+      if (!response.ok) {
+        const err = await response.json()
+        throw new Error(err.error || 'Erreur lors de la mise a jour')
+      }
       return response.json()
     },
     onSuccess: () => {
-      toast.success('Statut mis à jour')
+      toast.success('Reclamation mise a jour')
       queryClient.invalidateQueries({ queryKey: ['claims'] })
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Erreur lors de la mise à jour')
+      toast.error(error.message)
+    },
+  })
+}
+
+// Alias for backwards compatibility
+export function useUpdateClaimStatus() {
+  return useUpdateClaim()
+}
+
+export function useDeleteClaim() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const response = await fetch(`/api/claims/${id}`, {
+        method: 'DELETE',
+      })
+      if (!response.ok) {
+        const err = await response.json()
+        throw new Error(err.error || 'Erreur lors de la suppression')
+      }
+      return response.json()
+    },
+    onSuccess: () => {
+      toast.success('Reclamation supprimee')
+      queryClient.invalidateQueries({ queryKey: ['claims'] })
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
     },
   })
 }

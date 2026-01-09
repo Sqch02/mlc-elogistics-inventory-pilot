@@ -111,7 +111,10 @@ export async function POST(request: NextRequest) {
 
     if (bundleError) throw bundleError
 
-    // Add components
+    // Validate all component SKUs exist first
+    const missingSkus: string[] = []
+    const validComponents: Array<{ sku_id: string; qty: number }> = []
+
     for (const comp of components) {
       const { data: componentSku } = await supabase
         .from('skus')
@@ -121,15 +124,32 @@ export async function POST(request: NextRequest) {
         .single()
 
       if (!componentSku) {
-        console.warn(`Component SKU not found: ${comp.sku_code}`)
-        continue
+        missingSkus.push(comp.sku_code)
+      } else {
+        validComponents.push({
+          sku_id: componentSku.id,
+          qty: comp.qty || 1
+        })
       }
+    }
 
+    // Return error if any SKUs are missing
+    if (missingSkus.length > 0) {
+      // Rollback: delete the bundle we just created
+      await supabase.from('bundles').delete().eq('id', bundle.id)
+      return NextResponse.json({
+        error: `SKUs composants non trouvés: ${missingSkus.join(', ')}`,
+        missing_skus: missingSkus
+      }, { status: 400 })
+    }
+
+    // Add validated components
+    for (const comp of validComponents) {
       await supabase.from('bundle_components').insert({
         tenant_id: tenantId,
         bundle_id: bundle.id,
-        component_sku_id: componentSku.id,
-        qty_component: comp.qty || 1,
+        component_sku_id: comp.sku_id,
+        qty_component: comp.qty,
       })
     }
 

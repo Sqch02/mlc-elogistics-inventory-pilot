@@ -46,14 +46,14 @@ export async function calculateSKUMetrics(
   const date30dAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
   const date90dAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
 
-  // Get SKUs with stock
+  // Get SKUs with stock (LEFT JOIN to include SKUs without stock snapshots)
   let skuQuery = supabase
     .from('skus')
     .select(`
       id,
       sku_code,
       name,
-      stock_snapshots!inner(qty_current)
+      stock_snapshots(qty_current)
     `)
     .eq('tenant_id', tenantId)
     .eq('active', true)

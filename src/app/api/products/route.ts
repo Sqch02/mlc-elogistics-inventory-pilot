@@ -17,14 +17,13 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search')
     const status = searchParams.get('status')
 
-    // Get full SKU data including description and alert_threshold
+    // Get full SKU data including alert_threshold
     let query = supabase
       .from('skus')
       .select(`
         id,
         sku_code,
         name,
-        description,
         alert_threshold
       `)
       .eq('tenant_id', tenantId)
@@ -51,7 +50,6 @@ export async function GET(request: NextRequest) {
       id: string
       sku_code: string
       name: string
-      description: string | null
       alert_threshold: number
     }
 
@@ -80,7 +78,6 @@ export async function GET(request: NextRequest) {
         id: sku.id,
         sku_code: sku.sku_code,
         name: sku.name,
-        description: sku.description,
         alert_threshold: alertThreshold,
         qty_current: qtyCurrent,
         consumption_30d: m?.consumption_30d || 0,
@@ -97,7 +94,6 @@ export async function GET(request: NextRequest) {
       id: string
       sku_code: string
       name: string
-      description: string | null
       alert_threshold: number
       qty_current: number
       consumption_30d: number

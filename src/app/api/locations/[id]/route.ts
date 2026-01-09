@@ -41,14 +41,8 @@ export async function PATCH(
 
     // Handle SKU assignment
     if (body.sku_code !== undefined) {
-      // Remove existing assignment
-      await supabase
-        .from('location_assignments')
-        .delete()
-        .eq('location_id', id)
-
       if (body.sku_code) {
-        // Find SKU by code
+        // Find SKU by code FIRST before making any changes
         const { data: sku } = await supabase
           .from('skus')
           .select('id')
@@ -56,13 +50,31 @@ export async function PATCH(
           .eq('sku_code', body.sku_code)
           .single()
 
-        if (sku) {
-          await supabase.from('location_assignments').insert({
-            tenant_id: tenantId,
-            location_id: id,
-            sku_id: sku.id,
-          })
+        if (!sku) {
+          return NextResponse.json(
+            { error: `SKU non trouvé: ${body.sku_code}` },
+            { status: 404 }
+          )
         }
+
+        // Remove existing assignment
+        await supabase
+          .from('location_assignments')
+          .delete()
+          .eq('location_id', id)
+
+        // Create new assignment
+        await supabase.from('location_assignments').insert({
+          tenant_id: tenantId,
+          location_id: id,
+          sku_id: sku.id,
+        })
+      } else {
+        // Just remove existing assignment (unassign)
+        await supabase
+          .from('location_assignments')
+          .delete()
+          .eq('location_id', id)
       }
     }
 

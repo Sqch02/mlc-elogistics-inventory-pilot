@@ -4,28 +4,17 @@ import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
-import { Download, MessageSquare, AlertTriangle, CheckCircle, Clock, Loader2, Plus } from 'lucide-react'
+import { Download, MessageSquare, AlertTriangle, CheckCircle, Clock, Loader2, Plus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useClaims, useCreateClaim, useUpdateClaimStatus, Claim } from '@/hooks/useClaims'
+import { useClaims, useCreateClaim, useUpdateClaim, useDeleteClaim, Claim } from '@/hooks/useClaims'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { Skeleton } from '@/components/ui/skeleton'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { toast } from 'sonner'
 
 function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('fr-FR')
@@ -50,12 +39,25 @@ function getStatusBadge(status: string) {
 
 export function ReclamationsClient() {
   const [isExporting, setIsExporting] = useState(false)
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [newClaim, setNewClaim] = useState({ order_ref: '', description: '' })
+
+  // CRUD Dialog states
+  const [createOpen, setCreateOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [selectedClaim, setSelectedClaim] = useState<Claim | null>(null)
+
+  // Form states
+  const [formOrderRef, setFormOrderRef] = useState('')
+  const [formDescription, setFormDescription] = useState('')
+  const [formStatus, setFormStatus] = useState<string>('ouverte')
+  const [formIndemnity, setFormIndemnity] = useState<number | null>(null)
+  const [formDecisionNote, setFormDecisionNote] = useState('')
 
   const { data, isLoading, isFetching } = useClaims()
+
   const createMutation = useCreateClaim()
-  const updateStatusMutation = useUpdateClaimStatus()
+  const updateMutation = useUpdateClaim()
+  const deleteMutation = useDeleteClaim()
 
   const claims = data?.claims || []
   const stats = data?.stats || {
@@ -84,17 +86,79 @@ export function ReclamationsClient() {
     }
   }
 
-  const handleCreate = () => {
-    createMutation.mutate(newClaim, {
-      onSuccess: () => {
-        setDialogOpen(false)
-        setNewClaim({ order_ref: '', description: '' })
-      }
-    })
+  // Open create dialog
+  const openCreate = () => {
+    setFormOrderRef('')
+    setFormDescription('')
+    setCreateOpen(true)
   }
 
-  const handleUpdateStatus = (id: string, newStatus: string) => {
-    updateStatusMutation.mutate({ id, status: newStatus })
+  // Open edit dialog
+  const openEdit = (claim: Claim) => {
+    setSelectedClaim(claim)
+    setFormDescription(claim.description || '')
+    setFormStatus(claim.status)
+    setFormIndemnity(claim.indemnity_eur)
+    setFormDecisionNote(claim.decision_note || '')
+    setEditOpen(true)
+  }
+
+  // Open delete dialog
+  const openDelete = (claim: Claim) => {
+    setSelectedClaim(claim)
+    setDeleteOpen(true)
+  }
+
+  // Handle create submit
+  const handleCreate = async () => {
+    try {
+      await createMutation.mutateAsync({
+        order_ref: formOrderRef.trim() || undefined,
+        description: formDescription.trim() || undefined,
+      })
+      setCreateOpen(false)
+    } catch {
+      // Error handled by mutation
+    }
+  }
+
+  // Handle edit submit
+  const handleEdit = async () => {
+    if (!selectedClaim) return
+
+    try {
+      await updateMutation.mutateAsync({
+        id: selectedClaim.id,
+        status: formStatus,
+        description: formDescription.trim() || null,
+        indemnity_eur: formIndemnity,
+        decision_note: formDecisionNote.trim() || null,
+      })
+      setEditOpen(false)
+    } catch {
+      // Error handled by mutation
+    }
+  }
+
+  // Handle quick status change
+  const handleQuickStatusChange = async (id: string, status: string) => {
+    try {
+      await updateMutation.mutateAsync({ id, status })
+    } catch {
+      // Error handled by mutation
+    }
+  }
+
+  // Handle delete submit
+  const handleDelete = async () => {
+    if (!selectedClaim) return
+
+    try {
+      await deleteMutation.mutateAsync(selectedClaim.id)
+      setDeleteOpen(false)
+    } catch {
+      // Error handled by mutation
+    }
   }
 
   if (isLoading) {
@@ -116,48 +180,10 @@ export function ReclamationsClient() {
             {isExporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
             Export
           </Button>
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="default" size="sm">
-                <Plus className="mr-2 h-4 w-4" />
-                Nouvelle
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Nouvelle reclamation</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 pt-4">
-                <div className="space-y-2">
-                  <Label htmlFor="order_ref">Reference commande</Label>
-                  <Input
-                    id="order_ref"
-                    value={newClaim.order_ref}
-                    onChange={(e) => setNewClaim(prev => ({ ...prev, order_ref: e.target.value }))}
-                    placeholder="REF-123456"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="description">Description</Label>
-                  <Textarea
-                    id="description"
-                    value={newClaim.description}
-                    onChange={(e) => setNewClaim(prev => ({ ...prev, description: e.target.value }))}
-                    placeholder="Decrivez le probleme..."
-                    rows={4}
-                  />
-                </div>
-                <Button
-                  onClick={handleCreate}
-                  disabled={createMutation.isPending}
-                  className="w-full"
-                >
-                  {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Creer
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+          <Button size="sm" onClick={openCreate}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nouvelle
+          </Button>
         </div>
       </div>
 
@@ -215,7 +241,9 @@ export function ReclamationsClient() {
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
             <MessageSquare className="h-12 w-12 mb-4 opacity-50" />
             <p className="text-sm">Aucune reclamation</p>
-            <p className="text-xs mt-1">Creez un ticket pour signaler un probleme</p>
+            <Button variant="link" size="sm" className="mt-2" onClick={openCreate}>
+              Creer une reclamation
+            </Button>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -228,6 +256,7 @@ export function ReclamationsClient() {
                   <TableHead className="whitespace-nowrap">Date</TableHead>
                   <TableHead className="text-right whitespace-nowrap">Indemnite</TableHead>
                   <TableHead className="text-center whitespace-nowrap">Statut</TableHead>
+                  <TableHead className="w-[60px] pr-4 lg:pr-6"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -253,8 +282,8 @@ export function ReclamationsClient() {
                     <TableCell className="text-center">
                       <Select
                         value={claim.status}
-                        onValueChange={(value) => handleUpdateStatus(claim.id, value)}
-                        disabled={updateStatusMutation.isPending}
+                        onValueChange={(value) => handleQuickStatusChange(claim.id, value)}
+                        disabled={updateMutation.isPending}
                       >
                         <SelectTrigger className="w-[100px] lg:w-[130px] h-8 text-xs">
                           <SelectValue />
@@ -268,6 +297,25 @@ export function ReclamationsClient() {
                         </SelectContent>
                       </Select>
                     </TableCell>
+                    <TableCell className="pr-4 lg:pr-6">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => openEdit(claim)}>
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Modifier
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="text-error" onClick={() => openDelete(claim)}>
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Supprimer
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -275,6 +323,135 @@ export function ReclamationsClient() {
           </div>
         )}
       </Card>
+
+      {/* Create Dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Nouvelle reclamation</DialogTitle>
+            <DialogDescription>
+              Creez un ticket pour signaler un probleme.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Reference commande</label>
+              <Input
+                placeholder="ex: 400123"
+                value={formOrderRef}
+                onChange={(e) => setFormOrderRef(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Description</label>
+              <Textarea
+                placeholder="Decrivez le probleme..."
+                value={formDescription}
+                onChange={(e) => setFormDescription(e.target.value)}
+                rows={4}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>
+              Annuler
+            </Button>
+            <Button onClick={handleCreate} disabled={createMutation.isPending}>
+              {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Creer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Modifier la reclamation</DialogTitle>
+            <DialogDescription>
+              Modifiez les details de la reclamation {selectedClaim?.order_ref || selectedClaim?.shipments?.order_ref}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Statut</label>
+              <Select value={formStatus} onValueChange={setFormStatus}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ouverte">Ouverte</SelectItem>
+                  <SelectItem value="en_analyse">En analyse</SelectItem>
+                  <SelectItem value="indemnisee">Indemnisee</SelectItem>
+                  <SelectItem value="refusee">Refusee</SelectItem>
+                  <SelectItem value="cloturee">Cloturee</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Description</label>
+              <Textarea
+                placeholder="Decrivez le probleme..."
+                value={formDescription}
+                onChange={(e) => setFormDescription(e.target.value)}
+                rows={3}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Indemnite (EUR)</label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                value={formIndemnity ?? ''}
+                onChange={(e) => setFormIndemnity(e.target.value ? parseFloat(e.target.value) : null)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Note de decision</label>
+              <Textarea
+                placeholder="Raison de la decision..."
+                value={formDecisionNote}
+                onChange={(e) => setFormDecisionNote(e.target.value)}
+                rows={2}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>
+              Annuler
+            </Button>
+            <Button onClick={handleEdit} disabled={updateMutation.isPending}>
+              {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Enregistrer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Dialog */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Supprimer la reclamation</DialogTitle>
+            <DialogDescription>
+              Etes-vous sur de vouloir supprimer la reclamation {selectedClaim?.order_ref || selectedClaim?.shipments?.order_ref} ?
+              Cette action est irreversible.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
+              Annuler
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleteMutation.isPending}>
+              {deleteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Supprimer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

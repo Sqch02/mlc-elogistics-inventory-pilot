@@ -58,6 +58,34 @@ export async function GET(request: NextRequest) {
       throw error
     }
 
+    // Get aggregate stats for all filtered shipments (not just current page)
+    let statsQuery = supabase
+      .from('shipments')
+      .select('computed_cost_eur, pricing_status, total_value')
+      .eq('tenant_id', tenantId)
+
+    if (from) {
+      statsQuery = statsQuery.gte('shipped_at', from)
+    }
+    if (to) {
+      statsQuery = statsQuery.lte('shipped_at', to)
+    }
+    if (carrier) {
+      statsQuery = statsQuery.ilike('carrier', carrier)
+    }
+    if (pricingStatus) {
+      statsQuery = statsQuery.eq('pricing_status', pricingStatus)
+    }
+
+    const { data: allShipments } = await statsQuery
+
+    const shipmentsForStats = allShipments as Array<{ computed_cost_eur: number | null; pricing_status: string | null; total_value: number | null }> | null
+    const stats = {
+      totalCost: shipmentsForStats?.reduce((sum, s) => sum + (Number(s.computed_cost_eur) || 0), 0) || 0,
+      totalValue: shipmentsForStats?.reduce((sum, s) => sum + (Number(s.total_value) || 0), 0) || 0,
+      missingPricing: shipmentsForStats?.filter(s => s.pricing_status === 'missing').length || 0,
+    }
+
     return NextResponse.json({
       shipments,
       pagination: {
@@ -65,7 +93,8 @@ export async function GET(request: NextRequest) {
         pageSize,
         total: count || 0,
         totalPages: Math.ceil((count || 0) / pageSize)
-      }
+      },
+      stats
     }, {
       headers: {
         'Cache-Control': 'private, max-age=30, stale-while-revalidate=60'
