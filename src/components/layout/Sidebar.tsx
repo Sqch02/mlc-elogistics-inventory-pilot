@@ -44,18 +44,21 @@ function SidebarContent({ pathname, onClose, onLogout }: SidebarContentProps) {
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between h-16 px-4 lg:px-6 border-b border-border bg-white">
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+      <div className="flex items-center justify-between h-16 px-5 lg:px-6 border-b border-border/50 bg-white">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
             <Package className="h-5 w-5" />
           </div>
-          <span className="font-bold text-lg tracking-tight text-foreground">MLC Inventory</span>
+          <div className="flex flex-col">
+            <span className="font-semibold text-base tracking-tight text-foreground">MLC Inventory</span>
+            <span className="text-[10px] text-muted-foreground font-medium tracking-wide uppercase">Logistics ERP</span>
+          </div>
         </div>
         {/* Close button on mobile */}
         <Button
           variant="ghost"
           size="icon"
-          className="lg:hidden"
+          className="lg:hidden hover:bg-muted"
           onClick={onClose}
         >
           <X className="h-5 w-5" />
@@ -63,7 +66,10 @@ function SidebarContent({ pathname, onClose, onLogout }: SidebarContentProps) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+      <nav className="flex-1 px-3 py-5 space-y-1 overflow-y-auto">
+        <div className="mb-2 px-3">
+          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Menu principal</span>
+        </div>
         {navigation.map((item) => {
           const isActive = pathname === item.href ||
             (item.href !== '/' && pathname.startsWith(item.href))
@@ -75,33 +81,33 @@ function SidebarContent({ pathname, onClose, onLogout }: SidebarContentProps) {
               className={cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 font-medium group relative',
                 isActive
-                  ? 'bg-[#EAF4F0] text-primary'
-                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               )}
             >
-              {isActive && (
-                <div className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] bg-primary rounded-r-full" />
-              )}
               <item.icon className={cn(
-                "h-5 w-5 flex-shrink-0 transition-colors",
-                isActive ? "text-primary" : "text-muted-foreground group-hover:text-gray-900"
+                "h-[18px] w-[18px] flex-shrink-0 transition-colors",
+                isActive ? "text-primary-foreground" : "text-muted-foreground group-hover:text-foreground"
               )} />
-              <span>{item.name}</span>
+              <span className="tracking-tight">{item.name}</span>
+              {isActive && (
+                <div className="absolute right-3 w-1.5 h-1.5 rounded-full bg-primary-foreground/60" />
+              )}
             </Link>
           )
         })}
       </nav>
 
       {/* Footer */}
-      <div className="p-4 border-t border-border bg-gray-50/50">
+      <div className="p-4 border-t border-border/50">
         <button
           onClick={onLogout}
           className={cn(
             'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm w-full font-medium',
-            'text-gray-600 hover:bg-white hover:text-red-600 hover:shadow-sm hover:border hover:border-border transition-all duration-200'
+            'text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-all duration-200'
           )}
         >
-          <LogOut className="h-5 w-5 flex-shrink-0" />
+          <LogOut className="h-[18px] w-[18px] flex-shrink-0" />
           <span>Deconnexion</span>
         </button>
       </div>
@@ -119,12 +125,11 @@ export function Sidebar({ onMobileToggle }: SidebarProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const prevPathnameRef = useRef(pathname)
 
-  // Close mobile menu on route change - this is intentional synchronous state update
+  // Close mobile menu on route change
   useEffect(() => {
     if (prevPathnameRef.current !== pathname) {
       prevPathnameRef.current = pathname
       if (mobileOpen) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setMobileOpen(false)
       }
     }
@@ -163,7 +168,7 @@ export function Sidebar({ onMobileToggle }: SidebarProps) {
       <Button
         variant="ghost"
         size="icon"
-        className="fixed top-3 left-3 z-50 lg:hidden bg-white shadow-sm border border-border"
+        className="fixed top-3 left-3 z-50 lg:hidden bg-white shadow-md border border-border/50 hover:bg-muted"
         onClick={handleOpen}
       >
         <Menu className="h-5 w-5" />
@@ -172,7 +177,7 @@ export function Sidebar({ onMobileToggle }: SidebarProps) {
       {/* Mobile overlay */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 lg:hidden transition-opacity"
           onClick={handleClose}
         />
       )}
@@ -180,7 +185,7 @@ export function Sidebar({ onMobileToggle }: SidebarProps) {
       {/* Mobile sidebar */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 w-[280px] bg-white border-r border-border flex flex-col transform transition-transform duration-300 ease-in-out lg:hidden",
+          "fixed inset-y-0 left-0 z-50 w-[280px] bg-white border-r border-border/50 flex flex-col transform transition-transform duration-300 ease-out lg:hidden shadow-xl",
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
@@ -189,7 +194,8 @@ export function Sidebar({ onMobileToggle }: SidebarProps) {
 
       {/* Desktop sidebar */}
       <aside
-        className="hidden lg:flex flex-col h-screen bg-white border-r border-border shrink-0 fixed top-0 left-0 bottom-0 w-[260px] z-40 shadow-[1px_0_2px_rgba(0,0,0,0.02)]"
+        className="hidden lg:flex flex-col h-screen bg-white border-r border-border/50 shrink-0 fixed top-0 left-0 bottom-0 w-[260px] z-40"
+        style={{ boxShadow: '1px 0 3px rgba(0, 0, 0, 0.02)' }}
       >
         <SidebarContent pathname={pathname} onClose={handleClose} onLogout={handleLogout} />
       </aside>

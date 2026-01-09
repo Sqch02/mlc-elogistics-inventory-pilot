@@ -11,7 +11,7 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, subtitle, children, className }: PageHeaderProps) {
   return (
-    <div className={cn("flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6", className)}>
+    <div className={cn("flex flex-col gap-4 md:flex-row md:items-center md:justify-between", className)}>
       <div>
         <h1 className="text-2xl font-semibold text-foreground tracking-tight">{title}</h1>
         {subtitle && (
@@ -21,11 +21,10 @@ export function PageHeader({ title, subtitle, children, className }: PageHeaderP
         )}
       </div>
       {children && (
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           {children}
         </div>
       )}
     </div>
   )
 }
-

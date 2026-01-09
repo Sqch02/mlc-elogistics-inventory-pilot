@@ -3,100 +3,310 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ============================================
+   PREMIUM MINIMAL DESIGN SYSTEM
+   MLC E-Logistics Inventory
+   ============================================ */
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  
+  --font-sans: var(--font-satoshi);
+
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
-  
+
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
-  
+
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
-  
+
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
-  
+
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
-  
+
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  
+
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
-  
+
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
-  
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  
+
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-error: var(--error);
+  --color-gold: var(--gold);
 }
 
 :root {
-  --font-sans: var(--font-inter);
+  --font-satoshi: 'Satoshi', system-ui, -apple-system, sans-serif;
 
-  /* Colors */
-  --primary: #1F7A5A;
+  /* Premium Minimal Palette */
+  --primary: #1B4D3E;           /* Deep forest green */
   --primary-foreground: #FFFFFF;
-  
-  --secondary: #008080;
+
+  --secondary: #2D5A4A;         /* Lighter forest */
   --secondary-foreground: #FFFFFF;
-  
-  --background: #F6F7F9;
-  --foreground: #111827;
-  
+
+  --background: #FDFBF7;        /* Warm cream */
+  --foreground: #1A1A1A;        /* Near black */
+
   --surface: #FFFFFF;
   --card: #FFFFFF;
-  --card-foreground: #111827;
-  
-  --popover: #FFFFFF;
-  --popover-foreground: #111827;
-  
-  --muted: #F3F4F6; /* Muted background */
-  --muted-foreground: #6B7280; /* Muted text */
-  
-  --accent: #EAF4F0; /* Light primary for accents */
-  --accent-foreground: #1F7A5A;
-  
-  --destructive: #DC2626;
-  --destructive-foreground: #FFFFFF;
-  
-  --border: #E5E7EB;
-  --input: #E5E7EB;
-  --ring: #1F7A5A;
-  
-  --success: #16A34A;
-  --warning: #F59E0B;
-  --error: #DC2626;
+  --card-foreground: #1A1A1A;
 
-  /* Radius */
-  --radius: 0.75rem; /* 12px default base */
+  --popover: #FFFFFF;
+  --popover-foreground: #1A1A1A;
+
+  --muted: #F5F3EF;             /* Warm gray */
+  --muted-foreground: #6B6B6B;
+
+  --accent: #F0EDE6;            /* Cream accent */
+  --accent-foreground: #1B4D3E;
+
+  --destructive: #C53030;       /* Refined red */
+  --destructive-foreground: #FFFFFF;
+
+  --border: #E8E4DC;            /* Warm border */
+  --input: #E8E4DC;
+  --ring: #1B4D3E;
+
+  /* Semantic Colors */
+  --success: #2F855A;           /* Forest success */
+  --warning: #C77C14;           /* Amber warning */
+  --error: #C53030;             /* Refined red */
+  --gold: #B8860B;              /* Premium gold accent */
+
+  /* Radius - slightly more refined */
+  --radius: 0.625rem;           /* 10px base */
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.06);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.03);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
-    @apply bg-background text-foreground font-sans antialiased;
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-satoshi);
+    font-feature-settings: "ss01" on, "ss02" on;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
-  
+
+  /* Typography Hierarchy */
   h1, h2, h3, h4, h5, h6 {
-    @apply font-sans font-semibold tracking-tight text-foreground;
+    @apply font-semibold tracking-tight text-foreground;
+    font-family: var(--font-satoshi);
   }
-  
+
   h1 {
-    @apply text-2xl; /* 24px */
+    @apply text-2xl;
+    letter-spacing: -0.02em;
+  }
+
+  h2 {
+    @apply text-xl;
+    letter-spacing: -0.01em;
+  }
+
+  h3 {
+    @apply text-lg;
+  }
+
+  /* Refined focus states */
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary/20 ring-offset-2 ring-offset-background;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-foreground);
+  }
+}
+
+@layer components {
+  /* Premium Card Hover Effect */
+  .card-hover {
+    transition: all 0.2s ease;
+    box-shadow: var(--shadow-card);
+  }
+
+  .card-hover:hover {
+    box-shadow: var(--shadow-card-hover);
+    transform: translateY(-1px);
+  }
+
+  /* Gold Accent for KPIs */
+  .gold-accent {
+    color: var(--gold);
+  }
+
+  .gold-border-left {
+    border-left: 3px solid var(--gold);
+  }
+
+  /* Subtle gradient backgrounds */
+  .bg-gradient-subtle {
+    background: linear-gradient(135deg, #FFFFFF 0%, #FDFBF7 100%);
+  }
+
+  /* Table row hover */
+  .table-row-hover {
+    transition: background-color 0.15s ease;
+  }
+
+  .table-row-hover:hover {
+    background-color: var(--muted);
+  }
+
+  /* Skeleton shimmer animation */
+  .skeleton-shimmer {
+    background: linear-gradient(
+      90deg,
+      var(--muted) 0%,
+      #F9F7F3 50%,
+      var(--muted) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+
+  /* Status indicator dot */
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  .status-dot-success {
+    background-color: var(--success);
+    box-shadow: 0 0 0 2px rgba(47, 133, 90, 0.2);
+  }
+
+  .status-dot-warning {
+    background-color: var(--warning);
+    box-shadow: 0 0 0 2px rgba(199, 124, 20, 0.2);
+  }
+
+  .status-dot-error {
+    background-color: var(--error);
+    box-shadow: 0 0 0 2px rgba(197, 48, 48, 0.2);
+  }
+
+  /* Pill badge style */
+  .pill {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  /* Data table sticky header with blur */
+  .table-header-sticky {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    backdrop-filter: blur(8px);
+    background-color: rgba(255, 255, 255, 0.9);
+  }
+
+  /* Micro-interaction for buttons */
+  .btn-press {
+    transition: transform 0.1s ease;
+  }
+
+  .btn-press:active {
+    transform: scale(0.98);
+  }
+
+  /* Page enter animation */
+  .page-enter {
+    animation: pageEnter 0.3s ease-out;
+  }
+
+  @keyframes pageEnter {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Stagger animation for lists */
+  .stagger-enter > * {
+    animation: staggerItem 0.3s ease-out backwards;
+  }
+
+  .stagger-enter > *:nth-child(1) { animation-delay: 0.05s; }
+  .stagger-enter > *:nth-child(2) { animation-delay: 0.1s; }
+  .stagger-enter > *:nth-child(3) { animation-delay: 0.15s; }
+  .stagger-enter > *:nth-child(4) { animation-delay: 0.2s; }
+  .stagger-enter > *:nth-child(5) { animation-delay: 0.25s; }
+  .stagger-enter > *:nth-child(6) { animation-delay: 0.3s; }
+
+  @keyframes staggerItem {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+@layer utilities {
+  /* Text balance for headings */
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Subtle text shadow for contrast */
+  .text-shadow-sm {
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   }
 }

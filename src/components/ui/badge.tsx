@@ -5,27 +5,30 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const badgeVariants = cva(
-  "inline-flex items-center justify-center rounded-xl border px-2.5 py-0.5 text-xs font-medium w-fit whitespace-nowrap shrink-0 transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  "inline-flex items-center justify-center rounded-full border px-2.5 py-0.5 text-xs font-medium w-fit whitespace-nowrap shrink-0 transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
   {
     variants: {
       variant: {
         default:
-          "border-transparent bg-primary text-primary-foreground hover:bg-primary/80",
+          "border-transparent bg-primary/10 text-primary",
         secondary:
-          "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
+          "border-transparent bg-secondary/10 text-secondary",
         destructive:
-          "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80",
-        outline: "text-foreground",
-        success: 
-          "border-transparent bg-green-100 text-green-700 hover:bg-green-200",
+          "border-transparent bg-destructive/10 text-destructive",
+        outline:
+          "border-border text-muted-foreground bg-background",
+        success:
+          "border-transparent bg-success/10 text-success",
         warning:
-          "border-transparent bg-amber-100 text-amber-700 hover:bg-amber-200",
+          "border-transparent bg-warning/10 text-warning",
         error:
-          "border-transparent bg-red-100 text-red-700 hover:bg-red-200",
+          "border-transparent bg-error/10 text-error",
         muted:
-          "border-transparent bg-gray-100 text-gray-700 hover:bg-gray-200",
+          "border-transparent bg-muted text-muted-foreground",
         info:
-          "border-transparent bg-blue-100 text-blue-700 hover:bg-blue-200",
+          "border-transparent bg-primary/10 text-primary",
+        gold:
+          "border-transparent bg-[#B8860B]/10 text-[#B8860B]",
       },
     },
     defaultVariants: {

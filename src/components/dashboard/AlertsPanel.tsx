@@ -1,11 +1,12 @@
 "use client"
 
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { AlertTriangle, Package, DollarSign, Truck, ArrowRight, ExternalLink } from 'lucide-react'
+import { AlertTriangle, Package, DollarSign, Truck, ArrowRight, CheckCircle } from 'lucide-react'
 import { Badge } from "@/components/ui/badge"
 import { DashboardAlert } from "@/types/dashboard"
 import Link from "next/link"
+import { cn } from "@/lib/utils"
 
 interface AlertsPanelProps {
   alerts: DashboardAlert[]
@@ -14,70 +15,86 @@ interface AlertsPanelProps {
 const alertConfig = {
   stock_critique: {
     icon: Package,
-    color: 'bg-red-50 text-red-700',
-    borderColor: 'border-red-100'
+    bg: 'bg-error/5',
+    iconBg: 'bg-error/10',
+    iconColor: 'text-error',
+    border: 'border-error/20'
   },
   tarif_manquant: {
     icon: DollarSign,
-    color: 'bg-amber-50 text-amber-700',
-    borderColor: 'border-amber-100'
+    bg: 'bg-warning/5',
+    iconBg: 'bg-warning/10',
+    iconColor: 'text-warning',
+    border: 'border-warning/20'
   },
   items_manquants: {
     icon: Truck,
-    color: 'bg-gray-50 text-gray-700',
-    borderColor: 'border-gray-100'
+    bg: 'bg-muted',
+    iconBg: 'bg-muted',
+    iconColor: 'text-muted-foreground',
+    border: 'border-border'
   },
   sync_echec: {
     icon: AlertTriangle,
-    color: 'bg-red-50 text-red-700',
-    borderColor: 'border-red-100'
+    bg: 'bg-error/5',
+    iconBg: 'bg-error/10',
+    iconColor: 'text-error',
+    border: 'border-error/20'
   },
 }
 
 export function AlertsPanel({ alerts }: AlertsPanelProps) {
   return (
-    <Card className="shadow-sm border-border h-full">
+    <Card className="h-full">
       <CardHeader className="flex flex-row items-center justify-between pb-3">
         <CardTitle className="text-base font-semibold">Alertes</CardTitle>
-        <Badge variant={alerts.length > 0 ? "destructive" : "secondary"}>
+        <Badge variant={alerts.length > 0 ? "error" : "success"}>
           {alerts.length}
         </Badge>
       </CardHeader>
       <CardContent className="space-y-3">
         {alerts.length === 0 ? (
-           <div className="flex flex-col items-center justify-center py-8 text-center text-muted-foreground bg-muted/20 rounded-lg border border-dashed">
-             <div className="rounded-full bg-green-100 p-2 mb-2">
-               <AlertTriangle className="h-4 w-4 text-green-600" />
-             </div>
-             <p className="text-sm font-medium">Aucune alerte</p>
-           </div>
+          <div className="flex flex-col items-center justify-center py-8 text-center bg-success/5 rounded-lg">
+            <div className="rounded-full bg-success/10 p-3 mb-3">
+              <CheckCircle className="h-5 w-5 text-success" />
+            </div>
+            <p className="text-sm font-medium text-foreground">Tout est en ordre</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Aucune alerte active</p>
+          </div>
         ) : (
           alerts.map((alert) => {
             const config = alertConfig[alert.type]
             const Icon = config.icon
 
             return (
-              <div 
+              <div
                 key={alert.id}
-                className={`flex flex-col gap-2 p-3 rounded-lg border ${config.borderColor} bg-white hover:bg-muted/10 transition-colors shadow-sm`}
+                className={cn(
+                  "flex flex-col gap-3 p-3 rounded-lg border transition-colors",
+                  config.bg,
+                  config.border
+                )}
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`p-1.5 rounded-md ${config.color}`}>
-                      <Icon className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-semibold text-foreground">{alert.title}</h4>
-                      <p className="text-xs text-muted-foreground">{alert.description}</p>
-                    </div>
+                <div className="flex items-start gap-3">
+                  <div className={cn("p-2 rounded-lg", config.iconBg)}>
+                    <Icon className={cn("h-4 w-4", config.iconColor)} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="text-sm font-semibold text-foreground">{alert.title}</h4>
+                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{alert.description}</p>
                   </div>
                 </div>
-                
+
                 {alert.actionLink && (
-                  <Button variant="outline" size="sm" className="w-full justify-between h-7 mt-1 text-[11px] font-medium bg-white" asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-between h-8 text-xs font-medium bg-white/80 hover:bg-white"
+                    asChild
+                  >
                     <Link href={alert.actionLink}>
-                      {alert.actionLabel || "Voir"}
-                      <ArrowRight className="h-3 w-3 ml-2 opacity-50" />
+                      {alert.actionLabel || "Voir les details"}
+                      <ArrowRight className="h-3 w-3" />
                     </Link>
                   </Button>
                 )}
