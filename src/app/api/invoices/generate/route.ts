@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
         weight_max_grams: number
         shipment_count: number
         total_eur: number
+        unit_price_eur: number
       }
     >()
 
@@ -109,6 +110,7 @@ export async function POST(request: NextRequest) {
           weight_max_grams: rule.weight_max_grams,
           shipment_count: 1,
           total_eur: Number(shipment.computed_cost_eur),
+          unit_price_eur: rule.price_eur,
         })
       }
 
@@ -173,10 +175,15 @@ export async function POST(request: NextRequest) {
       weight_max_grams: line.weight_max_grams,
       shipment_count: line.shipment_count,
       total_eur: line.total_eur,
+      unit_price_eur: line.unit_price_eur,
     }))
 
     if (lines.length > 0) {
-      await supabase.from('invoice_lines').insert(lines)
+      const { error: linesError } = await supabase.from('invoice_lines').insert(lines)
+      if (linesError) {
+        console.error('Failed to insert invoice lines:', linesError)
+        throw new Error('Erreur lors de la création des lignes de facture')
+      }
     }
 
     return NextResponse.json({

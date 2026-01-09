@@ -1,65 +1,69 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { cn } from '@/lib/utils'
-import { LucideIcon } from 'lucide-react'
+"use client"
 
-interface KPICardProps {
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { LucideIcon } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { DashboardKPIData } from "@/types/dashboard"
+import { Area, AreaChart, ResponsiveContainer } from "recharts"
+
+interface KpiCardProps {
   title: string
-  value: string | number
-  subtitle?: string
   icon: LucideIcon
-  trend?: {
-    value: number
-    isPositive: boolean
-  }
-  variant?: 'default' | 'warning' | 'danger'
+  data: DashboardKPIData
 }
 
-export function KPICard({
-  title,
-  value,
-  subtitle,
-  icon: Icon,
-  trend,
-  variant = 'default',
-}: KPICardProps) {
+export function KpiCard({ title, icon: Icon, data }: KpiCardProps) {
   return (
-    <Card
-      className={cn(
-        variant === 'warning' && 'border-yellow-200 bg-yellow-50',
-        variant === 'danger' && 'border-red-200 bg-red-50'
-      )}
-    >
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
+    <Card className="overflow-hidden">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium text-muted-foreground">
           {title}
         </CardTitle>
-        <Icon
-          className={cn(
-            'h-5 w-5',
-            variant === 'default' && 'text-muted-foreground',
-            variant === 'warning' && 'text-yellow-600',
-            variant === 'danger' && 'text-red-600'
-          )}
-        />
+        <div className={cn("p-2 rounded-md bg-muted/50", 
+          data.status === 'success' && "bg-green-100 text-green-700",
+          data.status === 'warning' && "bg-amber-100 text-amber-700",
+          data.status === 'danger' && "bg-red-100 text-red-700"
+        )}>
+          <Icon className="h-4 w-4" />
+        </div>
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold">{value}</div>
-        {(subtitle || trend) && (
-          <div className="flex items-center gap-2 mt-1">
-            {trend && (
-              <span
-                className={cn(
-                  'text-xs font-medium',
-                  trend.isPositive ? 'text-green-600' : 'text-red-600'
-                )}
-              >
-                {trend.isPositive ? '+' : ''}
-                {trend.value}%
-              </span>
+        <div className="flex items-baseline justify-between">
+          <div>
+            <div className="text-2xl font-bold">{data.value}</div>
+            {data.subValue && (
+              <p className="text-xs text-muted-foreground mt-1">{data.subValue}</p>
             )}
-            {subtitle && (
-              <span className="text-xs text-muted-foreground">{subtitle}</span>
-            )}
+          </div>
+          
+          {data.trend && (
+            <div className={cn("flex items-center text-xs font-medium",
+              data.trend.isPositive ? "text-green-600" : "text-red-600"
+            )}>
+              {data.trend.isPositive ? "+" : ""}{data.trend.value}%
+            </div>
+          )}
+        </div>
+
+        {data.sparklineData && (
+          <div className="h-[40px] mt-4 -mx-6 -mb-6">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={data.sparklineData}>
+                <defs>
+                  <linearGradient id={`gradient-${title}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#1F7A5A" stopOpacity={0.1}/>
+                    <stop offset="100%" stopColor="#1F7A5A" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <Area
+                  type="monotone"
+                  dataKey="value"
+                  stroke="#1F7A5A"
+                  strokeWidth={2}
+                  fill={`url(#gradient-${title})`}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
         )}
       </CardContent>

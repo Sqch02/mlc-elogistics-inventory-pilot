@@ -1,0 +1,255 @@
+'use client'
+
+import { useState } from 'react'
+import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { FileText, Receipt, Euro, AlertTriangle, CheckCircle, Loader2 } from 'lucide-react'
+import { useInvoices, useGenerateInvoice, useUpdateInvoiceStatus } from '@/hooks/useInvoices'
+import { Skeleton } from '@/components/ui/skeleton'
+import { ExportInvoicesButton } from './FacturationActions'
+
+function formatMonth(month: string) {
+  const [year, monthNum] = month.split('-')
+  const date = new Date(parseInt(year), parseInt(monthNum) - 1)
+  return date.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+}
+
+function formatDate(dateStr: string) {
+  return new Date(dateStr).toLocaleDateString('fr-FR')
+}
+
+export function FacturationClient() {
+  const [selectedMonth, setSelectedMonth] = useState('')
+
+  const { data, isLoading, isFetching } = useInvoices()
+  const generateMutation = useGenerateInvoice()
+  const updateStatusMutation = useUpdateInvoiceStatus()
+
+  const invoices = data?.invoices || []
+  const stats = data?.stats || {
+    currentMonth: new Date().toISOString().slice(0, 7),
+    currentMonthTotal: 0,
+    currentMonthCount: 0,
+    missingPricing: 0,
+    totalPaid: 0,
+    totalPending: 0,
+  }
+
+  // Generate last 12 months options (use Set to ensure uniqueness)
+  const monthOptions = Array.from({ length: 12 }, (_, i) => {
+    const date = new Date()
+    date.setDate(1) // Set to first of month to avoid day overflow
+    date.setMonth(date.getMonth() - i)
+    const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+    const label = date.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+    return { value, label }
+  }).filter((opt, index, self) =>
+    index === self.findIndex(o => o.value === opt.value)
+  )
+
+  const handleGenerate = () => {
+    if (selectedMonth) {
+      generateMutation.mutate(selectedMonth)
+    }
+  }
+
+  const handleUpdateStatus = (id: string, currentStatus: string) => {
+    const nextStatus = currentStatus === 'draft' ? 'sent' : currentStatus === 'sent' ? 'paid' : null
+    if (nextStatus) {
+      updateStatusMutation.mutate({ id, status: nextStatus })
+    }
+  }
+
+  if (isLoading) {
+    return <FacturationLoadingSkeleton />
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">Facturation</h1>
+          <p className="text-muted-foreground text-sm">
+            {invoices.length} facture(s) {isFetching && '(chargement...)'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <ExportInvoicesButton />
+          <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Choisir un mois" />
+            </SelectTrigger>
+            <SelectContent>
+              {monthOptions.map(opt => (
+                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={handleGenerate}
+            disabled={!selectedMonth || generateMutation.isPending}
+          >
+            {generateMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+            Generer
+          </Button>
+        </div>
+      </div>
+
+      {/* KPI Row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+        <Card className="shadow-sm border-border">
+          <CardContent className="p-3 lg:p-4 flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Factures</p>
+              <p className="text-lg lg:text-2xl font-bold">{invoices.length}</p>
+            </div>
+            <div className="p-1.5 lg:p-2 bg-primary/10 rounded-lg text-primary">
+              <Receipt className="h-4 w-4 lg:h-5 lg:w-5" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="shadow-sm border-border">
+          <CardContent className="p-3 lg:p-4 flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Total paye</p>
+              <p className="text-lg lg:text-2xl font-bold text-green-600">{stats.totalPaid.toFixed(2)} EUR</p>
+            </div>
+            <div className="p-1.5 lg:p-2 bg-green-100 rounded-lg text-green-600">
+              <CheckCircle className="h-4 w-4 lg:h-5 lg:w-5" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="shadow-sm border-border">
+          <CardContent className="p-3 lg:p-4 flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">En attente</p>
+              <p className="text-lg lg:text-2xl font-bold text-amber-600">{stats.totalPending.toFixed(2)} EUR</p>
+            </div>
+            <div className="p-1.5 lg:p-2 bg-amber-100 rounded-lg text-amber-600">
+              <Euro className="h-4 w-4 lg:h-5 lg:w-5" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="shadow-sm border-border">
+          <CardContent className="p-3 lg:p-4 flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Tarifs manquants</p>
+              <p className="text-lg lg:text-2xl font-bold">{stats.missingPricing}</p>
+            </div>
+            <div className="p-1.5 lg:p-2 bg-gray-100 rounded-lg text-gray-600">
+              <AlertTriangle className="h-4 w-4 lg:h-5 lg:w-5" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Table */}
+      <Card className="shadow-sm border-border">
+        {invoices.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+            <FileText className="h-12 w-12 mb-4 opacity-50" />
+            <p className="text-sm">Aucune facture generee</p>
+            <p className="text-xs mt-1">Selectionnez un mois et cliquez sur Generer</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="pl-4 lg:pl-6 whitespace-nowrap">Periode</TableHead>
+                  <TableHead className="hidden sm:table-cell whitespace-nowrap">Date creation</TableHead>
+                  <TableHead className="text-right whitespace-nowrap">Expeditions</TableHead>
+                  <TableHead className="text-right whitespace-nowrap">Montant</TableHead>
+                  <TableHead className="text-center whitespace-nowrap">Statut</TableHead>
+                  <TableHead className="text-right pr-4 lg:pr-6 whitespace-nowrap">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {invoices.map((inv) => {
+                  const shipmentCount = inv.invoice_lines.reduce((sum, l) => sum + l.shipment_count, 0)
+                  return (
+                    <TableRow key={inv.id}>
+                      <TableCell className="font-medium pl-4 lg:pl-6 whitespace-nowrap">{formatMonth(inv.month)}</TableCell>
+                      <TableCell className="text-muted-foreground hidden sm:table-cell">{formatDate(inv.created_at)}</TableCell>
+                      <TableCell className="text-right whitespace-nowrap">
+                        {shipmentCount}
+                        {inv.missing_pricing_count > 0 && (
+                          <span className="text-amber-600 text-xs ml-1 hidden lg:inline">(+{inv.missing_pricing_count})</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-bold whitespace-nowrap">{Number(inv.total_eur).toFixed(2)} EUR</TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant={inv.status === 'paid' ? 'success' : inv.status === 'sent' ? 'info' : 'secondary'} className="text-xs">
+                          {inv.status === 'sent' ? 'Envoyee' : inv.status === 'paid' ? 'Payee' : 'Brouillon'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right pr-4 lg:pr-6">
+                        {inv.status !== 'paid' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleUpdateStatus(inv.id, inv.status)}
+                            disabled={updateStatusMutation.isPending}
+                            className="text-xs h-8 px-2"
+                          >
+                            <span className="hidden sm:inline">{inv.status === 'draft' ? 'Marquer envoyee' : 'Marquer payee'}</span>
+                            <span className="sm:hidden">{inv.status === 'draft' ? 'Envoyer' : 'Payer'}</span>
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+function FacturationLoadingSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-4 w-32" />
+        </div>
+        <div className="flex gap-2">
+          <Skeleton className="h-9 w-24" />
+          <Skeleton className="h-9 w-44" />
+          <Skeleton className="h-9 w-28" />
+        </div>
+      </div>
+      <div className="grid grid-cols-4 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Card key={i} className="p-4">
+            <Skeleton className="h-4 w-20 mb-2" />
+            <Skeleton className="h-8 w-24" />
+          </Card>
+        ))}
+      </div>
+      <Card className="p-4">
+        <div className="space-y-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex gap-4">
+              <Skeleton className="h-6 w-32" />
+              <Skeleton className="h-6 w-24" />
+              <Skeleton className="h-6 w-20" />
+              <Skeleton className="h-6 w-24" />
+              <Skeleton className="h-6 w-20" />
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  )
+}

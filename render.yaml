@@ -1,50 +1,72 @@
-# Render.yaml - Infrastructure as Code for MLC E-Logistics Inventory
-# https://render.com/docs/blueprint-spec
+# Render Blueprint - MLC E-Logistics Inventory Pilot
+# Documentation: https://render.com/docs/blueprint-spec
+#
+# To deploy:
+# 1. Connect your GitHub repository to Render
+# 2. Create a new Blueprint from this render.yaml
+# 3. Configure environment variables in Render dashboard
+# 4. Deploy
 
 services:
   # Main Next.js Web Application
   - type: web
     name: mlc-inventory
     runtime: node
-    plan: starter
+    region: frankfurt  # EU region for GDPR compliance
+    plan: starter      # $7/month - upgrade to standard for production
     buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
+    autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
+      # Supabase Configuration
       - key: NEXT_PUBLIC_SUPABASE_URL
-        sync: false
+        sync: false  # Set in Render dashboard
       - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      # Sendcloud API
       - key: SENDCLOUD_API_KEY
         sync: false
       - key: SENDCLOUD_SECRET
         sync: false
+      - key: SENDCLOUD_WEBHOOK_SECRET
+        sync: false  # For real-time webhook validation
       - key: SENDCLOUD_USE_MOCK
         value: "false"
+      # Cron Authentication
+      - key: CRON_SECRET
+        generateValue: true  # Render generates a random secret
+      # Application URL (auto-set by Render)
+      - key: NEXT_PUBLIC_APP_URL
+        fromService:
+          name: mlc-inventory
+          type: web
+          property: host
 
-  # Cron Job for Sendcloud Sync (daily at 6:00 AM UTC)
+  # Cron Job for Sendcloud Sync (every 15 minutes)
   - type: cron
     name: mlc-sync-sendcloud
     runtime: node
-    schedule: "0 6 * * *"
+    region: frankfurt
+    schedule: "*/15 * * * *"  # Every 15 minutes
     buildCommand: npm ci
     startCommand: npx tsx scripts/cron-sync.ts
     envVars:
       - key: NODE_ENV
         value: production
-      - key: NEXT_PUBLIC_SUPABASE_URL
-        sync: false
-      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-      - key: SENDCLOUD_API_KEY
-        sync: false
-      - key: SENDCLOUD_SECRET
-        sync: false
-      - key: SENDCLOUD_USE_MOCK
-        value: "false"
+      # Use the web service URL for API calls
+      - key: RENDER_EXTERNAL_URL
+        fromService:
+          name: mlc-inventory
+          type: web
+          property: hostURL
+      # Shared CRON_SECRET with web service
+      - key: CRON_SECRET
+        fromService:
+          name: mlc-inventory
+          type: web
+          envVarKey: CRON_SECRET

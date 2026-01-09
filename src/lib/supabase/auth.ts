@@ -19,7 +19,8 @@ export async function getCurrentUser(): Promise<UserProfile | null> {
   }
 
   // Use RPC function that bypasses RLS
-  const { data: profiles, error } = await supabase.rpc('get_my_profile')
+  const { data, error } = await supabase.rpc('get_my_profile')
+  const profiles = data as UserProfile[] | null
 
   if (error || !profiles || profiles.length === 0) {
     // Fallback: return basic info from auth user
@@ -32,7 +33,7 @@ export async function getCurrentUser(): Promise<UserProfile | null> {
     }
   }
 
-  return profiles[0] as UserProfile
+  return profiles[0]
 }
 
 export async function getTenantId(): Promise<string | null> {

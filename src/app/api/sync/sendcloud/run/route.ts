@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getServerDb } from '@/lib/supabase/untyped'
 import { getAdminDb } from '@/lib/supabase/untyped'
-import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
+import { requireTenant } from '@/lib/supabase/auth'
 import { fetchAllParcels } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
 
@@ -18,12 +17,13 @@ export async function POST() {
 
   try {
     tenantId = await requireTenant()
-    const user = await getCurrentUser()
-    const supabase = await getServerDb()
+    console.log('[Sync] Starting sync for tenant:', tenantId)
+
+    // Use admin client to bypass RLS for server-side sync
     const adminClient = getAdminDb()
 
     // Create sync_run record
-    const { data: syncRun, error: syncRunError } = await supabase
+    const { data: syncRun, error: syncRunError } = await adminClient
       .from('sync_runs')
       .insert({
         tenant_id: tenantId,
@@ -63,7 +63,7 @@ export async function POST() {
     }
 
     // Get last successful sync cursor
-    const { data: lastSync } = await supabase
+    const { data: lastSync } = await adminClient
       .from('sync_runs')
       .select('cursor, ended_at')
       .eq('tenant_id', tenantId)
@@ -76,7 +76,9 @@ export async function POST() {
     const since = lastSync?.cursor || lastSync?.ended_at || undefined
 
     // Fetch parcels from Sendcloud
+    console.log('[Sync] Fetching parcels from Sendcloud, since:', since)
     const parcels = await fetchAllParcels(credentials, since)
+    console.log('[Sync] Fetched', parcels.length, 'parcels')
 
     const stats = {
       fetched: parcels.length,
@@ -85,10 +87,18 @@ export async function POST() {
       skipped: 0,
       itemsCreated: 0,
       errors: [] as string[],
+      totalExpected: parcels.length,
+      phase: 'processing' as string,
     }
 
+    // Save initial stats with total expected
+    await adminClient
+      .from('sync_runs')
+      .update({ stats_json: stats })
+      .eq('id', syncRunId)
+
     // Get all SKUs for item matching
-    const { data: skus } = await supabase
+    const { data: skus } = await adminClient
       .from('skus')
       .select('id, sku_code')
       .eq('tenant_id', tenantId)
@@ -96,7 +106,7 @@ export async function POST() {
     const skuMap = new Map(skus?.map((s: { sku_code: string; id: string }) => [s.sku_code.toLowerCase(), s.id]) || [])
 
     // Get pricing rules for cost calculation
-    const { data: pricingRules } = await supabase
+    const { data: pricingRules } = await adminClient
       .from('pricing_rules')
       .select('carrier, weight_min_grams, weight_max_grams, price_eur')
       .eq('tenant_id', tenantId)
@@ -122,8 +132,8 @@ export async function POST() {
           }
         }
 
-        // Upsert shipment
-        const { data: shipment, error: shipmentError } = await supabase
+        // Upsert shipment with all Sendcloud fields
+        const { data: shipment, error: shipmentError } = await adminClient
           .from('shipments')
           .upsert(
             {
@@ -138,6 +148,33 @@ export async function POST() {
               pricing_status: pricingStatus,
               computed_cost_eur: computedCost,
               raw_json: parcel.raw_json,
+              // New Sendcloud fields
+              recipient_name: parcel.recipient_name,
+              recipient_email: parcel.recipient_email,
+              recipient_phone: parcel.recipient_phone,
+              recipient_company: parcel.recipient_company,
+              address_line1: parcel.address_line1,
+              address_line2: parcel.address_line2,
+              city: parcel.city,
+              postal_code: parcel.postal_code,
+              country_code: parcel.country_code,
+              country_name: parcel.country_name,
+              status_id: parcel.status_id,
+              status_message: parcel.status_message,
+              tracking_url: parcel.tracking_url,
+              label_url: parcel.label_url,
+              total_value: parcel.total_value,
+              currency: parcel.currency,
+              service_point_id: parcel.service_point_id,
+              is_return: parcel.is_return,
+              collo_count: parcel.collo_count,
+              length_cm: parcel.length_cm,
+              width_cm: parcel.width_cm,
+              height_cm: parcel.height_cm,
+              external_order_id: parcel.external_order_id,
+              date_created: parcel.date_created,
+              date_updated: parcel.date_updated,
+              date_announced: parcel.date_announced,
             },
             { onConflict: 'sendcloud_id' }
           )
@@ -145,18 +182,28 @@ export async function POST() {
           .single()
 
         if (shipmentError) {
+          console.log('[Sync] Error upserting shipment', parcel.sendcloud_id, ':', shipmentError.message)
           stats.errors.push(`Shipment ${parcel.sendcloud_id}: ${shipmentError.message}`)
           continue
         }
 
         stats.created++
 
+        // Update progress every 50 shipments
+        if (stats.created % 50 === 0) {
+          console.log('[Sync] Progress:', stats.created, '/', stats.totalExpected, 'shipments')
+          await adminClient
+            .from('sync_runs')
+            .update({ stats_json: stats })
+            .eq('id', syncRunId)
+        }
+
         // Process items if available
         if (parcel.items && parcel.items.length > 0 && shipment) {
           for (const item of parcel.items) {
             const skuId = skuMap.get(item.sku_code.toLowerCase())
             if (skuId) {
-              const { error: itemError } = await supabase
+              const { error: itemError } = await adminClient
                 .from('shipment_items')
                 .upsert(
                   {
@@ -183,7 +230,7 @@ export async function POST() {
 
     // Update sync_run with results
     const newCursor = new Date().toISOString()
-    await supabase
+    await adminClient
       .from('sync_runs')
       .update({
         ended_at: new Date().toISOString(),
@@ -193,9 +240,10 @@ export async function POST() {
       })
       .eq('id', syncRunId)
 
+    console.log('[Sync] Completed! Stats:', JSON.stringify(stats))
     return NextResponse.json({
       success: true,
-      message: `Sync terminee`,
+      message: `Sync terminee: ${stats.created} expéditions importées`,
       stats,
     })
   } catch (error) {
@@ -203,8 +251,8 @@ export async function POST() {
 
     // Update sync_run with error if we have an ID
     if (syncRunId) {
-      const supabase = await getServerDb()
-      await supabase
+      const adminClient = getAdminDb()
+      await adminClient
         .from('sync_runs')
         .update({
           ended_at: new Date().toISOString(),

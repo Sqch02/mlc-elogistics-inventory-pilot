@@ -41,34 +41,32 @@ export function Header({ user }: HeaderProps) {
     : user?.email?.substring(0, 2).toUpperCase() || 'U'
 
   return (
-    <header className="h-16 border-b bg-white flex items-center justify-between px-6">
-      <div>
-        {/* Breadcrumb or page title could go here */}
-      </div>
+    <header className="h-16 border-b border-border bg-background flex items-center justify-between px-4 lg:px-6">
+      {/* Empty space for mobile menu button or breadcrumb */}
+      <div className="w-10 lg:w-0" />
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4">
         {/* Notifications */}
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="h-5 w-5" />
-          {/* Notification badge could go here */}
         </Button>
 
         {/* User menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="relative h-10 w-10 rounded-full">
-              <Avatar className="h-10 w-10">
-                <AvatarFallback>{initials}</AvatarFallback>
+            <Button variant="ghost" className="relative h-9 w-9 sm:h-10 sm:w-10 rounded-full">
+              <Avatar className="h-9 w-9 sm:h-10 sm:w-10">
+                <AvatarFallback className="text-xs sm:text-sm">{initials}</AvatarFallback>
               </Avatar>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel>
               <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium leading-none">
+                <p className="text-sm font-medium leading-none truncate">
                   {user?.full_name || user?.email}
                 </p>
-                <p className="text-xs leading-none text-muted-foreground">
+                <p className="text-xs leading-none text-muted-foreground truncate">
                   {user?.email}
                 </p>
                 <p className="text-xs leading-none text-muted-foreground capitalize">

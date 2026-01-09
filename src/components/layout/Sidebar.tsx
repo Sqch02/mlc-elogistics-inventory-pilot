@@ -14,13 +14,13 @@ import {
   AlertTriangle,
   Settings,
   LogOut,
-  ChevronLeft,
-  ChevronRight,
+  Menu,
+  X,
 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import { useState, useEffect, useRef } from 'react'
+import { Button } from '@/components/ui/button'
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -34,49 +34,36 @@ const navigation = [
   { name: 'Parametres', href: '/parametres', icon: Settings },
 ]
 
-export function Sidebar() {
-  const pathname = usePathname()
-  const router = useRouter()
-  const [collapsed, setCollapsed] = useState(false)
+interface SidebarContentProps {
+  pathname: string
+  onClose: () => void
+  onLogout: () => void
+}
 
-  const handleLogout = async () => {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push('/login')
-    router.refresh()
-  }
-
+function SidebarContent({ pathname, onClose, onLogout }: SidebarContentProps) {
   return (
-    <aside
-      className={cn(
-        'flex flex-col h-screen bg-gray-900 text-white transition-all duration-300',
-        collapsed ? 'w-16' : 'w-64'
-      )}
-    >
+    <>
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-800">
-        {!collapsed && (
-          <div className="flex items-center gap-2">
-            <Package className="h-6 w-6 text-primary" />
-            <span className="font-semibold">MLC Inventory</span>
+      <div className="flex items-center justify-between h-16 px-4 lg:px-6 border-b border-border bg-white">
+        <div className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <Package className="h-5 w-5" />
           </div>
-        )}
+          <span className="font-bold text-lg tracking-tight text-foreground">MLC Inventory</span>
+        </div>
+        {/* Close button on mobile */}
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => setCollapsed(!collapsed)}
-          className="text-gray-400 hover:text-white hover:bg-gray-800"
+          className="lg:hidden"
+          onClick={onClose}
         >
-          {collapsed ? (
-            <ChevronRight className="h-4 w-4" />
-          ) : (
-            <ChevronLeft className="h-4 w-4" />
-          )}
+          <X className="h-5 w-5" />
         </Button>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {navigation.map((item) => {
           const isActive = pathname === item.href ||
             (item.href !== '/' && pathname.startsWith(item.href))
@@ -86,32 +73,126 @@ export function Sidebar() {
               key={item.name}
               href={item.href}
               className={cn(
-                'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
+                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 font-medium group relative',
                 isActive
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-gray-300 hover:text-white hover:bg-gray-800'
+                  ? 'bg-[#EAF4F0] text-primary'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
               )}
             >
-              <item.icon className="h-5 w-5 flex-shrink-0" />
-              {!collapsed && <span>{item.name}</span>}
+              {isActive && (
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] bg-primary rounded-r-full" />
+              )}
+              <item.icon className={cn(
+                "h-5 w-5 flex-shrink-0 transition-colors",
+                isActive ? "text-primary" : "text-muted-foreground group-hover:text-gray-900"
+              )} />
+              <span>{item.name}</span>
             </Link>
           )
         })}
       </nav>
 
       {/* Footer */}
-      <div className="p-2 border-t border-gray-800">
+      <div className="p-4 border-t border-border bg-gray-50/50">
         <button
-          onClick={handleLogout}
+          onClick={onLogout}
           className={cn(
-            'flex items-center gap-3 px-3 py-2 rounded-md text-sm w-full',
-            'text-gray-300 hover:text-white hover:bg-gray-800 transition-colors'
+            'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm w-full font-medium',
+            'text-gray-600 hover:bg-white hover:text-red-600 hover:shadow-sm hover:border hover:border-border transition-all duration-200'
           )}
         >
           <LogOut className="h-5 w-5 flex-shrink-0" />
-          {!collapsed && <span>Deconnexion</span>}
+          <span>Deconnexion</span>
         </button>
       </div>
-    </aside>
+    </>
+  )
+}
+
+interface SidebarProps {
+  onMobileToggle?: (isOpen: boolean) => void
+}
+
+export function Sidebar({ onMobileToggle }: SidebarProps) {
+  const pathname = usePathname()
+  const router = useRouter()
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const prevPathnameRef = useRef(pathname)
+
+  // Close mobile menu on route change - this is intentional synchronous state update
+  useEffect(() => {
+    if (prevPathnameRef.current !== pathname) {
+      prevPathnameRef.current = pathname
+      if (mobileOpen) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setMobileOpen(false)
+      }
+    }
+  }, [pathname, mobileOpen])
+
+  // Notify parent of mobile state
+  useEffect(() => {
+    onMobileToggle?.(mobileOpen)
+  }, [mobileOpen, onMobileToggle])
+
+  // Prevent body scroll when mobile menu is open
+  useEffect(() => {
+    if (mobileOpen) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [mobileOpen])
+
+  const handleLogout = async () => {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    router.push('/login')
+    router.refresh()
+  }
+
+  const handleClose = () => setMobileOpen(false)
+  const handleOpen = () => setMobileOpen(true)
+
+  return (
+    <>
+      {/* Mobile menu button */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="fixed top-3 left-3 z-50 lg:hidden bg-white shadow-sm border border-border"
+        onClick={handleOpen}
+      >
+        <Menu className="h-5 w-5" />
+      </Button>
+
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={handleClose}
+        />
+      )}
+
+      {/* Mobile sidebar */}
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 w-[280px] bg-white border-r border-border flex flex-col transform transition-transform duration-300 ease-in-out lg:hidden",
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        <SidebarContent pathname={pathname} onClose={handleClose} onLogout={handleLogout} />
+      </aside>
+
+      {/* Desktop sidebar */}
+      <aside
+        className="hidden lg:flex flex-col h-screen bg-white border-r border-border shrink-0 fixed top-0 left-0 bottom-0 w-[260px] z-40 shadow-[1px_0_2px_rgba(0,0,0,0.02)]"
+      >
+        <SidebarContent pathname={pathname} onClose={handleClose} onLogout={handleLogout} />
+      </aside>
+    </>
   )
 }

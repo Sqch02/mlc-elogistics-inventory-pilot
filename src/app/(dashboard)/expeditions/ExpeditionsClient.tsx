@@ -1,0 +1,669 @@
+'use client'
+
+import { useState } from 'react'
+import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Truck, Package, DollarSign, AlertTriangle, ExternalLink, Search, X, Download, Loader2,
+  ChevronDown, ChevronUp, MapPin, Phone, Mail, User, Calendar, Globe, Tag, FileText, Eye,
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight
+} from 'lucide-react'
+import { useShipments, useCarriers, ShipmentFilters, Shipment } from '@/hooks/useShipments'
+import { generateCSV, downloadCSV } from '@/lib/utils/csv'
+import { Skeleton } from '@/components/ui/skeleton'
+
+function formatDate(dateStr: string | null) {
+  if (!dateStr) return '-'
+  return new Date(dateStr).toLocaleDateString('fr-FR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+function formatDateTime(dateStr: string | null) {
+  if (!dateStr) return '-'
+  return new Date(dateStr).toLocaleString('fr-FR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function formatWeight(grams: number) {
+  if (grams >= 1000) {
+    return `${(grams / 1000).toFixed(2)} kg`
+  }
+  return `${grams} g`
+}
+
+// Status badge colors based on Sendcloud status IDs
+function getStatusBadge(statusId: number | null, statusMessage: string | null) {
+  if (!statusId) return <Badge variant="muted">Inconnu</Badge>
+
+  const statusColors: Record<number, { variant: 'success' | 'warning' | 'error' | 'info' | 'muted', label: string }> = {
+    1: { variant: 'muted', label: 'Créé' },
+    3: { variant: 'success', label: 'Livré' },
+    11: { variant: 'info', label: 'Annoncé' },
+    12: { variant: 'info', label: 'En transit' },
+    13: { variant: 'info', label: 'En livraison' },
+    91: { variant: 'warning', label: 'Exception' },
+    1000: { variant: 'info', label: 'Prêt' },
+    2000: { variant: 'error', label: 'Annulé' },
+  }
+
+  const status = statusColors[statusId] || { variant: 'muted' as const, label: statusMessage || `Status ${statusId}` }
+  return <Badge variant={status.variant}>{status.label}</Badge>
+}
+
+interface ShipmentRowProps {
+  shipment: Shipment
+}
+
+function ShipmentRow({ shipment }: ShipmentRowProps) {
+  const [isExpanded, setIsExpanded] = useState(false)
+
+  return (
+    <>
+      <TableRow
+        className="group cursor-pointer hover:bg-muted/50"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <TableCell className="pl-4 lg:pl-6">
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </Button>
+        </TableCell>
+        <TableCell className="text-muted-foreground whitespace-nowrap text-sm">
+          {formatDate(shipment.shipped_at)}
+        </TableCell>
+        <TableCell className="font-mono font-medium text-sm">
+          {shipment.order_ref || '-'}
+        </TableCell>
+        <TableCell>
+          <div className="flex flex-col gap-1">
+            <span className="font-medium text-sm">{shipment.recipient_name || '-'}</span>
+            <span className="text-xs text-muted-foreground">{shipment.city || ''}</span>
+          </div>
+        </TableCell>
+        <TableCell>
+          {getStatusBadge(shipment.status_id ?? null, shipment.status_message ?? null)}
+        </TableCell>
+        <TableCell>
+          <Badge variant="muted" className="text-xs">{shipment.carrier}</Badge>
+        </TableCell>
+        <TableCell className="text-right font-mono text-sm">
+          {shipment.total_value ? `${shipment.total_value.toFixed(2)} €` : '-'}
+        </TableCell>
+        <TableCell className="text-right pr-4 lg:pr-6">
+          {shipment.tracking_url ? (
+            <a
+              href={shipment.tracking_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-primary hover:underline text-sm"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ExternalLink className="h-4 w-4" />
+            </a>
+          ) : shipment.tracking ? (
+            <span className="font-mono text-xs text-muted-foreground">{shipment.tracking.slice(-8)}</span>
+          ) : '-'}
+        </TableCell>
+      </TableRow>
+
+      {/* Expanded Details */}
+      {isExpanded && (
+        <TableRow className="bg-muted/30">
+          <TableCell colSpan={8} className="p-0">
+            <div className="p-4 lg:p-6 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Destinataire */}
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-sm flex items-center gap-2">
+                    <User className="h-4 w-4 text-primary" />
+                    Destinataire
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    <p className="font-medium">{shipment.recipient_name || '-'}</p>
+                    {shipment.recipient_company && (
+                      <p className="text-muted-foreground">{shipment.recipient_company}</p>
+                    )}
+                    {shipment.recipient_email && (
+                      <p className="flex items-center gap-2 text-muted-foreground">
+                        <Mail className="h-3 w-3" />
+                        <a href={`mailto:${shipment.recipient_email}`} className="hover:text-primary">
+                          {shipment.recipient_email}
+                        </a>
+                      </p>
+                    )}
+                    {shipment.recipient_phone && (
+                      <p className="flex items-center gap-2 text-muted-foreground">
+                        <Phone className="h-3 w-3" />
+                        <a href={`tel:${shipment.recipient_phone}`} className="hover:text-primary">
+                          {shipment.recipient_phone}
+                        </a>
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Adresse */}
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-sm flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-primary" />
+                    Adresse de livraison
+                  </h4>
+                  <div className="space-y-1 text-sm text-muted-foreground">
+                    <p>{shipment.address_line1 || '-'}</p>
+                    {shipment.address_line2 && <p>{shipment.address_line2}</p>}
+                    <p>{shipment.postal_code} {shipment.city}</p>
+                    <p className="flex items-center gap-1">
+                      <Globe className="h-3 w-3" />
+                      {shipment.country_name || shipment.country_code || '-'}
+                    </p>
+                    {shipment.service_point_id && (
+                      <p className="text-xs">
+                        <Badge variant="outline">Point relais: {shipment.service_point_id}</Badge>
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Expédition */}
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-sm flex items-center gap-2">
+                    <Truck className="h-4 w-4 text-primary" />
+                    Details expedition
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Transporteur</span>
+                      <span className="font-medium">{shipment.carrier}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Service</span>
+                      <span className="font-medium text-xs">{shipment.service || '-'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Poids</span>
+                      <span className="font-mono">{formatWeight(shipment.weight_grams)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Colis</span>
+                      <span>{shipment.collo_count || 1}</span>
+                    </div>
+                    {shipment.is_return && (
+                      <Badge variant="warning">Retour</Badge>
+                    )}
+                  </div>
+                </div>
+
+                {/* Facturation */}
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-sm flex items-center gap-2">
+                    <DollarSign className="h-4 w-4 text-primary" />
+                    Facturation
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Valeur commande</span>
+                      <span className="font-medium">
+                        {shipment.total_value ? `${shipment.total_value.toFixed(2)} ${shipment.currency || 'EUR'}` : '-'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Cout transport</span>
+                      {shipment.pricing_status === 'ok' ? (
+                        <span className="font-medium text-green-600">
+                          {shipment.computed_cost_eur?.toFixed(2)} EUR
+                        </span>
+                      ) : (
+                        <Badge variant="warning">Tarif manquant</Badge>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dates & IDs */}
+              <div className="border-t pt-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 text-xs">
+                  <div>
+                    <span className="text-muted-foreground block">Créé le</span>
+                    <span className="font-mono">{formatDateTime(shipment.date_created ?? null)}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block">Annoncé le</span>
+                    <span className="font-mono">{formatDateTime(shipment.date_announced ?? null)}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block">Mis à jour</span>
+                    <span className="font-mono">{formatDateTime(shipment.date_updated ?? null)}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block">ID Sendcloud</span>
+                    <span className="font-mono">{shipment.sendcloud_id}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block">Tracking</span>
+                    <span className="font-mono">{shipment.tracking || '-'}</span>
+                  </div>
+                  {shipment.external_order_id && (
+                    <div>
+                      <span className="text-muted-foreground block">ID Externe</span>
+                      <span className="font-mono text-xs">{shipment.external_order_id}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="border-t pt-4 flex flex-wrap gap-2">
+                {shipment.tracking_url && (
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={shipment.tracking_url} target="_blank" rel="noopener noreferrer">
+                      <Eye className="h-4 w-4 mr-2" />
+                      Suivre le colis
+                    </a>
+                  </Button>
+                )}
+                {shipment.label_url && (
+                  <Button variant="outline" size="sm" asChild>
+                    <a
+                      href={`/api/labels/${shipment.label_url.split('/').pop()}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <FileText className="h-4 w-4 mr-2" />
+                      Etiquette
+                    </a>
+                  </Button>
+                )}
+              </div>
+
+              {/* Items */}
+              {shipment.shipment_items && shipment.shipment_items.length > 0 && (
+                <div className="border-t pt-4">
+                  <h4 className="font-semibold text-sm flex items-center gap-2 mb-3">
+                    <Package className="h-4 w-4 text-primary" />
+                    Articles ({shipment.shipment_items.length})
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {shipment.shipment_items.map((item, i) => (
+                      <Badge key={i} variant="outline" className="text-xs py-1 px-2">
+                        {item.qty}x {item.skus?.sku_code || item.skus?.name || '?'}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
+  )
+}
+
+export function ExpeditionsClient() {
+  const [filters, setFilters] = useState<ShipmentFilters>({ page: 1, pageSize: 100 })
+  const [searchInput, setSearchInput] = useState('')
+  const [isExporting, setIsExporting] = useState(false)
+
+  const { data, isLoading, isFetching } = useShipments(filters)
+  const { data: carriers = [] } = useCarriers()
+
+  const shipments = data?.shipments || []
+  const pagination = data?.pagination || { page: 1, pageSize: 100, total: 0, totalPages: 1 }
+
+  // Stats
+  const totalShipments = pagination.total
+  const totalCost = shipments.reduce((sum, s) => sum + (s.computed_cost_eur || 0), 0)
+  const totalValue = shipments.reduce((sum, s) => sum + (s.total_value || 0), 0)
+  const missingPricing = shipments.filter(s => s.pricing_status === 'missing').length
+
+  const updateFilter = (key: 'from' | 'to' | 'carrier' | 'pricing_status' | 'search', value: string | undefined) => {
+    setFilters(prev => {
+      const next = { ...prev, page: 1 } // Reset to page 1 on filter change
+      if (value) {
+        next[key] = value
+      } else {
+        delete next[key]
+      }
+      return next
+    })
+  }
+
+  const handleSearch = () => {
+    updateFilter('search', searchInput || undefined)
+  }
+
+  const clearFilters = () => {
+    setFilters({ page: 1, pageSize: 100 })
+    setSearchInput('')
+  }
+
+  const goToPage = (page: number) => {
+    setFilters(prev => ({ ...prev, page }))
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const handleExport = async () => {
+    setIsExporting(true)
+    try {
+      const exportData = shipments.map((s) => ({
+        date: s.shipped_at ? formatDate(s.shipped_at) : '',
+        reference: s.order_ref || '',
+        destinataire: s.recipient_name || '',
+        email: s.recipient_email || '',
+        telephone: s.recipient_phone || '',
+        adresse: s.address_line1 || '',
+        ville: s.city || '',
+        code_postal: s.postal_code || '',
+        pays: s.country_code || '',
+        transporteur: s.carrier || '',
+        service: s.service || '',
+        statut: s.status_message || '',
+        poids_g: s.weight_grams || 0,
+        tracking: s.tracking || '',
+        valeur_commande: s.total_value || '',
+        cout_transport: s.computed_cost_eur || '',
+        statut_tarif: s.pricing_status === 'ok' ? 'OK' : 'Manquant'
+      }))
+      const csv = generateCSV(exportData, { delimiter: ';' })
+      downloadCSV(csv, `expeditions_${new Date().toISOString().split('T')[0]}.csv`)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  const hasFilters = Object.keys(filters).length > 0
+
+  if (isLoading) {
+    return <ExpeditionsLoadingSkeleton />
+  }
+
+  return (
+    <div className="space-y-4 lg:space-y-6">
+      {/* Header */}
+      <div className="flex flex-col gap-2 sm:gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-semibold text-foreground">Expeditions</h1>
+          <p className="text-muted-foreground text-sm">
+            {totalShipments} expedition(s) {isFetching && '(chargement...)'}
+          </p>
+        </div>
+      </div>
+
+      {/* KPI Row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+        <Card className="shadow-sm border-border">
+          <CardContent className="p-3 lg:p-4 flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Expeditions</p>
+              <p className="text-lg lg:text-2xl font-bold">{totalShipments}</p>
+            </div>
+            <div className="p-1.5 lg:p-2 bg-primary/10 rounded-lg text-primary">
+              <Truck className="h-4 w-4 lg:h-5 lg:w-5" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="shadow-sm border-border">
+          <CardContent className="p-3 lg:p-4 flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Valeur totale</p>
+              <p className="text-lg lg:text-2xl font-bold">{totalValue.toFixed(0)} EUR</p>
+            </div>
+            <div className="p-1.5 lg:p-2 bg-blue-100 rounded-lg text-blue-600">
+              <Tag className="h-4 w-4 lg:h-5 lg:w-5" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="shadow-sm border-border">
+          <CardContent className="p-3 lg:p-4 flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Cout transport</p>
+              <p className="text-lg lg:text-2xl font-bold">{totalCost.toFixed(2)} EUR</p>
+            </div>
+            <div className="p-1.5 lg:p-2 bg-primary/10 rounded-lg text-primary">
+              <DollarSign className="h-4 w-4 lg:h-5 lg:w-5" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className={`shadow-sm border-border ${missingPricing > 0 ? 'border-amber-300' : ''}`}>
+          <CardContent className="p-3 lg:p-4 flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Tarifs manquants</p>
+              <p className={`text-lg lg:text-2xl font-bold ${missingPricing > 0 ? 'text-amber-600' : 'text-green-600'}`}>
+                {missingPricing}
+              </p>
+            </div>
+            <div className={`p-1.5 lg:p-2 rounded-lg ${missingPricing > 0 ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-600'}`}>
+              <AlertTriangle className="h-4 w-4 lg:h-5 lg:w-5" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-col gap-3 bg-white p-3 lg:p-4 rounded-2xl border border-border shadow-sm">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Rechercher (ref, nom, ville, tracking)..."
+              className="pl-9"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              onBlur={handleSearch}
+            />
+          </div>
+          <div className="flex gap-2">
+            <Select
+              value={filters.carrier || 'all'}
+              onValueChange={(v) => updateFilter('carrier', v === 'all' ? undefined : v)}
+            >
+              <SelectTrigger className="w-full sm:w-[140px]">
+                <SelectValue placeholder="Transporteur" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous</SelectItem>
+                {carriers.map((c) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={filters.pricing_status || 'all'}
+              onValueChange={(v) => updateFilter('pricing_status', v === 'all' ? undefined : v)}
+            >
+              <SelectTrigger className="w-full sm:w-[140px]">
+                <SelectValue placeholder="Statut" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous</SelectItem>
+                <SelectItem value="ok">OK</SelectItem>
+                <SelectItem value="missing">Manquant</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2 items-center">
+          <Input
+            type="date"
+            className="w-[130px] sm:w-[150px]"
+            value={filters.from || ''}
+            onChange={(e) => updateFilter('from', e.target.value || undefined)}
+          />
+          <span className="text-muted-foreground text-sm">-</span>
+          <Input
+            type="date"
+            className="w-[130px] sm:w-[150px]"
+            value={filters.to || ''}
+            onChange={(e) => updateFilter('to', e.target.value || undefined)}
+          />
+          <div className="flex-1" />
+          {hasFilters && (
+            <Button variant="ghost" size="sm" onClick={clearFilters}>
+              <X className="h-4 w-4 mr-1" />
+              Effacer
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={isExporting}>
+            {isExporting ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-2 h-4 w-4" />
+            )}
+            <span className="hidden sm:inline">Export CSV</span>
+            <span className="sm:hidden">Export</span>
+          </Button>
+        </div>
+      </div>
+
+      {/* Table */}
+      <Card className="shadow-sm border-border overflow-hidden">
+        {shipments.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+            <Truck className="h-12 w-12 mb-4 opacity-50" />
+            <p className="text-sm">Aucune expedition trouvee</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="pl-4 lg:pl-6 w-10"></TableHead>
+                  <TableHead className="whitespace-nowrap">Date</TableHead>
+                  <TableHead className="whitespace-nowrap">Reference</TableHead>
+                  <TableHead className="whitespace-nowrap">Destinataire</TableHead>
+                  <TableHead className="whitespace-nowrap">Statut</TableHead>
+                  <TableHead className="whitespace-nowrap">Transporteur</TableHead>
+                  <TableHead className="text-right whitespace-nowrap">Valeur</TableHead>
+                  <TableHead className="text-right pr-4 lg:pr-6 whitespace-nowrap">Tracking</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {shipments.map((shipment) => (
+                  <ShipmentRow key={shipment.id} shipment={shipment} />
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </Card>
+
+      {/* Pagination */}
+      {pagination.totalPages > 1 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white p-3 lg:p-4 rounded-2xl border border-border shadow-sm">
+          <div className="text-sm text-muted-foreground">
+            Page {pagination.page} sur {pagination.totalPages} ({pagination.total} expéditions)
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => goToPage(1)}
+              disabled={pagination.page === 1 || isFetching}
+            >
+              <ChevronsLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => goToPage(pagination.page - 1)}
+              disabled={pagination.page === 1 || isFetching}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <div className="flex items-center gap-1 px-2">
+              {/* Show page numbers */}
+              {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+                let pageNum: number
+                if (pagination.totalPages <= 5) {
+                  pageNum = i + 1
+                } else if (pagination.page <= 3) {
+                  pageNum = i + 1
+                } else if (pagination.page >= pagination.totalPages - 2) {
+                  pageNum = pagination.totalPages - 4 + i
+                } else {
+                  pageNum = pagination.page - 2 + i
+                }
+                return (
+                  <Button
+                    key={pageNum}
+                    variant={pageNum === pagination.page ? 'default' : 'ghost'}
+                    size="sm"
+                    className="w-8 h-8 p-0"
+                    onClick={() => goToPage(pageNum)}
+                    disabled={isFetching}
+                  >
+                    {pageNum}
+                  </Button>
+                )
+              })}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => goToPage(pagination.page + 1)}
+              disabled={pagination.page === pagination.totalPages || isFetching}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => goToPage(pagination.totalPages)}
+              disabled={pagination.page === pagination.totalPages || isFetching}
+            >
+              <ChevronsRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ExpeditionsLoadingSkeleton() {
+  return (
+    <div className="space-y-4 lg:space-y-6">
+      <div className="flex justify-between items-center">
+        <div className="space-y-2">
+          <Skeleton className="h-7 lg:h-8 w-36 lg:w-48" />
+          <Skeleton className="h-4 w-28 lg:w-32" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Card key={i} className="p-3 lg:p-4">
+            <Skeleton className="h-3 lg:h-4 w-16 lg:w-20 mb-2" />
+            <Skeleton className="h-6 lg:h-8 w-12 lg:w-16" />
+          </Card>
+        ))}
+      </div>
+      <Card className="p-4">
+        <div className="space-y-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex gap-4">
+              <Skeleton className="h-6 w-6" />
+              <Skeleton className="h-6 w-20" />
+              <Skeleton className="h-6 w-24" />
+              <Skeleton className="h-6 w-32" />
+              <Skeleton className="h-6 w-16" />
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  )
+}

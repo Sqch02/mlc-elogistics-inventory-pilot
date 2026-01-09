@@ -107,33 +107,108 @@ Ouvrir [http://localhost:3000](http://localhost:3000)
 
 ## Deploiement sur Render
 
-### 1. Creer les services
+### Architecture de deploiement
 
-Le fichier `render.yaml` configure automatiquement:
-- **mlc-inventory** - Application web Next.js
-- **mlc-sync-sendcloud** - Job cron quotidien (6h UTC)
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        RENDER                                │
+│  ┌─────────────────────┐    ┌─────────────────────────────┐ │
+│  │   mlc-inventory     │    │   mlc-sync-sendcloud        │ │
+│  │   (Web Service)     │◄───│   (Cron Job - */15 min)     │ │
+│  │   Next.js App       │    │   Appelle /api/sync/...     │ │
+│  └──────────┬──────────┘    └─────────────────────────────┘ │
+└─────────────┼───────────────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      SUPABASE                                │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │
+│  │ Postgres │  │   Auth   │  │   RLS    │  │ Realtime │    │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘    │
+└─────────────────────────────────────────────────────────────┘
+```
 
-### 2. Variables d'environnement Render
+### Methode 1: Blueprint (Recommandee)
 
-Configurer dans le dashboard Render:
+1. **Connecter le repo GitHub a Render**
+   - Aller sur [dashboard.render.com](https://dashboard.render.com)
+   - New > Blueprint
+   - Selectionner le repository GitHub
+   - Render detecte automatiquement `render.yaml`
 
-| Variable | Description |
-|----------|-------------|
-| `NEXT_PUBLIC_SUPABASE_URL` | URL Supabase |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Cle publique Supabase |
-| `SUPABASE_SERVICE_ROLE_KEY` | Cle service (secret) |
-| `SENDCLOUD_API_KEY` | Cle API Sendcloud |
-| `SENDCLOUD_SECRET` | Secret Sendcloud |
-| `SENDCLOUD_USE_MOCK` | `false` en production |
+2. **Configurer les variables d'environnement**
 
-### 3. Deployer
+   Dans le dashboard Render, configurer pour **mlc-inventory**:
+
+   | Variable | Description | Exemple |
+   |----------|-------------|---------|
+   | `NEXT_PUBLIC_SUPABASE_URL` | URL projet Supabase | `https://xxx.supabase.co` |
+   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Cle publique Supabase | `eyJhbGci...` |
+   | `SUPABASE_SERVICE_ROLE_KEY` | Cle service (secret) | `eyJhbGci...` |
+   | `SENDCLOUD_API_KEY` | Cle API Sendcloud | `abc123...` |
+   | `SENDCLOUD_SECRET` | Secret Sendcloud | `xyz789...` |
+
+   > Note: `CRON_SECRET` est auto-genere et partage entre les services
+
+3. **Deployer**
+   - Cliquer "Create Blueprint"
+   - Render cree les 2 services automatiquement
+   - Premier build: ~3-5 minutes
+
+### Methode 2: Deploiement manuel
 
 ```bash
-# Via Render Blueprint
+# 1. Installer Render CLI
+brew install render
+
+# 2. Se connecter
+render login
+
+# 3. Deployer via Blueprint
 render blueprint apply
 ```
 
-Ou connecter le repo GitHub dans le dashboard Render.
+### Services deployes
+
+| Service | Type | Frequence | Cout |
+|---------|------|-----------|------|
+| `mlc-inventory` | Web Service | Always on | $7/mois (Starter) |
+| `mlc-sync-sendcloud` | Cron Job | */15 min | ~$1/mois |
+
+### Verifier le deploiement
+
+1. **Health check**
+   ```bash
+   curl https://mlc-inventory.onrender.com/api/health
+   # {"status":"ok","timestamp":"2025-01-07T..."}
+   ```
+
+2. **Logs du cron**
+   - Dashboard Render > mlc-sync-sendcloud > Logs
+   - Verifier les syncs toutes les 15 minutes
+
+3. **Premiere connexion**
+   - Ouvrir `https://mlc-inventory.onrender.com`
+   - Se connecter avec les credentials configures dans Supabase Auth
+
+### Troubleshooting
+
+| Probleme | Solution |
+|----------|----------|
+| Build failed | Verifier les variables d'env Supabase |
+| Health check 500 | Verifier SUPABASE_SERVICE_ROLE_KEY |
+| Cron 401 Unauthorized | Verifier CRON_SECRET partage |
+| Sync pas de donnees | Verifier SENDCLOUD_API_KEY et SENDCLOUD_SECRET |
+
+### Mise a jour
+
+Render deploie automatiquement a chaque push sur `main`.
+
+Pour deployer manuellement:
+```bash
+# Dans Dashboard Render > mlc-inventory
+# Cliquer "Manual Deploy" > "Deploy latest commit"
+```
 
 ## API Endpoints
 

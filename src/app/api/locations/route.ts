@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
-import { requireTenant } from '@/lib/supabase/auth'
+import { getFastTenantId } from '@/lib/supabase/fast-auth'
 
 export async function GET() {
   try {
-    const tenantId = await requireTenant()
+    const tenantId = await getFastTenantId()
+    if (!tenantId) {
+      return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })
+    }
     const supabase = await getServerDb()
 
     const { data: locations, error } = await supabase
@@ -32,7 +35,11 @@ export async function GET() {
       assignment: loc.assignment?.[0] || null,
     }))
 
-    return NextResponse.json({ locations: formattedLocations })
+    return NextResponse.json({ locations: formattedLocations }, {
+      headers: {
+        'Cache-Control': 'private, max-age=60, stale-while-revalidate=300'
+      }
+    })
   } catch (error) {
     console.error('Get locations error:', error)
     return NextResponse.json(
@@ -44,7 +51,10 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const tenantId = await requireTenant()
+    const tenantId = await getFastTenantId()
+    if (!tenantId) {
+      return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })
+    }
     const supabase = await getServerDb()
     const body = await request.json()
 
