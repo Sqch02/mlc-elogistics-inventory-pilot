@@ -170,12 +170,12 @@ export function EditLocationDialog({ location, open, onOpenChange }: EditLocatio
           {/* SKU Assignment */}
           <div className="space-y-2">
             <label className="text-sm font-medium">SKU assigné (optionnel)</label>
-            <Select value={skuCode} onValueChange={setSkuCode}>
+            <Select value={skuCode || '_none_'} onValueChange={(val) => setSkuCode(val === '_none_' ? '' : val)}>
               <SelectTrigger>
                 <SelectValue placeholder="Aucun SKU assigné" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Aucun</SelectItem>
+                <SelectItem value="_none_">Aucun</SelectItem>
                 {skus.map((sku) => (
                   <SelectItem key={sku.id} value={sku.sku_code}>
                     {sku.sku_code} - {sku.name}
