@@ -29,6 +29,15 @@ export async function PATCH(
     if (body.code !== undefined) updateData.code = body.code
     if (body.label !== undefined) updateData.label = body.label
     if (body.active !== undefined) updateData.active = body.active
+    // Nouveaux champs visuels
+    if (body.zone_code !== undefined) updateData.zone_code = body.zone_code
+    if (body.row_number !== undefined) updateData.row_number = body.row_number
+    if (body.col_number !== undefined) updateData.col_number = body.col_number
+    if (body.height_level !== undefined) updateData.height_level = body.height_level
+    if (body.content !== undefined) updateData.content = body.content
+    if (body.expiry_date !== undefined) updateData.expiry_date = body.expiry_date || null
+    if (body.status !== undefined) updateData.status = body.status
+    if (body.max_weight_kg !== undefined) updateData.max_weight_kg = body.max_weight_kg
 
     const { data: location, error } = await supabase
       .from('locations')

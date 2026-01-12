@@ -17,12 +17,23 @@ export async function GET() {
         code,
         label,
         active,
+        zone_code,
+        row_number,
+        col_number,
+        height_level,
+        content,
+        expiry_date,
+        status,
+        max_weight_kg,
         assignment:location_assignments(
           sku:skus(sku_code, name)
         )
       `)
       .eq('tenant_id', tenantId)
-      .order('code')
+      .order('zone_code')
+      .order('row_number')
+      .order('col_number')
+      .order('height_level', { ascending: false })
 
     if (error) {
       throw error

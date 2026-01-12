@@ -8,18 +8,21 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Download, MapPin, Package, CheckCircle, XCircle, Loader2, Search, X, Plus, MoreHorizontal, Pencil, Trash2, Link2, Unlink } from 'lucide-react'
+import { Download, MapPin, Package, CheckCircle, XCircle, Loader2, Search, X, Plus, MoreHorizontal, Pencil, Trash2, Link2, Unlink, Table as TableIcon, LayoutGrid } from 'lucide-react'
 import { useLocations, useCreateLocation, useUpdateLocation, useDeleteLocation, Location } from '@/hooks/useLocations'
 import { useSkus } from '@/hooks/useSkus'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
+import { WarehouseVisualMap } from '@/components/warehouse/WarehouseVisualMap'
+import { EditLocationDialog } from '@/components/warehouse/EditLocationDialog'
 
 export function EmplacementsClient() {
   const [isExporting, setIsExporting] = useState(false)
   const [searchInput, setSearchInput] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'occupied' | 'empty'>('all')
+  const [viewMode, setViewMode] = useState<'table' | 'visual'>('table')
 
   // CRUD Dialog states
   const [createOpen, setCreateOpen] = useState(false)
@@ -27,6 +30,7 @@ export function EmplacementsClient() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [assignOpen, setAssignOpen] = useState(false)
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null)
+  const [quickEditOpen, setQuickEditOpen] = useState(false)
 
   // Form states
   const [formCode, setFormCode] = useState('')
@@ -223,6 +227,28 @@ export function EmplacementsClient() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* View toggle */}
+          <div className="flex items-center border rounded-lg p-0.5 bg-muted/50">
+            <Button
+              variant={viewMode === 'table' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('table')}
+              className="h-7 px-2"
+            >
+              <TableIcon className="h-4 w-4 mr-1" />
+              <span className="hidden sm:inline">Tableau</span>
+            </Button>
+            <Button
+              variant={viewMode === 'visual' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('visual')}
+              className="h-7 px-2"
+            >
+              <LayoutGrid className="h-4 w-4 mr-1" />
+              <span className="hidden sm:inline">Carte</span>
+            </Button>
+          </div>
+
           <Button variant="outline" size="sm" onClick={handleExport} disabled={isExporting}>
             {isExporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
             Export
@@ -325,7 +351,15 @@ export function EmplacementsClient() {
         )}
       </div>
 
-      {/* Table */}
+      {/* Content: Table or Visual Map */}
+      {viewMode === 'visual' ? (
+        <WarehouseVisualMap
+          onLocationClick={(location) => {
+            setSelectedLocation(location)
+            setQuickEditOpen(true)
+          }}
+        />
+      ) : (
       <Card className="shadow-sm border-border">
         {locations.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
@@ -414,6 +448,14 @@ export function EmplacementsClient() {
           </div>
         )}
       </Card>
+      )}
+
+      {/* Quick Edit Dialog for Visual Map */}
+      <EditLocationDialog
+        location={selectedLocation}
+        open={quickEditOpen}
+        onOpenChange={setQuickEditOpen}
+      />
 
       {/* Create Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

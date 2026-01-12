@@ -8,9 +8,27 @@ export interface Location {
   code: string
   label: string | null
   active: boolean
+  // Champs pour vue visuelle
+  zone_code: string
+  row_number: number
+  col_number: number
+  height_level: string
+  content: string | null
+  expiry_date: string | null
+  status: 'occupied' | 'empty' | 'blocked'
+  max_weight_kg: number | null
   assignment: {
     sku: { sku_code: string; name: string } | null
   } | null
+}
+
+export interface ZoneGrid {
+  zone_code: string
+  zone_label: string
+  rows: number
+  cols: number
+  heights: string[]
+  cells: Location[]
 }
 
 export interface LocationStats {
@@ -89,6 +107,15 @@ export function useUpdateLocation() {
       label?: string
       active?: boolean
       sku_code?: string | null // null to unassign
+      // Nouveaux champs visuels
+      zone_code?: string
+      row_number?: number
+      col_number?: number
+      height_level?: string
+      content?: string | null
+      expiry_date?: string | null
+      status?: 'occupied' | 'empty' | 'blocked'
+      max_weight_kg?: number | null
     }) => {
       const response = await fetch(`/api/locations/${id}`, {
         method: 'PATCH',
@@ -133,5 +160,69 @@ export function useDeleteLocation() {
     onError: (error: Error) => {
       toast.error(error.message)
     },
+  })
+}
+
+// Helper pour les labels de zone
+function getZoneLabel(zoneCode: string): string {
+  const labels: Record<string, string> = {
+    'ALLEE1': 'Allée 1',
+    'ALLEE2': 'Allée 2',
+    'ALLEE3': 'Allée 3',
+    'PICKING': 'Zone Picking',
+    'ZONE1': 'Zone 1',
+  }
+  return labels[zoneCode] || zoneCode
+}
+
+// Hook pour récupérer les emplacements groupés par zone
+export function useLocationsByZone() {
+  return useQuery({
+    queryKey: ['locations-by-zone'],
+    queryFn: async (): Promise<ZoneGrid[]> => {
+      const response = await fetch('/api/locations')
+      if (!response.ok) throw new Error('Failed to fetch locations')
+      const data = await response.json()
+      const locations = data.locations as Location[]
+
+      // Grouper par zone
+      const zonesMap = new Map<string, ZoneGrid>()
+
+      for (const loc of locations) {
+        const zoneCode = loc.zone_code || 'ZONE1'
+
+        if (!zonesMap.has(zoneCode)) {
+          zonesMap.set(zoneCode, {
+            zone_code: zoneCode,
+            zone_label: getZoneLabel(zoneCode),
+            rows: 0,
+            cols: 0,
+            heights: [],
+            cells: [],
+          })
+        }
+
+        const zone = zonesMap.get(zoneCode)!
+        zone.cells.push(loc)
+        zone.rows = Math.max(zone.rows, loc.row_number || 1)
+        zone.cols = Math.max(zone.cols, loc.col_number || 1)
+
+        // Collecter les niveaux de hauteur uniques
+        const height = loc.height_level || 'A'
+        if (!zone.heights.includes(height)) {
+          zone.heights.push(height)
+        }
+      }
+
+      // Trier les hauteurs (D, C, B, A) et les zones
+      for (const zone of zonesMap.values()) {
+        zone.heights.sort().reverse() // D, C, B, A
+      }
+
+      return Array.from(zonesMap.values()).sort((a, b) =>
+        a.zone_code.localeCompare(b.zone_code)
+      )
+    },
+    staleTime: 5 * 60 * 1000,
   })
 }
