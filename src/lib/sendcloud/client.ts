@@ -230,3 +230,179 @@ export async function fetchAllParcels(
 
   return allParcels
 }
+
+// ============================================
+// WRITE OPERATIONS (App → Sendcloud)
+// ============================================
+
+export interface CreateParcelData {
+  name: string
+  address: string
+  address_2?: string
+  city: string
+  postal_code: string
+  country: string // ISO 2 code (FR, BE, etc.)
+  telephone?: string
+  email?: string
+  company_name?: string
+  order_number?: string
+  weight: string // in kg
+  shipment_id?: number // shipping method ID
+  request_label?: boolean
+  parcel_items?: Array<{
+    description: string
+    sku?: string
+    quantity: number
+    weight: string
+    value: string
+  }>
+}
+
+export interface SendcloudApiResponse {
+  parcel?: SendcloudParcel
+  parcels?: SendcloudParcel[]
+  error?: {
+    message: string
+    code: number
+  }
+}
+
+/**
+ * Create a parcel in Sendcloud
+ */
+export async function createParcel(
+  credentials: SendcloudCredentials,
+  data: CreateParcelData
+): Promise<{ success: boolean; parcel?: ParsedShipment; error?: string }> {
+  if (process.env.SENDCLOUD_USE_MOCK === 'true') {
+    return { success: false, error: 'Cannot create parcels in mock mode' }
+  }
+
+  const auth = Buffer.from(`${credentials.apiKey}:${credentials.secret}`).toString('base64')
+
+  try {
+    const response = await fetch(`${SENDCLOUD_API_URL}/parcels`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        parcel: {
+          ...data,
+          request_label: data.request_label ?? false,
+        },
+      }),
+    })
+
+    const result: SendcloudApiResponse = await response.json()
+
+    if (!response.ok || result.error) {
+      return {
+        success: false,
+        error: result.error?.message || `Sendcloud API error: ${response.status}`,
+      }
+    }
+
+    if (result.parcel) {
+      return {
+        success: true,
+        parcel: parseParcel(result.parcel),
+      }
+    }
+
+    return { success: false, error: 'No parcel returned from Sendcloud' }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }
+  }
+}
+
+/**
+ * Cancel a parcel in Sendcloud
+ * Note: Only works for parcels that haven't been shipped yet
+ */
+export async function cancelParcel(
+  credentials: SendcloudCredentials,
+  sendcloudId: string
+): Promise<{ success: boolean; error?: string }> {
+  if (process.env.SENDCLOUD_USE_MOCK === 'true') {
+    return { success: false, error: 'Cannot cancel parcels in mock mode' }
+  }
+
+  const auth = Buffer.from(`${credentials.apiKey}:${credentials.secret}`).toString('base64')
+
+  try {
+    const response = await fetch(`${SENDCLOUD_API_URL}/parcels/${sendcloudId}/cancel`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/json',
+      },
+    })
+
+    if (response.ok) {
+      return { success: true }
+    }
+
+    const result = await response.json()
+    return {
+      success: false,
+      error: result.error?.message || `Sendcloud API error: ${response.status}`,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }
+  }
+}
+
+/**
+ * Get a single parcel from Sendcloud
+ */
+export async function getParcel(
+  credentials: SendcloudCredentials,
+  sendcloudId: string
+): Promise<{ success: boolean; parcel?: ParsedShipment; error?: string }> {
+  if (process.env.SENDCLOUD_USE_MOCK === 'true') {
+    return { success: false, error: 'Cannot get parcel in mock mode' }
+  }
+
+  const auth = Buffer.from(`${credentials.apiKey}:${credentials.secret}`).toString('base64')
+
+  try {
+    const response = await fetch(`${SENDCLOUD_API_URL}/parcels/${sendcloudId}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/json',
+      },
+    })
+
+    const result: SendcloudApiResponse = await response.json()
+
+    if (!response.ok || result.error) {
+      return {
+        success: false,
+        error: result.error?.message || `Sendcloud API error: ${response.status}`,
+      }
+    }
+
+    if (result.parcel) {
+      return {
+        success: true,
+        parcel: parseParcel(result.parcel),
+      }
+    }
+
+    return { success: false, error: 'No parcel returned from Sendcloud' }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }
+  }
+}

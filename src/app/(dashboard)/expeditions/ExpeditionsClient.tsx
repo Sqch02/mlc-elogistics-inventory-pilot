@@ -10,12 +10,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   Truck, Package, DollarSign, AlertTriangle, ExternalLink, Search, X, Download, Loader2,
   ChevronDown, ChevronUp, MapPin, Phone, Mail, User, Calendar, Globe, Tag, FileText, Eye,
-  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, AlertCircle
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, AlertCircle, RefreshCw, XCircle
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useCreateClaim } from '@/hooks/useClaims'
 import { toast } from 'sonner'
-import { useShipments, useCarriers, ShipmentFilters, Shipment } from '@/hooks/useShipments'
+import { useShipments, useCarriers, useCancelShipment, useRefreshShipment, ShipmentFilters, Shipment } from '@/hooks/useShipments'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { Skeleton } from '@/components/ui/skeleton'
 
@@ -91,9 +91,13 @@ function getStatusBadge(statusId: number | null, statusMessage: string | null) {
 interface ShipmentRowProps {
   shipment: Shipment
   onCreateClaim: (shipment: Shipment) => void
+  onCancel: (shipmentId: string) => void
+  onRefresh: (shipmentId: string) => void
+  isCancelling: boolean
+  isRefreshing: boolean
 }
 
-function ShipmentRow({ shipment, onCreateClaim }: ShipmentRowProps) {
+function ShipmentRow({ shipment, onCreateClaim, onCancel, onRefresh, isCancelling, isRefreshing }: ShipmentRowProps) {
   const [isExpanded, setIsExpanded] = useState(false)
 
   return (
@@ -318,6 +322,44 @@ function ShipmentRow({ shipment, onCreateClaim }: ShipmentRowProps) {
                   size="sm"
                   onClick={(e) => {
                     e.stopPropagation()
+                    onRefresh(shipment.id)
+                  }}
+                  disabled={isRefreshing}
+                  className="text-blue-600 border-blue-300 hover:bg-blue-50 hover:border-blue-400"
+                >
+                  {isRefreshing ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                  )}
+                  Rafraîchir statut
+                </Button>
+                {shipment.status_id !== 2000 && shipment.status_id !== 3 && shipment.status_id !== 4 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (confirm('Êtes-vous sûr de vouloir annuler cette expédition ?')) {
+                        onCancel(shipment.id)
+                      }
+                    }}
+                    disabled={isCancelling}
+                    className="text-red-600 border-red-300 hover:bg-red-50 hover:border-red-400"
+                  >
+                    {isCancelling ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <XCircle className="h-4 w-4 mr-2" />
+                    )}
+                    Annuler
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation()
                     onCreateClaim(shipment)
                   }}
                   className="text-amber-600 border-amber-300 hover:bg-amber-50 hover:border-amber-400"
@@ -364,6 +406,8 @@ export function ExpeditionsClient() {
   const { data, isLoading, isFetching } = useShipments(filters)
   const { data: carriers = [] } = useCarriers()
   const createClaimMutation = useCreateClaim()
+  const cancelMutation = useCancelShipment()
+  const refreshMutation = useRefreshShipment()
 
   const shipments = data?.shipments || []
   const pagination = data?.pagination || { page: 1, pageSize: 100, total: 0, totalPages: 1 }
@@ -629,7 +673,15 @@ export function ExpeditionsClient() {
               </TableHeader>
               <TableBody>
                 {shipments.map((shipment) => (
-                  <ShipmentRow key={shipment.id} shipment={shipment} onCreateClaim={handleOpenClaimDialog} />
+                  <ShipmentRow
+                    key={shipment.id}
+                    shipment={shipment}
+                    onCreateClaim={handleOpenClaimDialog}
+                    onCancel={(id) => cancelMutation.mutate(id)}
+                    onRefresh={(id) => refreshMutation.mutate(id)}
+                    isCancelling={cancelMutation.isPending && cancelMutation.variables === shipment.id}
+                    isRefreshing={refreshMutation.isPending && refreshMutation.variables === shipment.id}
+                  />
                 ))}
               </TableBody>
             </Table>

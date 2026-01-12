@@ -1,6 +1,7 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 
 export interface ShipmentFilters {
   from?: string
@@ -109,5 +110,59 @@ export function useCarriers() {
       return [...new Set(data.shipments.map((s: Shipment) => s.carrier).filter(Boolean))] as string[]
     },
     staleTime: 10 * 60 * 1000, // 10 minutes - carriers don't change often
+  })
+}
+
+/**
+ * Cancel a shipment in Sendcloud
+ */
+export function useCancelShipment() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (shipmentId: string) => {
+      const response = await fetch(`/api/shipments/${shipmentId}/cancel`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Erreur lors de l\'annulation')
+      }
+      return response.json()
+    },
+    onSuccess: () => {
+      toast.success('Expédition annulée')
+      queryClient.invalidateQueries({ queryKey: ['shipments'] })
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
+  })
+}
+
+/**
+ * Refresh a shipment from Sendcloud
+ */
+export function useRefreshShipment() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (shipmentId: string) => {
+      const response = await fetch(`/api/shipments/${shipmentId}/refresh`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Erreur lors du rafraîchissement')
+      }
+      return response.json()
+    },
+    onSuccess: (data) => {
+      toast.success(`Statut mis à jour: ${data.status_message || 'OK'}`)
+      queryClient.invalidateQueries({ queryKey: ['shipments'] })
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
   })
 }
