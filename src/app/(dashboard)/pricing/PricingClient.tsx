@@ -10,6 +10,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Download, DollarSign, Truck, AlertTriangle, CheckCircle, Loader2, Plus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 import { usePricing, useCreatePricingRule, useUpdatePricingRule, useDeletePricingRule, PricingRule } from '@/hooks/usePricing'
+import { useCarriers } from '@/hooks/useShipments'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
@@ -37,6 +39,7 @@ export function PricingClient() {
   const [formPrice, setFormPrice] = useState<number>(0)
 
   const { data, isLoading, isFetching } = usePricing()
+  const { data: shipmentCarriers = [] } = useCarriers()
 
   const createMutation = useCreatePricingRule()
   const updateMutation = useUpdatePricingRule()
@@ -252,18 +255,13 @@ export function PricingClient() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rules.map((rule, index) => {
-                  const isFirstOfCarrier = index === 0 || rules[index - 1].carrier !== rule.carrier
+                {rules.map((rule) => {
                   return (
                     <TableRow key={rule.id} className="group">
                       <TableCell className="pl-4 lg:pl-6">
-                        {isFirstOfCarrier ? (
-                          <Badge variant="default" className="font-medium text-xs">
-                            {rule.carrier}
-                          </Badge>
-                        ) : (
-                          <span className="text-muted-foreground text-sm ml-2">-</span>
-                        )}
+                        <Badge variant="muted" className="font-medium text-xs">
+                          {rule.carrier}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs lg:text-sm whitespace-nowrap">
                         {formatWeight(rule.weight_min_grams)}
@@ -314,11 +312,18 @@ export function PricingClient() {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Transporteur *</label>
-              <Input
-                placeholder="ex: COLISSIMO"
-                value={formCarrier}
-                onChange={(e) => setFormCarrier(e.target.value)}
-              />
+              <Select value={formCarrier} onValueChange={setFormCarrier}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Sélectionner un transporteur" />
+                </SelectTrigger>
+                <SelectContent>
+                  {shipmentCarriers.map((carrier) => (
+                    <SelectItem key={carrier} value={carrier}>
+                      {carrier}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -375,11 +380,18 @@ export function PricingClient() {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Transporteur *</label>
-              <Input
-                placeholder="ex: COLISSIMO"
-                value={formCarrier}
-                onChange={(e) => setFormCarrier(e.target.value)}
-              />
+              <Select value={formCarrier} onValueChange={setFormCarrier}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Sélectionner un transporteur" />
+                </SelectTrigger>
+                <SelectContent>
+                  {shipmentCarriers.map((carrier) => (
+                    <SelectItem key={carrier} value={carrier}>
+                      {carrier}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
