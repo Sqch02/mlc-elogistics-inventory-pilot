@@ -4,6 +4,7 @@ import { getAdminDb } from '@/lib/supabase/untyped'
 import { parseParcel } from '@/lib/sendcloud/client'
 import type { SendcloudParcel } from '@/lib/sendcloud/types'
 import { consumeStock } from '@/lib/stock/consume'
+import { getDestination } from '@/lib/utils/pricing'
 
 // Sendcloud webhook payload structure
 interface SendcloudWebhookPayload {
@@ -16,6 +17,7 @@ interface SendcloudWebhookPayload {
 
 interface PricingRule {
   carrier: string
+  destination: string | null
   weight_min_grams: number
   weight_max_grams: number
   price_eur: number
@@ -127,7 +129,7 @@ export async function POST(request: NextRequest) {
     // Get pricing rules for cost calculation
     const { data: pricingRules } = await adminClient
       .from('pricing_rules')
-      .select('carrier, weight_min_grams, weight_max_grams, price_eur')
+      .select('carrier, destination, weight_min_grams, weight_max_grams, price_eur')
       .eq('tenant_id', tenantId)
 
     // Get SKU map for item matching
@@ -159,14 +161,16 @@ export async function POST(request: NextRequest) {
 
         const isNewShipment = !existingShipment
 
-        // Calculate pricing
+        // Calculate pricing with destination awareness
         let pricingStatus: 'ok' | 'missing' = 'missing'
         let computedCost: number | null = null
 
         if (pricingRules) {
+          const destination = getDestination(parcel.country_code, parcel.carrier, parcel.service_point_id)
           const matchingRule = (pricingRules as PricingRule[]).find(
             (rule: PricingRule) =>
               rule.carrier.toLowerCase() === parcel.carrier.toLowerCase() &&
+              rule.destination === destination &&
               rule.weight_min_grams <= parcel.weight_grams &&
               rule.weight_max_grams > parcel.weight_grams
           )
