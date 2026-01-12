@@ -170,9 +170,9 @@ export async function fetchParcels(
     params.set('cursor', options.cursor)
   }
 
-  // Filter for shipped/active parcels (exclude only cancelled status 2000)
-  // 1=Created, 3=Delivered, 11=Announced, 12=At sorting centre, 13=In transit, 1000=Ready to send
-  params.set('status', '1,3,11,12,13,91,1000,62990')
+  // Don't filter by status - fetch ALL parcels to get complete history
+  // Previously filtered: 1=Created, 3=Delivered, 11=Announced, etc.
+  // Removed filter to include all statuses including archived/delivered
 
   const url = `${SENDCLOUD_API_URL}/parcels?${params.toString()}`
 
