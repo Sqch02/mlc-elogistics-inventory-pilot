@@ -7,8 +7,6 @@ interface ShipmentItemRow {
   shipment_id: string
   sku_id: string
   qty: number
-  sku_code: string
-  sendcloud_id: string
 }
 
 /**
@@ -25,24 +23,20 @@ export async function POST() {
 
     console.log('[Recalculate] Starting stock recalculation for tenant:', tenantId)
 
-    // Get all shipment_items that don't have a corresponding stock_movement
-    // We check by shipment_id (reference_id) + sku_id combination
-    const { data: unprocessedItems, error: queryError } = await adminClient
+    // Get all shipment_items (simple query without joins to avoid issues)
+    const { data: allItems, error: queryError } = await adminClient
       .from('shipment_items')
-      .select(`
-        shipment_id,
-        sku_id,
-        qty,
-        skus!inner(sku_code),
-        shipments!inner(sendcloud_id)
-      `)
+      .select('shipment_id, sku_id, qty')
       .eq('tenant_id', tenantId)
 
     if (queryError) {
+      console.error('[Recalculate] Query error:', queryError)
       throw new Error(`Failed to fetch shipment_items: ${queryError.message}`)
     }
 
-    if (!unprocessedItems || unprocessedItems.length === 0) {
+    console.log('[Recalculate] Found', allItems?.length || 0, 'shipment_items')
+
+    if (!allItems || allItems.length === 0) {
       return NextResponse.json({
         success: true,
         message: 'Aucun article à traiter',
@@ -57,32 +51,26 @@ export async function POST() {
       .eq('tenant_id', tenantId)
       .eq('reference_type', 'shipment')
 
+    console.log('[Recalculate] Found', existingMovements?.length || 0, 'existing movements')
+
     // Create a Set of processed combinations for quick lookup
     const processedSet = new Set(
-      existingMovements?.map((m: { reference_id: string; sku_id: string }) =>
-        `${m.reference_id}:${m.sku_id}`
+      existingMovements?.map((m: { reference_id: string | null; sku_id: string }) =>
+        `${m.reference_id || ''}:${m.sku_id}`
       ) || []
     )
 
     const stats = {
-      total: unprocessedItems.length,
+      total: allItems.length,
       processed: 0,
       skipped: 0,
       errors: 0,
       errorMessages: [] as string[],
     }
 
-    // Process each unprocessed item
-    for (const item of unprocessedItems) {
-      const typedItem = item as unknown as {
-        shipment_id: string
-        sku_id: string
-        qty: number
-        skus: { sku_code: string }
-        shipments: { sendcloud_id: string }
-      }
-
-      const key = `${typedItem.shipment_id}:${typedItem.sku_id}`
+    // Process each item
+    for (const item of allItems as ShipmentItemRow[]) {
+      const key = `${item.shipment_id}:${item.sku_id}`
 
       // Skip if already processed
       if (processedSet.has(key)) {
@@ -94,18 +82,24 @@ export async function POST() {
         // Consume stock for this item
         await consumeStock(
           tenantId,
-          typedItem.sku_id,
-          typedItem.qty,
-          typedItem.shipment_id,
+          item.sku_id,
+          item.qty,
+          item.shipment_id,
           'shipment'
         )
 
         stats.processed++
-        console.log(`[Recalculate] Processed ${typedItem.skus.sku_code} x${typedItem.qty} for shipment ${typedItem.shipments.sendcloud_id}`)
+
+        // Log progress every 100 items
+        if (stats.processed % 100 === 0) {
+          console.log(`[Recalculate] Progress: ${stats.processed} processed, ${stats.skipped} skipped`)
+        }
       } catch (error) {
         stats.errors++
-        const msg = `SKU ${typedItem.skus.sku_code}: ${error instanceof Error ? error.message : 'Unknown error'}`
-        stats.errorMessages.push(msg)
+        const msg = `SKU ${item.sku_id}: ${error instanceof Error ? error.message : 'Unknown error'}`
+        if (stats.errorMessages.length < 10) {
+          stats.errorMessages.push(msg)
+        }
         console.error(`[Recalculate] Error:`, msg)
       }
     }
