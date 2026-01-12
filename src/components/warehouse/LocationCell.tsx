@@ -6,23 +6,15 @@ import type { Location } from '@/hooks/useLocations'
 interface LocationCellProps {
   location: Location
   onClick: () => void
-  compact?: boolean
 }
 
-export function LocationCell({ location, onClick, compact = false }: LocationCellProps) {
+export function LocationCell({ location, onClick }: LocationCellProps) {
   // Déterminer le statut effectif
   const hasContent = !!location.content || !!location.assignment?.sku
   const isBlocked = location.status === 'blocked' ||
     location.label?.toLowerCase().includes('inaccessible') ||
     location.label?.toLowerCase().includes('impossible')
   const isOccupied = location.status === 'occupied' || hasContent
-
-  // Couleurs selon le statut (comme le Google Sheet)
-  const bgColor = isBlocked
-    ? 'bg-orange-100 border-orange-400 hover:bg-orange-200'
-    : isOccupied
-    ? 'bg-blue-100 border-blue-400 hover:bg-blue-200'
-    : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
 
   // Vérifier si date de péremption proche (< 30 jours) ou dépassée
   const isExpired = location.expiry_date && new Date(location.expiry_date) < new Date()
@@ -32,71 +24,70 @@ export function LocationCell({ location, onClick, compact = false }: LocationCel
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr)
-    return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' })
+    return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
   }
 
   // Contenu à afficher
   const displayContent = location.content || location.assignment?.sku?.sku_code || ''
+
+  // Couleurs selon le statut (exactement comme le Google Sheet)
+  const bgColor = isBlocked
+    ? 'bg-orange-200'
+    : isOccupied
+    ? 'bg-blue-200'
+    : 'bg-white'
 
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        'relative w-full text-left rounded-lg border-2 transition-all cursor-pointer',
+        'relative w-full h-full text-left rounded border border-gray-300 transition-all cursor-pointer overflow-hidden',
+        'hover:shadow-md hover:border-gray-400',
         'focus:outline-none focus:ring-2 focus:ring-primary/50',
-        compact ? 'p-1.5' : 'p-2',
         bgColor
       )}
     >
-      {/* Date de péremption en haut */}
-      {location.expiry_date && (
-        <div className={cn(
-          'text-center font-medium mb-1',
-          compact ? 'text-[9px]' : 'text-[10px]',
-          isExpired ? 'text-red-600' : isExpiringSoon ? 'text-orange-600' : 'text-gray-600'
-        )}>
-          {formatDate(location.expiry_date)}
+      {/* Warning icon pour bloqué ou expiré */}
+      {(isBlocked || isExpired) && (
+        <div className="absolute top-0.5 left-1/2 transform -translate-x-1/2 text-yellow-600 text-xs">
+          ⚠️
         </div>
       )}
 
-      {/* Contenu au milieu */}
-      {displayContent ? (
-        <div className={cn(
-          'font-medium text-gray-800 text-center leading-tight',
-          compact ? 'text-[10px] line-clamp-2 min-h-[24px]' : 'text-xs line-clamp-3 min-h-[36px]'
-        )}>
-          {displayContent}
-        </div>
-      ) : (
-        <div className={cn(
-          'text-center text-gray-400 italic',
-          compact ? 'text-[9px] min-h-[24px]' : 'text-[10px] min-h-[36px]',
-          'flex items-center justify-center'
-        )}>
-          {isBlocked ? 'Bloqué' : 'Vide'}
-        </div>
-      )}
+      {/* Contenu principal */}
+      <div className="flex flex-col items-center justify-center h-full p-1 pt-3">
+        {/* Texte du contenu */}
+        {displayContent ? (
+          <div className={cn(
+            'text-[10px] font-semibold text-center leading-tight line-clamp-2',
+            isBlocked ? 'text-orange-800' : 'text-gray-800'
+          )}>
+            {displayContent}
+          </div>
+        ) : isBlocked ? (
+          <div className="text-[10px] font-semibold text-center text-orange-800 leading-tight">
+            Impossible de<br />stocker
+          </div>
+        ) : null}
 
-      {/* Code en bas */}
-      <div className={cn(
-        'text-center font-mono text-gray-500 mt-1',
-        compact ? 'text-[9px]' : 'text-[10px]'
-      )}>
-        {location.code}
+        {/* Date de péremption */}
+        {location.expiry_date && !isBlocked && (
+          <div className={cn(
+            'text-[9px] mt-0.5',
+            isExpired ? 'text-red-600 font-bold' : isExpiringSoon ? 'text-orange-600' : 'text-gray-500'
+          )}>
+            {formatDate(location.expiry_date)}
+          </div>
+        )}
       </div>
 
-      {/* Indicateur de warning */}
-      {(isExpired || isBlocked) && (
-        <div className="absolute top-1 right-1">
-          <span className={cn(
-            'text-[10px]',
-            isExpired ? 'text-red-500' : 'text-orange-500'
-          )}>
-            ⚠️
-          </span>
-        </div>
-      )}
+      {/* Code en bas */}
+      <div className="absolute bottom-0 left-0 right-0 bg-gray-100/80 border-t border-gray-200 text-center py-0.5">
+        <span className="text-[9px] font-mono text-gray-600">
+          {location.code}
+        </span>
+      </div>
     </button>
   )
 }
