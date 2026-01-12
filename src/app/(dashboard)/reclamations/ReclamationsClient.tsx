@@ -148,51 +148,49 @@ function ClaimRow({ claim, onView, onEdit }: ClaimRowProps) {
                   </div>
                 )}
 
-                {/* Décision */}
-                {claim.status === 'indemnisee' || claim.status === 'refusee' ? (
-                  <div className="space-y-2">
-                    <h4 className="font-semibold text-sm flex items-center gap-2">
-                      {claim.status === 'indemnisee' ? (
-                        <CheckCircle className="h-4 w-4 text-green-500" />
-                      ) : (
-                        <XCircle className="h-4 w-4 text-red-500" />
-                      )}
-                      Décision
-                    </h4>
-                    <div className="space-y-1 text-sm">
-                      {claim.indemnity_eur && (
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Indemnité</span>
-                          <span className="font-medium text-green-600">{claim.indemnity_eur.toFixed(2)} €</span>
-                        </div>
-                      )}
-                      {claim.decided_at && (
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Date décision</span>
-                          <span>{formatDate(claim.decided_at)}</span>
-                        </div>
-                      )}
-                      {claim.decision_note && (
-                        <p className="text-muted-foreground mt-2 italic">"{claim.decision_note}"</p>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <h4 className="font-semibold text-sm flex items-center gap-2">
+                {/* Infos complémentaires / Décision */}
+                <div className="space-y-2">
+                  <h4 className="font-semibold text-sm flex items-center gap-2">
+                    {claim.status === 'indemnisee' ? (
+                      <CheckCircle className="h-4 w-4 text-green-500" />
+                    ) : claim.status === 'refusee' ? (
+                      <XCircle className="h-4 w-4 text-red-500" />
+                    ) : claim.status === 'cloturee' ? (
+                      <CheckCircle className="h-4 w-4 text-muted-foreground" />
+                    ) : (
                       <Clock className="h-4 w-4 text-primary" />
-                      Échéance
-                    </h4>
-                    <div className="space-y-1 text-sm">
+                    )}
+                    {['indemnisee', 'refusee', 'cloturee'].includes(claim.status) ? 'Résolution' : 'Échéance'}
+                  </h4>
+                  <div className="space-y-1 text-sm">
+                    {claim.indemnity_eur && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Indemnité</span>
+                        <span className="font-medium text-green-600">{claim.indemnity_eur.toFixed(2)} €</span>
+                      </div>
+                    )}
+                    {claim.decided_at && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Date décision</span>
+                        <span>{formatDate(claim.decided_at)}</span>
+                      </div>
+                    )}
+                    {!['indemnisee', 'refusee', 'cloturee'].includes(claim.status) && claim.resolution_deadline && (
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Date limite</span>
                         <span className={isOverdue ? 'text-red-600 font-medium' : ''}>
-                          {claim.resolution_deadline ? formatDate(claim.resolution_deadline) : '-'}
+                          {formatDate(claim.resolution_deadline)}
                         </span>
                       </div>
-                    </div>
+                    )}
+                    {claim.decision_note && (
+                      <div className="mt-2 p-2 bg-muted/50 rounded text-xs">
+                        <span className="font-medium">Note: </span>
+                        <span className="text-muted-foreground">{claim.decision_note}</span>
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
 
               {/* Actions */}
