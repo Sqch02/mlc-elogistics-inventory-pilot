@@ -131,6 +131,7 @@ export function useUpdateLocation() {
     onSuccess: () => {
       toast.success('Emplacement mis à jour')
       queryClient.invalidateQueries({ queryKey: ['locations'] })
+      queryClient.invalidateQueries({ queryKey: ['locations-by-zone'] })
       queryClient.invalidateQueries({ queryKey: ['skus'] })
     },
     onError: (error: Error) => {

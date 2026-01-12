@@ -40,10 +40,18 @@ export function EditLocationDialog({ location, open, onOpenChange }: EditLocatio
   const handleSave = async () => {
     if (!location) return
 
+    // Auto-set status based on content
+    let finalStatus = status
+    if (content && status === 'empty') {
+      finalStatus = 'occupied'
+    } else if (!content && !skuCode && status === 'occupied') {
+      finalStatus = 'empty'
+    }
+
     try {
       await updateMutation.mutateAsync({
         id: location.id,
-        status,
+        status: finalStatus,
         content: content || null,
         expiry_date: expiryDate || null,
         sku_code: skuCode || null,
