@@ -73,6 +73,10 @@ export function ParametresClient({ profile }: ParametresClientProps) {
   const syncStartTime = useRef<number | null>(null)
   const progressInterval = useRef<NodeJS.Timeout | null>(null)
 
+  // Stock recalculation state
+  const [isRecalculating, setIsRecalculating] = useState(false)
+  const [recalcResult, setRecalcResult] = useState<{ success: boolean; message: string; stats?: { processed: number; skipped: number; errors: number } } | null>(null)
+
   // Load company settings when tab changes to 'societe'
   useEffect(() => {
     if (activeTab === 'societe' && !companySettings.company_name) {
@@ -243,6 +247,37 @@ export function ParametresClient({ profile }: ParametresClientProps) {
         clearInterval(progressInterval.current)
         progressInterval.current = null
       }
+    }
+  }
+
+  const handleStockRecalculate = async () => {
+    setIsRecalculating(true)
+    setRecalcResult(null)
+    try {
+      const response = await fetch('/api/stock/recalculate', {
+        method: 'POST',
+      })
+      const result = await response.json()
+      setRecalcResult({
+        success: result.success,
+        message: result.message || (result.success ? 'Recalcul terminé' : 'Erreur'),
+        stats: result.stats,
+      })
+      if (result.success) {
+        toast.success('Recalcul du stock terminé', {
+          description: result.stats ? `${result.stats.processed} mouvements créés` : undefined,
+        })
+      } else {
+        toast.error(result.message || 'Erreur lors du recalcul')
+      }
+    } catch {
+      setRecalcResult({
+        success: false,
+        message: 'Erreur de connexion',
+      })
+      toast.error('Erreur de connexion au serveur')
+    } finally {
+      setIsRecalculating(false)
     }
   }
 
@@ -717,6 +752,72 @@ export function ParametresClient({ profile }: ParametresClientProps) {
               <div className="text-xs text-muted-foreground">
                 Note: Les cles API Sendcloud sont configurees dans les variables d&apos;environnement du serveur.
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Stock Recalculation Card */}
+          <Card className="shadow-sm border-border">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Package className="h-5 w-5 text-orange-500" />
+                <CardTitle>Recalcul du Stock</CardTitle>
+              </div>
+              <CardDescription>
+                Recalculez le stock en fonction des expéditions historiques non traitées
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
+                <p className="text-sm text-orange-800 mb-3">
+                  Cette action parcourt toutes les expéditions et crée les mouvements de stock manquants.
+                  Utile après un import initial ou si le stock ne correspond pas aux expéditions.
+                </p>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <p className="font-medium text-orange-900">Démarrer le recalcul</p>
+                    <p className="text-sm text-orange-700">
+                      Décrémente le stock pour chaque expédition non encore traitée
+                    </p>
+                  </div>
+                  <Button
+                    onClick={handleStockRecalculate}
+                    disabled={isRecalculating}
+                    variant="outline"
+                    className="shrink-0 border-orange-300 text-orange-700 hover:bg-orange-100"
+                  >
+                    {isRecalculating ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                    )}
+                    {isRecalculating ? 'Recalcul en cours...' : 'Recalculer le stock'}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Recalc Result */}
+              {recalcResult && !isRecalculating && (
+                <div className={`p-4 rounded-lg border ${recalcResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                  <div className="flex items-center gap-2">
+                    {recalcResult.success ? (
+                      <CheckCircle className="h-5 w-5 text-green-600" />
+                    ) : (
+                      <RefreshCw className="h-5 w-5 text-red-600" />
+                    )}
+                    <span className={`font-medium ${recalcResult.success ? 'text-green-700' : 'text-red-700'}`}>
+                      {recalcResult.message}
+                    </span>
+                  </div>
+                  {recalcResult.stats && (
+                    <div className="mt-2 text-sm text-muted-foreground">
+                      {recalcResult.stats.processed} mouvements créés, {recalcResult.stats.skipped} déjà traités
+                      {recalcResult.stats.errors > 0 && (
+                        <span className="text-red-600 ml-2">({recalcResult.stats.errors} erreurs)</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
