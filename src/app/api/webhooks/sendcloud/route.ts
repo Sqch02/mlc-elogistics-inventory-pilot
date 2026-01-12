@@ -3,6 +3,7 @@ import { createHmac } from 'crypto'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { parseParcel } from '@/lib/sendcloud/client'
 import type { SendcloudParcel } from '@/lib/sendcloud/types'
+import { consumeStock } from '@/lib/stock/consume'
 
 // Sendcloud webhook payload structure
 interface SendcloudWebhookPayload {
@@ -135,7 +136,7 @@ export async function POST(request: NextRequest) {
       .select('id, sku_code')
       .eq('tenant_id', tenantId)
 
-    const skuMap = new Map(
+    const skuMap = new Map<string, string>(
       skus?.map((s: { sku_code: string; id: string }) => [s.sku_code.toLowerCase(), s.id]) || []
     )
 
@@ -148,6 +149,15 @@ export async function POST(request: NextRequest) {
     for (const rawParcel of parcels) {
       try {
         const parcel = parseParcel(rawParcel)
+
+        // Check if shipment already exists (to know if we should consume stock)
+        const { data: existingShipment } = await adminClient
+          .from('shipments')
+          .select('id')
+          .eq('sendcloud_id', parcel.sendcloud_id)
+          .single()
+
+        const isNewShipment = !existingShipment
 
         // Calculate pricing
         let pricingStatus: 'ok' | 'missing' = 'missing'
@@ -223,7 +233,7 @@ export async function POST(request: NextRequest) {
         }
 
         results.processed++
-        console.log('[Webhook] Processed parcel:', parcel.sendcloud_id, '- Status:', parcel.status_message)
+        console.log('[Webhook] Processed parcel:', parcel.sendcloud_id, '- Status:', parcel.status_message, isNewShipment ? '(NEW)' : '(UPDATE)')
 
         // Process items if available
         if (parcel.items && parcel.items.length > 0 && shipment) {
@@ -241,6 +251,22 @@ export async function POST(request: NextRequest) {
                   },
                   { onConflict: 'shipment_id,sku_id' }
                 )
+
+              // ONLY consume stock for NEW shipments (not updates)
+              if (isNewShipment) {
+                try {
+                  await consumeStock(
+                    tenantId,
+                    skuId,
+                    item.qty,
+                    shipment.id,
+                    'shipment'
+                  )
+                  console.log(`[Webhook] Consumed stock for SKU ${item.sku_code} x${item.qty}`)
+                } catch (stockError) {
+                  console.error(`[Webhook] Error consuming stock for SKU ${item.sku_code}:`, stockError)
+                }
+              }
             }
           }
         }

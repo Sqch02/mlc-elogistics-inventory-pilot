@@ -214,7 +214,7 @@ export async function POST(request: NextRequest) {
         .select('id, sku_code')
         .eq('tenant_id', tenantId)
 
-      const skuMap = new Map(skus?.map((s: { sku_code: string; id: string }) => [s.sku_code.toLowerCase(), s.id]) || [])
+      const skuMap = new Map<string, string>(skus?.map((s: { sku_code: string; id: string }) => [s.sku_code.toLowerCase(), s.id]) || [])
 
       for (const item of data.items) {
         const skuId = skuMap.get(item.sku_code.toLowerCase())

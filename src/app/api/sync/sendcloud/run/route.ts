@@ -3,6 +3,7 @@ import { getAdminDb } from '@/lib/supabase/untyped'
 import { requireTenant } from '@/lib/supabase/auth'
 import { fetchAllParcels } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
+import { consumeStock } from '@/lib/stock/consume'
 
 interface PricingRule {
   carrier: string
@@ -86,6 +87,7 @@ export async function POST() {
       updated: 0,
       skipped: 0,
       itemsCreated: 0,
+      stockConsumed: 0,
       errors: [] as string[],
       totalExpected: parcels.length,
       phase: 'processing' as string,
@@ -103,7 +105,7 @@ export async function POST() {
       .select('id, sku_code')
       .eq('tenant_id', tenantId)
 
-    const skuMap = new Map(skus?.map((s: { sku_code: string; id: string }) => [s.sku_code.toLowerCase(), s.id]) || [])
+    const skuMap = new Map<string, string>(skus?.map((s: { sku_code: string; id: string }) => [s.sku_code.toLowerCase(), s.id]) || [])
 
     // Get pricing rules for cost calculation
     const { data: pricingRules } = await adminClient
@@ -114,6 +116,15 @@ export async function POST() {
     // Process each parcel
     for (const parcel of parcels) {
       try {
+        // Check if shipment already exists (to know if we should consume stock)
+        const { data: existingShipment } = await adminClient
+          .from('shipments')
+          .select('id')
+          .eq('sendcloud_id', parcel.sendcloud_id)
+          .single()
+
+        const isNewShipment = !existingShipment
+
         // Calculate pricing
         let pricingStatus: 'ok' | 'missing' = 'missing'
         let computedCost: number | null = null
@@ -187,11 +198,15 @@ export async function POST() {
           continue
         }
 
-        stats.created++
+        if (isNewShipment) {
+          stats.created++
+        } else {
+          stats.updated++
+        }
 
         // Update progress every 50 shipments
-        if (stats.created % 50 === 0) {
-          console.log('[Sync] Progress:', stats.created, '/', stats.totalExpected, 'shipments')
+        if ((stats.created + stats.updated) % 50 === 0) {
+          console.log('[Sync] Progress:', stats.created + stats.updated, '/', stats.totalExpected, 'shipments')
           await adminClient
             .from('sync_runs')
             .update({ stats_json: stats })
@@ -217,6 +232,22 @@ export async function POST() {
 
               if (!itemError) {
                 stats.itemsCreated++
+
+                // ONLY consume stock for NEW shipments (not updates)
+                if (isNewShipment) {
+                  try {
+                    const consumeResults = await consumeStock(
+                      tenantId,
+                      skuId,
+                      item.qty,
+                      shipment.id,
+                      'shipment'
+                    )
+                    stats.stockConsumed += consumeResults.length
+                  } catch (stockError) {
+                    console.error(`[Sync] Error consuming stock for SKU ${item.sku_code}:`, stockError)
+                  }
+                }
               }
             }
           }
