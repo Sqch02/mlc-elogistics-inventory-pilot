@@ -206,7 +206,7 @@ function AisleView({ aisle, locationsByRack, maxColsByRack, onLocationClick }: A
         {aisle.bottomRack && (
           <RackView
             rackLetter={aisle.bottomRack}
-            rackData={bottomRackData}
+            rackData={bottomRackData ?? undefined}
             maxCols={Math.max(bottomMaxCols, maxCols)}
             onLocationClick={onLocationClick}
             isReversed={false}
