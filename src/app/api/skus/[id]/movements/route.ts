@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerDb } from '@/lib/supabase/untyped'
+import { getAdminDb } from '@/lib/supabase/untyped'
 import { requireTenant } from '@/lib/supabase/auth'
 
 interface MovementRow {
@@ -13,7 +13,6 @@ interface MovementRow {
   reference_type: string | null
   user_id: string | null
   created_at: string
-  profiles: { full_name?: string; email?: string } | null
 }
 
 // GET /api/skus/[id]/movements - Get stock movement history for a SKU
@@ -23,7 +22,7 @@ export async function GET(
 ) {
   try {
     const tenantId = await requireTenant()
-    const supabase = await getServerDb()
+    const adminClient = getAdminDb()
     const { id } = await params
 
     // Get query params for pagination
@@ -32,7 +31,7 @@ export async function GET(
     const offset = parseInt(searchParams.get('offset') || '0')
 
     // Verify SKU belongs to tenant
-    const { data: sku } = await supabase
+    const { data: sku } = await adminClient
       .from('skus')
       .select('id, sku_code, name')
       .eq('tenant_id', tenantId)
@@ -43,8 +42,8 @@ export async function GET(
       return NextResponse.json({ error: 'SKU non trouvé' }, { status: 404 })
     }
 
-    // Get movements with user info
-    const { data: movements, error, count } = await supabase
+    // Get movements (without user join to avoid RLS recursion on profiles)
+    const { data: movements, error, count } = await adminClient
       .from('stock_movements')
       .select(`
         id,
@@ -56,10 +55,10 @@ export async function GET(
         reference_id,
         reference_type,
         user_id,
-        created_at,
-        profiles:user_id(full_name, email)
+        created_at
       `, { count: 'exact' })
       .eq('sku_id', id)
+      .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1)
 
@@ -76,9 +75,7 @@ export async function GET(
       reference_id: m.reference_id,
       reference_type: m.reference_type,
       created_at: m.created_at,
-      user: m.profiles ? {
-        name: m.profiles.full_name || m.profiles.email || 'Système',
-      } : { name: 'Système' },
+      user: { name: 'Système' },
     }))
 
     return NextResponse.json({
