@@ -16,6 +16,8 @@ export async function GET(request: NextRequest) {
   try {
     const tenantId = await requireTenant()
     const supabase = await createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
 
     const searchParams = request.nextUrl.searchParams
     const status = searchParams.get('status')
@@ -25,7 +27,7 @@ export async function GET(request: NextRequest) {
     const from = searchParams.get('from')
     const to = searchParams.get('to')
 
-    let query = supabase
+    let query = db
       .from('claims')
       .select(`
         *,
@@ -61,7 +63,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Filter by search text (order_ref or description)
-    let filteredClaims = claims || []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let filteredClaims: any[] = claims || []
     if (search) {
       const searchLower = search.toLowerCase()
       filteredClaims = filteredClaims.filter(c =>

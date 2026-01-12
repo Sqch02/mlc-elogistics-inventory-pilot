@@ -71,8 +71,11 @@ export async function PATCH(
     const supabase = await createClient()
     const { id } = await params
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+
     // Get current claim for history
-    const { data: currentClaim } = await supabase
+    const { data: currentClaim } = await db
       .from('claims')
       .select('*')
       .eq('id', id)
@@ -133,8 +136,6 @@ export async function PATCH(
       updateData.decided_by = user?.id
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const db = supabase as any
     const { data: claim, error } = await db
       .from('claims')
       .update(updateData)
