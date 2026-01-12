@@ -3,16 +3,72 @@ import { fetchMockParcels } from './mock'
 
 const SENDCLOUD_API_URL = 'https://panel.sendcloud.sc/api/v2'
 
-// Parse Sendcloud date format "DD-MM-YYYY HH:mm:ss" to ISO string
-function parseSendcloudDate(dateStr: string | null): string | null {
+// Parse Sendcloud date format to ISO string
+// Supports multiple formats: "DD-MM-YYYY HH:mm:ss", ISO 8601, Unix timestamp
+function parseSendcloudDate(dateStr: string | number | null | undefined): string | null {
   if (!dateStr) return null
 
-  // Format: "29-12-2025 15:46:37"
-  const match = dateStr.match(/^(\d{2})-(\d{2})-(\d{4}) (\d{2}):(\d{2}):(\d{2})$/)
-  if (!match) return dateStr // Return as-is if different format
+  // If it's a number (Unix timestamp in seconds or milliseconds)
+  if (typeof dateStr === 'number') {
+    // If timestamp is in seconds (before year 3000), convert to ms
+    const ts = dateStr < 100000000000 ? dateStr * 1000 : dateStr
+    return new Date(ts).toISOString()
+  }
 
-  const [, day, month, year, hour, min, sec] = match
-  return `${year}-${month}-${day}T${hour}:${min}:${sec}Z`
+  const str = String(dateStr).trim()
+  if (!str) return null
+
+  // Format 1: "29-12-2025 15:46:37" (DD-MM-YYYY HH:mm:ss)
+  const match1 = str.match(/^(\d{2})-(\d{2})-(\d{4}) (\d{2}):(\d{2}):(\d{2})$/)
+  if (match1) {
+    const [, day, month, year, hour, min, sec] = match1
+    return `${year}-${month}-${day}T${hour}:${min}:${sec}Z`
+  }
+
+  // Format 2: "29/12/2025 15:46:37" (DD/MM/YYYY HH:mm:ss)
+  const match2 = str.match(/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})$/)
+  if (match2) {
+    const [, day, month, year, hour, min, sec] = match2
+    return `${year}-${month}-${day}T${hour}:${min}:${sec}Z`
+  }
+
+  // Format 3: ISO 8601 (2025-01-03T14:30:00Z or 2025-01-03T14:30:00.000Z)
+  if (str.match(/^\d{4}-\d{2}-\d{2}T/)) {
+    // Already ISO format, validate it
+    const date = new Date(str)
+    if (!isNaN(date.getTime())) {
+      return date.toISOString()
+    }
+  }
+
+  // Format 4: "2025-01-03 14:30:00" (YYYY-MM-DD HH:mm:ss)
+  const match4 = str.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/)
+  if (match4) {
+    const [, year, month, day, hour, min, sec] = match4
+    return `${year}-${month}-${day}T${hour}:${min}:${sec}Z`
+  }
+
+  // Format 5: Just date "2025-01-03" or "03-01-2025"
+  const match5a = str.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (match5a) {
+    const [, year, month, day] = match5a
+    return `${year}-${month}-${day}T00:00:00Z`
+  }
+
+  const match5b = str.match(/^(\d{2})-(\d{2})-(\d{4})$/)
+  if (match5b) {
+    const [, day, month, year] = match5b
+    return `${year}-${month}-${day}T00:00:00Z`
+  }
+
+  // Try native Date parsing as last resort
+  const date = new Date(str)
+  if (!isNaN(date.getTime())) {
+    return date.toISOString()
+  }
+
+  console.warn('[Sendcloud] Could not parse date:', str)
+  return null
 }
 
 export function parseParcel(parcel: SendcloudParcel): ParsedShipment {
@@ -27,11 +83,25 @@ export function parseParcel(parcel: SendcloudParcel): ParsedShipment {
     value: item.value ? parseFloat(item.value) : undefined,
   })).filter((item) => item.sku_code)
 
-  // Get the best available date (prefer date_announced > date_created > created_at)
-  const shippedAt = parseSendcloudDate(parcel.date_announced)
-    || parseSendcloudDate(parcel.date_created)
-    || parcel.created_at
-    || new Date().toISOString()
+  // Get the best available date (prefer date_created > date_announced > created_at)
+  // date_created = when the parcel was created in Sendcloud (DD-MM-YYYY format)
+  // date_announced = when it was announced to carrier
+  // created_at = ISO timestamp
+  let shippedAt = parseSendcloudDate(parcel.date_created)
+    || parseSendcloudDate(parcel.date_announced)
+    || parseSendcloudDate(parcel.date_updated)
+    || parseSendcloudDate(parcel.created_at)
+    || parseSendcloudDate(parcel.updated_at)
+
+  // If no date found, log warning and use current date as last resort
+  if (!shippedAt) {
+    console.warn('[Sendcloud] No valid date found for parcel', parcel.id, '- dates:', {
+      date_created: parcel.date_created,
+      date_announced: parcel.date_announced,
+      date_updated: parcel.date_updated,
+    })
+    shippedAt = new Date().toISOString()
+  }
 
   return {
     sendcloud_id: String(parcel.id),
