@@ -6,8 +6,8 @@ import type { SendcloudParcel } from '@/lib/sendcloud/types'
 
 // Sendcloud webhook payload structure
 interface SendcloudWebhookPayload {
-  action: 'parcel_status_changed' | 'parcel_created' | 'parcel_cancelled'
-  timestamp: number
+  action: string // Can be parcel_status_changed, parcel_created, parcel_cancelled, integration_updated, etc.
+  timestamp?: number
   parcel?: SendcloudParcel
   // Legacy format - some webhooks may send this
   parcels?: SendcloudParcel[]
@@ -80,7 +80,20 @@ export async function POST(request: NextRequest) {
     // Parse payload
     const payload: SendcloudWebhookPayload = JSON.parse(rawBody)
 
-    console.log('[Webhook] Received:', payload.action, 'at', new Date(payload.timestamp * 1000).toISOString())
+    // Safe timestamp logging
+    let timestampStr = 'unknown'
+    if (payload.timestamp && payload.timestamp > 0 && payload.timestamp < 4102444800) {
+      // Valid timestamp between 1970 and 2100
+      timestampStr = new Date(payload.timestamp * 1000).toISOString()
+    }
+    console.log('[Webhook] Received:', payload.action, 'at', timestampStr)
+
+    // Ignore non-parcel actions (like integration_updated, integration_connected, etc.)
+    const parcelActions = ['parcel_status_changed', 'parcel_created', 'parcel_cancelled']
+    if (!parcelActions.includes(payload.action)) {
+      console.log('[Webhook] Ignoring non-parcel action:', payload.action)
+      return NextResponse.json({ success: true, action: 'ignored', type: payload.action })
+    }
 
     // Handle different actions
     if (payload.action === 'parcel_cancelled') {
