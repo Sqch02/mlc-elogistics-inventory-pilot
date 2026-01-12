@@ -149,7 +149,7 @@ function ZoneGridView({ zone, onLocationClick, compact }: ZoneGridViewProps) {
                   key={col}
                   className="text-xs font-medium text-center text-muted-foreground p-1"
                 >
-                  Rack {col}
+                  Pos. {col.toString().padStart(2, '0')}
                 </div>
               ))}
 
@@ -161,7 +161,7 @@ function ZoneGridView({ zone, onLocationClick, compact }: ZoneGridViewProps) {
                     key={`row-${row}`}
                     className="text-xs font-medium text-muted-foreground p-1 flex items-center"
                   >
-                    R{row}
+                    Rack {String.fromCharCode(64 + row)}
                   </div>
 
                   {/* Cells */}

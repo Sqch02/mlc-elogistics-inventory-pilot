@@ -166,6 +166,7 @@ export function useDeleteLocation() {
 // Helper pour les labels de zone
 function getZoneLabel(zoneCode: string): string {
   const labels: Record<string, string> = {
+    'ENTREPOT': 'Entrepôt',
     'ALLEE1': 'Allée 1',
     'ALLEE2': 'Allée 2',
     'ALLEE3': 'Allée 3',
