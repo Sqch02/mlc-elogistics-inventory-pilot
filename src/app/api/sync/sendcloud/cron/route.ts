@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { fetchAllParcels } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
+import { consumeStock } from '@/lib/stock/consume'
 
 interface PricingRule {
   carrier: string
@@ -113,7 +114,7 @@ export async function GET(request: NextRequest) {
         .select('id, sku_code')
         .eq('tenant_id', tenant.id)
 
-      const skuMap = new Map(
+      const skuMap = new Map<string, string>(
         skus?.map((s: { sku_code: string; id: string }) => [s.sku_code.toLowerCase(), s.id]) || []
       )
 
@@ -126,6 +127,15 @@ export async function GET(request: NextRequest) {
       // Process each parcel
       for (const parcel of parcels) {
         try {
+          // Check if shipment already exists (to know if we should consume stock)
+          const { data: existingShipment } = await adminClient
+            .from('shipments')
+            .select('id')
+            .eq('sendcloud_id', parcel.sendcloud_id)
+            .single()
+
+          const isNewShipment = !existingShipment
+
           let pricingStatus: 'ok' | 'missing' = 'missing'
           let computedCost: number | null = null
 
@@ -211,6 +221,21 @@ export async function GET(request: NextRequest) {
                   },
                   { onConflict: 'shipment_id,sku_id' }
                 )
+
+                // ONLY consume stock for NEW shipments (not updates)
+                if (isNewShipment) {
+                  try {
+                    await consumeStock(
+                      tenant.id,
+                      skuId,
+                      item.qty,
+                      shipment.id,
+                      'shipment'
+                    )
+                  } catch (stockError) {
+                    console.error(`[Cron] Error consuming stock for SKU ${item.sku_code}:`, stockError)
+                  }
+                }
               }
             }
           }
