@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
 
 // PATCH /api/skus/[id]/stock - Adjust stock quantity
 export async function PATCH(
@@ -9,11 +9,12 @@ export async function PATCH(
 ) {
   try {
     const tenantId = await requireTenant()
+    const user = await getCurrentUser()
     const supabase = await getServerDb()
     const { id } = await params
     const body = await request.json()
 
-    const { qty_current, adjustment, reason } = body
+    const { qty_current, adjustment, reason, movement_type } = body
 
     // Verify SKU belongs to tenant
     const { data: sku } = await supabase
@@ -56,6 +57,9 @@ export async function PATCH(
       )
     }
 
+    const previousQty = currentStock?.qty_current || 0
+    const adjustmentAmount = newQty - previousQty
+
     // Update or insert stock snapshot
     const { error } = await supabase
       .from('stock_snapshots')
@@ -70,13 +74,26 @@ export async function PATCH(
 
     if (error) throw error
 
-    // Log the adjustment (optional - could create a stock_movements table)
-    console.log(`[Stock] SKU ${sku.sku_code}: ${currentStock?.qty_current || 0} → ${newQty} (${reason || 'manual adjustment'})`)
+    // Log the movement to stock_movements table
+    await supabase
+      .from('stock_movements')
+      .insert({
+        tenant_id: tenantId,
+        sku_id: id,
+        qty_before: previousQty,
+        qty_after: newQty,
+        adjustment: adjustmentAmount,
+        movement_type: movement_type || 'manual',
+        reason: reason || null,
+        user_id: user?.id || null,
+      })
+
+    console.log(`[Stock] SKU ${sku.sku_code}: ${previousQty} → ${newQty} (${reason || 'manual adjustment'})`)
 
     return NextResponse.json({
       success: true,
       message: 'Stock mis à jour',
-      previous_qty: currentStock?.qty_current || 0,
+      previous_qty: previousQty,
       new_qty: newQty,
     })
   } catch (error) {

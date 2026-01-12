@@ -14,9 +14,9 @@ import {
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { Package, TrendingDown, AlertTriangle, Warehouse, Search, X, Download, Loader2, Plus, MoreHorizontal, Pencil, Trash2, PackagePlus } from 'lucide-react'
+import { Package, TrendingDown, AlertTriangle, Warehouse, Search, X, Download, Loader2, Plus, MoreHorizontal, Pencil, Trash2, PackagePlus, History, ArrowUpRight, ArrowDownRight, Clock } from 'lucide-react'
 import { useProducts, ProductFilters } from '@/hooks/useProducts'
-import { useSkus, useCreateSku, useUpdateSku, useDeleteSku, useAdjustStock, SKU } from '@/hooks/useSkus'
+import { useSkus, useCreateSku, useUpdateSku, useDeleteSku, useAdjustStock, useSkuMovements, SKU, StockMovement } from '@/hooks/useSkus'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { Skeleton } from '@/components/ui/skeleton'
 
@@ -33,6 +33,28 @@ function getStatusBadge(status: string) {
     default:
       return <Badge variant="muted">{status}</Badge>
   }
+}
+
+function getMovementTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    manual: 'Manuel',
+    shipment: 'Expedition',
+    restock: 'Reappro',
+    correction: 'Correction',
+    import: 'Import',
+  }
+  return labels[type] || type
+}
+
+function formatMovementDate(dateStr: string): string {
+  const date = new Date(dateStr)
+  return date.toLocaleDateString('fr-FR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 interface ProductFormData {
@@ -59,12 +81,15 @@ export function ProduitsClient() {
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [stockOpen, setStockOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historySkuId, setHistorySkuId] = useState<string | null>(null)
   const [selectedSku, setSelectedSku] = useState<SKU | null>(null)
   const [formData, setFormData] = useState<ProductFormData>(defaultFormData)
   const [stockAdjustment, setStockAdjustment] = useState({ qty: 0, reason: '' })
 
   const { data, isLoading, isFetching } = useProducts(filters)
   const { data: skusData } = useSkus()
+  const { data: movementsData, isLoading: movementsLoading } = useSkuMovements(historySkuId)
   const createMutation = useCreateSku()
   const updateMutation = useUpdateSku()
   const deleteMutation = useDeleteSku()
@@ -192,6 +217,22 @@ export function ProduitsClient() {
       reason: stockAdjustment.reason || undefined,
     })
     setStockOpen(false)
+    setSelectedSku(null)
+  }
+
+  // History
+  const openHistory = (skuCode: string) => {
+    const sku = getFullSku(skuCode)
+    if (sku) {
+      setHistorySkuId(sku.id)
+      setSelectedSku(sku)
+      setHistoryOpen(true)
+    }
+  }
+
+  const closeHistory = () => {
+    setHistoryOpen(false)
+    setHistorySkuId(null)
     setSelectedSku(null)
   }
 
@@ -370,11 +411,15 @@ export function ProduitsClient() {
                           <PackagePlus className="h-4 w-4 mr-2" />
                           Ajuster stock
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openHistory(sku.sku_code)}>
+                          <History className="h-4 w-4 mr-2" />
+                          Historique
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => openEdit(sku.sku_code)}>
                           <Pencil className="h-4 w-4 mr-2" />
                           Modifier
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
                         <DropdownMenuItem className="text-error" onClick={() => openDelete(sku.sku_code)}>
                           <Trash2 className="h-4 w-4 mr-2" />
                           Supprimer
@@ -556,6 +601,71 @@ export function ProduitsClient() {
               {isSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Appliquer
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Stock History Dialog */}
+      <Dialog open={historyOpen} onOpenChange={(open) => !open && closeHistory()}>
+        <DialogContent className="max-w-2xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <History className="h-5 w-5" />
+              Historique du stock
+            </DialogTitle>
+            <DialogDescription>
+              Mouvements de stock pour <strong>{selectedSku?.sku_code}</strong> - {selectedSku?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 max-h-[50vh] overflow-y-auto">
+            {movementsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : !movementsData?.movements?.length ? (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <Clock className="h-12 w-12 mb-4 opacity-50" />
+                <p className="text-sm">Aucun mouvement enregistre</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {movementsData.movements.map((movement: StockMovement) => (
+                  <div key={movement.id} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
+                    <div className={`p-2 rounded-full ${movement.adjustment >= 0 ? 'bg-success/10 text-success' : 'bg-error/10 text-error'}`}>
+                      {movement.adjustment >= 0 ? (
+                        <ArrowUpRight className="h-4 w-4" />
+                      ) : (
+                        <ArrowDownRight className="h-4 w-4" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`font-mono font-semibold ${movement.adjustment >= 0 ? 'text-success' : 'text-error'}`}>
+                          {movement.adjustment >= 0 ? '+' : ''}{movement.adjustment}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {movement.qty_before} → {movement.qty_after}
+                        </span>
+                        <Badge variant="muted" className="text-xs">
+                          {getMovementTypeLabel(movement.movement_type)}
+                        </Badge>
+                      </div>
+                      {movement.reason && (
+                        <p className="text-sm text-muted-foreground mt-1 truncate">{movement.reason}</p>
+                      )}
+                      <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                        <span>{formatMovementDate(movement.created_at)}</span>
+                        <span>•</span>
+                        <span>{movement.user.name}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeHistory}>Fermer</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

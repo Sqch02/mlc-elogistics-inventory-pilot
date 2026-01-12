@@ -18,6 +18,8 @@ import { toast } from 'sonner'
 import { useShipments, useCarriers, useCancelShipment, useRefreshShipment, ShipmentFilters, Shipment } from '@/hooks/useShipments'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { Skeleton } from '@/components/ui/skeleton'
+import { CreateShipmentDialog } from '@/components/forms/CreateShipmentDialog'
+import { Plus } from 'lucide-react'
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '-'
@@ -397,6 +399,7 @@ export function ExpeditionsClient() {
   const [filters, setFilters] = useState<ShipmentFilters>({ page: 1, pageSize: 100 })
   const [searchInput, setSearchInput] = useState('')
   const [isExporting, setIsExporting] = useState(false)
+  const [createShipmentOpen, setCreateShipmentOpen] = useState(false)
 
   // Claim dialog state
   const [claimDialogOpen, setClaimDialogOpen] = useState(false)
@@ -520,6 +523,10 @@ export function ExpeditionsClient() {
             {totalShipments} expedition(s) {isFetching && '(chargement...)'}
           </p>
         </div>
+        <Button onClick={() => setCreateShipmentOpen(true)}>
+          <Plus className="h-4 w-4 mr-2" />
+          Nouvelle expedition
+        </Button>
       </div>
 
       {/* KPI Row */}
@@ -824,6 +831,9 @@ export function ExpeditionsClient() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Create Shipment Dialog */}
+      <CreateShipmentDialog open={createShipmentOpen} onOpenChange={setCreateShipmentOpen} />
     </div>
   )
 }

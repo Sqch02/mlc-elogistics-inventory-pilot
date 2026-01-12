@@ -166,3 +166,89 @@ export function useRefreshShipment() {
     },
   })
 }
+
+// Types for creating a shipment
+export interface CreateShipmentData {
+  // Recipient
+  name: string
+  email?: string
+  telephone?: string
+  company_name?: string
+
+  // Address
+  address: string
+  address_2?: string
+  city: string
+  postal_code: string
+  country: string // ISO 2 code (FR, BE, etc.)
+
+  // Shipment
+  weight: number // in grams
+  order_number?: string
+  shipment_id?: number // Sendcloud shipping method ID
+  request_label?: boolean
+
+  // Items (optional)
+  items?: Array<{
+    sku_code: string
+    qty: number
+    description?: string
+    weight?: number
+    value?: number
+  }>
+}
+
+export interface CreateShipmentResponse {
+  success: boolean
+  message?: string
+  warning?: string
+  shipment?: {
+    id: string
+    sendcloud_id: string
+    tracking: string | null
+    tracking_url: string | null
+    label_url: string | null
+    carrier: string
+    status: string | null
+  }
+  error?: string
+  details?: string[]
+}
+
+/**
+ * Create a new shipment in Sendcloud
+ */
+export function useCreateShipment() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (data: CreateShipmentData): Promise<CreateShipmentResponse> => {
+      const response = await fetch('/api/shipments/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Erreur lors de la création')
+      }
+
+      return result
+    },
+    onSuccess: (data) => {
+      if (data.warning) {
+        toast.warning(data.warning)
+      } else {
+        toast.success(data.message || 'Expédition créée avec succès')
+      }
+      queryClient.invalidateQueries({ queryKey: ['shipments'] })
+      queryClient.invalidateQueries({ queryKey: ['skus'] })
+      queryClient.invalidateQueries({ queryKey: ['products'] })
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
+  })
+}

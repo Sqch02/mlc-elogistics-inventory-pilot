@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -8,11 +8,29 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { FileText, Receipt, Euro, AlertTriangle, CheckCircle, Loader2, MoreHorizontal, Download, Trash2, Send, CreditCard } from 'lucide-react'
+import { FileText, Receipt, Euro, AlertTriangle, CheckCircle, Loader2, MoreHorizontal, Download, Trash2, Send, CreditCard, FileDown } from 'lucide-react'
 import { useInvoices, useGenerateInvoice, useUpdateInvoiceStatus, useDeleteInvoice, Invoice } from '@/hooks/useInvoices'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ExportInvoicesButton } from './FacturationActions'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
+import { downloadInvoicePDF, formatInvoiceNumber, type InvoicePDFData } from '@/lib/utils/invoice-pdf'
+import { toast } from 'sonner'
+
+interface CompanySettings {
+  company_name: string
+  company_address: string
+  company_city: string
+  company_postal_code: string
+  company_country: string
+  company_vat_number: string
+  company_siret: string
+  company_email: string
+  company_phone: string
+  invoice_payment_terms: string
+  invoice_bank_details: string
+  invoice_prefix: string
+  invoice_next_number: number
+}
 
 function formatMonth(month: string) {
   const [year, monthNum] = month.split('-')
@@ -28,8 +46,17 @@ export function FacturationClient() {
   const [selectedMonth, setSelectedMonth] = useState('')
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null)
+  const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null)
 
   const { data, isLoading, isFetching } = useInvoices()
+
+  // Load company settings for PDF generation
+  useEffect(() => {
+    fetch('/api/settings/company')
+      .then(res => res.json())
+      .then(data => setCompanySettings(data))
+      .catch(() => {})
+  }, [])
   const generateMutation = useGenerateInvoice()
   const updateStatusMutation = useUpdateInvoiceStatus()
   const deleteMutation = useDeleteInvoice()
@@ -113,6 +140,62 @@ export function FacturationClient() {
 
     const csv = generateCSV(exportData, { delimiter: ';' })
     downloadCSV(csv, `facture_${invoice.month}.csv`)
+  }
+
+  const handleDownloadPDF = (invoice: Invoice) => {
+    if (!companySettings || !companySettings.company_name) {
+      toast.error('Veuillez configurer les informations société dans Paramètres > Société')
+      return
+    }
+
+    const year = parseInt(invoice.month.split('-')[0])
+    // Generate invoice number based on order in list or use a simple counter
+    const invoiceIndex = invoices.findIndex(inv => inv.id === invoice.id) + 1
+    const invoiceNumber = formatInvoiceNumber(
+      companySettings.invoice_prefix || 'FAC',
+      year,
+      invoiceIndex
+    )
+
+    const totalHT = Number(invoice.total_eur)
+    const tvaRate = 20
+    const tva = totalHT * (tvaRate / 100)
+    const totalTTC = totalHT + tva
+
+    const pdfData: InvoicePDFData = {
+      invoiceNumber,
+      month: invoice.month,
+      createdAt: invoice.created_at,
+      company: {
+        name: companySettings.company_name,
+        address: companySettings.company_address,
+        city: companySettings.company_city,
+        postalCode: companySettings.company_postal_code,
+        country: companySettings.company_country,
+        vatNumber: companySettings.company_vat_number,
+        siret: companySettings.company_siret,
+        email: companySettings.company_email,
+        phone: companySettings.company_phone,
+      },
+      lines: invoice.invoice_lines.map(line => ({
+        carrier: line.carrier,
+        weightMin: line.weight_min_grams,
+        weightMax: line.weight_max_grams,
+        shipmentCount: line.shipment_count,
+        unitPrice: Number(line.unit_price_eur) || Number(line.total_eur) / line.shipment_count,
+        total: Number(line.total_eur),
+      })),
+      totalHT,
+      tvaRate,
+      tva,
+      totalTTC,
+      paymentTerms: companySettings.invoice_payment_terms,
+      bankDetails: companySettings.invoice_bank_details,
+      missingPricingCount: invoice.missing_pricing_count,
+    }
+
+    downloadInvoicePDF(pdfData, `facture_${invoiceNumber}.pdf`)
+    toast.success('PDF téléchargé')
   }
 
   if (isLoading) {
@@ -249,9 +332,13 @@ export function FacturationClient() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => handleDownloadPDF(inv)}>
+                              <FileDown className="mr-2 h-4 w-4" />
+                              Telecharger PDF
+                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleDownloadCSV(inv)}>
                               <Download className="mr-2 h-4 w-4" />
-                              Télécharger CSV
+                              Telecharger CSV
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             {inv.status === 'draft' && (

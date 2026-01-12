@@ -123,16 +123,17 @@ export function useAdjustStock() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ id, qty_current, adjustment, reason }: {
+    mutationFn: async ({ id, qty_current, adjustment, reason, movement_type }: {
       id: string
       qty_current?: number
       adjustment?: number
       reason?: string
+      movement_type?: 'manual' | 'restock' | 'correction' | 'import'
     }) => {
       const response = await fetch(`/api/skus/${id}/stock`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ qty_current, adjustment, reason }),
+        body: JSON.stringify({ qty_current, adjustment, reason, movement_type }),
       })
       if (!response.ok) {
         const error = await response.json()
@@ -140,13 +141,57 @@ export function useAdjustStock() {
       }
       return response.json()
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       toast.success(`Stock mis à jour: ${data.previous_qty} → ${data.new_qty}`)
       queryClient.invalidateQueries({ queryKey: ['skus'] })
       queryClient.invalidateQueries({ queryKey: ['products'] })
+      queryClient.invalidateQueries({ queryKey: ['sku-movements', variables.id] })
     },
     onError: (error: Error) => {
       toast.error(error.message)
     },
+  })
+}
+
+// Types for stock movements
+export interface StockMovement {
+  id: string
+  qty_before: number
+  qty_after: number
+  adjustment: number
+  movement_type: 'manual' | 'shipment' | 'restock' | 'correction' | 'import'
+  reason: string | null
+  reference_id: string | null
+  reference_type: string | null
+  created_at: string
+  user: {
+    name: string
+  }
+}
+
+export interface SkuMovementsResponse {
+  sku: {
+    id: string
+    sku_code: string
+    name: string
+  }
+  movements: StockMovement[]
+  total: number
+  limit: number
+  offset: number
+}
+
+async function fetchSkuMovements(skuId: string): Promise<SkuMovementsResponse> {
+  const response = await fetch(`/api/skus/${skuId}/movements`)
+  if (!response.ok) throw new Error('Failed to fetch movements')
+  return response.json()
+}
+
+export function useSkuMovements(skuId: string | null) {
+  return useQuery({
+    queryKey: ['sku-movements', skuId],
+    queryFn: () => fetchSkuMovements(skuId!),
+    enabled: !!skuId,
+    staleTime: 30 * 1000, // 30 seconds
   })
 }
