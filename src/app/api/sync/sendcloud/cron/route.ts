@@ -97,8 +97,11 @@ export async function GET(request: NextRequest) {
 
       const since = lastSync?.cursor || lastSync?.ended_at || undefined
 
-      // Fetch only recent parcels (limit to 10 pages = 1000 for incremental sync)
-      const parcels = await fetchAllParcels(credentials, since, 10)
+      // Fetch parcels - use higher limit for full sync, lower for incremental
+      // If no previous sync (since is undefined), fetch up to 50 pages (5000 parcels) for initial sync
+      // Otherwise fetch 10 pages (1000) for incremental updates
+      const maxPages = since ? 10 : 50
+      const parcels = await fetchAllParcels(credentials, since, maxPages)
       console.log(`[Cron] Fetched ${parcels.length} new parcels for tenant ${tenant.id}`)
 
       let created = 0
