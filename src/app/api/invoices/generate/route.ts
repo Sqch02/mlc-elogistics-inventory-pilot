@@ -37,19 +37,39 @@ export async function POST(request: NextRequest) {
     const startOfMonth = new Date(year, monthNum - 1, 1)
     const endOfMonth = new Date(year, monthNum, 0, 23, 59, 59, 999)
 
-    // Get all shipments for the month
-    const { data: shipments, error: shipmentsError } = await supabase
-      .from('shipments')
-      .select('id, carrier, weight_grams, pricing_status, computed_cost_eur')
-      .eq('tenant_id', tenantId)
-      .gte('shipped_at', startOfMonth.toISOString())
-      .lte('shipped_at', endOfMonth.toISOString())
+    // Get all shipments for the month (with pagination to bypass 1000 limit)
+    const allShipments: Shipment[] = []
+    const pageSize = 1000
+    let page = 0
+    let hasMore = true
 
-    if (shipmentsError) {
-      throw shipmentsError
+    while (hasMore) {
+      const { data: shipmentPage, error: shipmentsError } = await supabase
+        .from('shipments')
+        .select('id, carrier, weight_grams, pricing_status, computed_cost_eur')
+        .eq('tenant_id', tenantId)
+        .eq('is_return', false) // Exclude returns from invoicing
+        .gte('shipped_at', startOfMonth.toISOString())
+        .lte('shipped_at', endOfMonth.toISOString())
+        .range(page * pageSize, (page + 1) * pageSize - 1)
+        .order('shipped_at')
+
+      if (shipmentsError) {
+        throw shipmentsError
+      }
+
+      if (shipmentPage && shipmentPage.length > 0) {
+        allShipments.push(...(shipmentPage as Shipment[]))
+        hasMore = shipmentPage.length === pageSize
+        page++
+      } else {
+        hasMore = false
+      }
     }
 
-    if (!shipments || shipments.length === 0) {
+    const shipments = allShipments
+
+    if (shipments.length === 0) {
       return NextResponse.json({
         success: false,
         message: 'Aucune expedition pour ce mois',
