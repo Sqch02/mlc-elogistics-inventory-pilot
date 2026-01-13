@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
-import { fetchAllParcels } from '@/lib/sendcloud/client'
+import { fetchAllParcels, fetchAllReturns } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
 import { consumeStock } from '@/lib/stock/consume'
 import { getDestination } from '@/lib/utils/pricing'
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to get tenants' }, { status: 500 })
   }
 
-  const results: Array<{ tenantId: string; success: boolean; count?: number; error?: string }> = []
+  const results: Array<{ tenantId: string; success: boolean; count?: number; returnsCount?: number; error?: string }> = []
 
   for (const tenant of tenants) {
     try {
@@ -259,8 +259,90 @@ export async function GET(request: NextRequest) {
         })
         .eq('id', syncRun.id)
 
-      results.push({ tenantId: tenant.id, success: true, count: created })
-      console.log(`[Cron] Tenant ${tenant.id}: ${created} shipments synced`)
+      // =============================================
+      // SYNC RETURNS
+      // =============================================
+      let returnsCreated = 0
+      const returnsErrors: string[] = []
+
+      try {
+        // Get last returns sync cursor
+        const { data: lastReturnsSync } = await adminClient
+          .from('sync_runs')
+          .select('cursor, ended_at')
+          .eq('tenant_id', tenant.id)
+          .eq('source', 'sendcloud_returns')
+          .in('status', ['success', 'partial'])
+          .order('ended_at', { ascending: false })
+          .limit(1)
+          .single()
+
+        const returnsSince = lastReturnsSync?.cursor || lastReturnsSync?.ended_at || undefined
+
+        // Fetch returns
+        const maxReturnsPages = returnsSince ? 10 : 50
+        const returns = await fetchAllReturns(credentials, returnsSince, maxReturnsPages)
+        console.log(`[Cron] Fetched ${returns.length} returns for tenant ${tenant.id}`)
+
+        // Process each return
+        for (const ret of returns) {
+          try {
+            await adminClient
+              .from('returns')
+              .upsert(
+                {
+                  tenant_id: tenant.id,
+                  sendcloud_id: ret.sendcloud_id,
+                  sendcloud_return_id: ret.sendcloud_return_id,
+                  order_ref: ret.order_ref,
+                  tracking_number: ret.tracking_number,
+                  tracking_url: ret.tracking_url,
+                  carrier: ret.carrier,
+                  service: ret.service,
+                  status: ret.status,
+                  status_message: ret.status_message,
+                  sender_name: ret.sender_name,
+                  sender_email: ret.sender_email,
+                  sender_phone: ret.sender_phone,
+                  sender_company: ret.sender_company,
+                  sender_address: ret.sender_address,
+                  sender_city: ret.sender_city,
+                  sender_postal_code: ret.sender_postal_code,
+                  sender_country_code: ret.sender_country_code,
+                  return_reason: ret.return_reason,
+                  return_reason_comment: ret.return_reason_comment,
+                  created_at: ret.created_at,
+                  announced_at: ret.announced_at,
+                  raw_json: ret.raw_json,
+                },
+                { onConflict: 'sendcloud_return_id' }
+              )
+
+            returnsCreated++
+          } catch (error) {
+            returnsErrors.push(`Return ${ret.sendcloud_return_id}: ${error instanceof Error ? error.message : 'Unknown'}`)
+          }
+        }
+
+        // Create returns sync_run record
+        await adminClient
+          .from('sync_runs')
+          .insert({
+            tenant_id: tenant.id,
+            source: 'sendcloud_returns',
+            status: returnsErrors.length > 0 ? 'partial' : 'success',
+            ended_at: new Date().toISOString(),
+            stats_json: { fetched: returns.length, created: returnsCreated, errors: returnsErrors },
+            cursor: new Date().toISOString(),
+          })
+
+        console.log(`[Cron] Tenant ${tenant.id}: ${returnsCreated} returns synced`)
+      } catch (returnsSyncError) {
+        console.error(`[Cron] Error syncing returns for tenant ${tenant.id}:`, returnsSyncError)
+      }
+
+      results.push({ tenantId: tenant.id, success: true, count: created, returnsCount: returnsCreated })
+      console.log(`[Cron] Tenant ${tenant.id}: ${created} shipments + ${returnsCreated} returns synced`)
     } catch (error) {
       console.error(`[Cron] Error syncing tenant ${tenant.id}:`, error)
       results.push({
