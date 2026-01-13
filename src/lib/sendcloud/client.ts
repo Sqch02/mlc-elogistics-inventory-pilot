@@ -441,16 +441,32 @@ function mapReturnStatus(statusId: number): string {
 
 /**
  * Map return reason from Sendcloud
+ * Handles both string and object formats from API
  */
-function mapReturnReason(reason?: string, refundType?: string): string | null {
-  if (!reason && !refundType) return null
+function mapReturnReason(reason?: unknown, refundType?: unknown): string | null {
+  // Extract string from various formats
+  const extractString = (val: unknown): string => {
+    if (!val) return ''
+    if (typeof val === 'string') return val
+    if (typeof val === 'object' && val !== null) {
+      // Handle objects like { message: "Remboursement" } or { refund_type: "refund" }
+      const obj = val as Record<string, unknown>
+      return String(obj.message || obj.refund_type || obj.reason || obj.name || '')
+    }
+    return String(val)
+  }
 
-  const reasonLower = (reason || refundType || '').toLowerCase()
+  const reasonStr = extractString(reason)
+  const refundStr = extractString(refundType)
 
-  if (reasonLower.includes('remboursement') || reasonLower.includes('refund')) return 'refund'
-  if (reasonLower.includes('échange') || reasonLower.includes('exchange')) return 'exchange'
-  if (reasonLower.includes('défectueux') || reasonLower.includes('defect')) return 'defective'
-  if (reasonLower.includes('erreur') || reasonLower.includes('wrong')) return 'wrong_item'
+  if (!reasonStr && !refundStr) return null
+
+  const combined = (reasonStr + ' ' + refundStr).toLowerCase()
+
+  if (combined.includes('remboursement') || combined.includes('refund')) return 'refund'
+  if (combined.includes('échange') || combined.includes('exchange')) return 'exchange'
+  if (combined.includes('défectueux') || combined.includes('defect')) return 'defective'
+  if (combined.includes('erreur') || combined.includes('wrong')) return 'wrong_item'
 
   return 'other'
 }
@@ -480,7 +496,7 @@ export function parseReturn(ret: SendcloudReturn): ParsedReturn {
     sender_city: incoming.from_city || null,
     sender_postal_code: incoming.from_postal_code || null,
     sender_country_code: incoming.from_country || null,
-    return_reason: mapReturnReason(ret.reason, ret.refund?.refund_type),
+    return_reason: mapReturnReason(ret.reason, ret.refund),
     return_reason_comment: ret.message || null,
     created_at: ret.created_at || new Date().toISOString(),
     announced_at: incoming.announced_at || null,

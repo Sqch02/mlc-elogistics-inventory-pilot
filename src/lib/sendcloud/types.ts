@@ -121,16 +121,16 @@ export interface SendcloudReturn {
   brand_id?: number
   created_at: string
   updated_at?: string
-  reason?: string
+  reason?: unknown // Can be string or object
   message?: string
   status: {
     id: number
     message: string
   }
   refund?: {
-    refund_type: string
+    refund_type?: string
     message?: string
-  }
+  } | unknown // Can vary in format
   incoming_parcel: {
     id: number
     tracking_number?: string
