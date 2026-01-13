@@ -12,6 +12,7 @@ export async function GET() {
       .select('*')
       .eq('tenant_id', tenantId)
       .order('carrier')
+      .order('destination')
       .order('weight_min_grams')
 
     if (error) {
@@ -39,6 +40,7 @@ export async function POST(request: Request) {
       .insert({
         tenant_id: tenantId,
         carrier: body.carrier,
+        destination: body.destination || null,
         weight_min_grams: body.weight_min_grams,
         weight_max_grams: body.weight_max_grams,
         price_eur: body.price_eur,

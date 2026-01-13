@@ -6,14 +6,25 @@ import { toast } from 'sonner'
 export interface PricingRule {
   id: string
   carrier: string
+  destination: string | null
   weight_min_grams: number
   weight_max_grams: number
   price_eur: number
 }
 
+// Labels pour les destinations
+export const DESTINATION_LABELS: Record<string, string> = {
+  france_domicile: 'France',
+  belgique: 'Belgique',
+  suisse: 'Suisse',
+  eu_dom: 'EU (autres)',
+  monde: 'International',
+}
+
 export interface PricingStats {
   totalRules: number
   carriers: string[]
+  destinations: string[]
   missingPricingCount: number
 }
 
@@ -24,10 +35,12 @@ async function fetchPricing(): Promise<{ rules: PricingRule[]; stats: PricingSta
 
   const rules = data.rules as PricingRule[]
   const carriers = [...new Set(rules.map(r => r.carrier))]
+  const destinations = [...new Set(rules.map(r => r.destination).filter(Boolean))] as string[]
 
   const stats: PricingStats = {
     totalRules: rules.length,
     carriers,
+    destinations,
     missingPricingCount: data.missingPricingCount || 0,
   }
 
@@ -48,6 +61,7 @@ export function useCreatePricingRule() {
   return useMutation({
     mutationFn: async (data: {
       carrier: string
+      destination?: string | null
       weight_min_grams: number
       weight_max_grams: number
       price_eur: number
@@ -80,6 +94,7 @@ export function useUpdatePricingRule() {
     mutationFn: async ({ id, ...data }: {
       id: string
       carrier?: string
+      destination?: string | null
       weight_min_grams?: number
       weight_max_grams?: number
       price_eur?: number

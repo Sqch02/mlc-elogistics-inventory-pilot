@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Download, DollarSign, Truck, AlertTriangle, CheckCircle, Loader2, Plus, MoreHorizontal, Pencil, Trash2, Upload } from 'lucide-react'
-import { usePricing, useCreatePricingRule, useUpdatePricingRule, useDeletePricingRule, PricingRule } from '@/hooks/usePricing'
+import { usePricing, useCreatePricingRule, useUpdatePricingRule, useDeletePricingRule, PricingRule, DESTINATION_LABELS } from '@/hooks/usePricing'
 import { useCarriers } from '@/hooks/useShipments'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
@@ -36,9 +36,13 @@ export function PricingClient() {
 
   // Form states
   const [formCarrier, setFormCarrier] = useState('')
+  const [formDestination, setFormDestination] = useState('')
   const [formWeightMin, setFormWeightMin] = useState<number>(0)
   const [formWeightMax, setFormWeightMax] = useState<number>(0)
   const [formPrice, setFormPrice] = useState<number>(0)
+
+  // Filter states
+  const [filterDestination, setFilterDestination] = useState<string>('all')
 
   const { data, isLoading, isFetching, refetch } = usePricing()
   const { data: shipmentCarriers = [] } = useCarriers()
@@ -51,14 +55,21 @@ export function PricingClient() {
   const stats = data?.stats || {
     totalRules: 0,
     carriers: [],
+    destinations: [],
     missingPricingCount: 0,
   }
+
+  // Filter rules by destination
+  const filteredRules = filterDestination === 'all'
+    ? rules
+    : rules.filter(r => r.destination === filterDestination)
 
   const handleExport = async () => {
     setIsExporting(true)
     try {
-      const exportData = rules.map(r => ({
+      const exportData = filteredRules.map(r => ({
         transporteur: r.carrier,
+        destination: r.destination || '',
         poids_min_g: r.weight_min_grams,
         poids_max_g: r.weight_max_grams,
         prix_eur: r.price_eur,
@@ -73,6 +84,7 @@ export function PricingClient() {
   // Open create dialog
   const openCreate = () => {
     setFormCarrier('')
+    setFormDestination('')
     setFormWeightMin(0)
     setFormWeightMax(1000)
     setFormPrice(0)
@@ -83,6 +95,7 @@ export function PricingClient() {
   const openEdit = (rule: PricingRule) => {
     setSelectedRule(rule)
     setFormCarrier(rule.carrier)
+    setFormDestination(rule.destination || '')
     setFormWeightMin(rule.weight_min_grams)
     setFormWeightMax(rule.weight_max_grams)
     setFormPrice(rule.price_eur)
@@ -113,6 +126,7 @@ export function PricingClient() {
     try {
       await createMutation.mutateAsync({
         carrier: formCarrier.trim().toUpperCase(),
+        destination: formDestination || null,
         weight_min_grams: formWeightMin,
         weight_max_grams: formWeightMax,
         price_eur: formPrice,
@@ -143,6 +157,7 @@ export function PricingClient() {
       await updateMutation.mutateAsync({
         id: selectedRule.id,
         carrier: formCarrier.trim().toUpperCase(),
+        destination: formDestination || null,
         weight_min_grams: formWeightMin,
         weight_max_grams: formWeightMax,
         price_eur: formPrice,
@@ -176,10 +191,23 @@ export function PricingClient() {
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Grille Tarifaire</h1>
           <p className="text-muted-foreground text-sm">
-            {rules.length} regle(s) {isFetching && '(chargement...)'}
+            {filteredRules.length} regle(s) sur {rules.length} {isFetching && '(chargement...)'}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Select value={filterDestination} onValueChange={setFilterDestination}>
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="Destination" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Toutes destinations</SelectItem>
+              {stats.destinations.map((dest) => (
+                <SelectItem key={dest} value={dest}>
+                  {DESTINATION_LABELS[dest] || dest}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
             <Upload className="mr-2 h-4 w-4" />
             Importer
@@ -240,13 +268,15 @@ export function PricingClient() {
 
       {/* Table */}
       <Card className="shadow-sm border-border">
-        {rules.length === 0 ? (
+        {filteredRules.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
             <DollarSign className="h-12 w-12 mb-4 opacity-50" />
-            <p className="text-sm">Aucune regle tarifaire configuree</p>
-            <Button variant="link" size="sm" className="mt-2" onClick={openCreate}>
-              Creer une regle
-            </Button>
+            <p className="text-sm">Aucune regle tarifaire {filterDestination !== 'all' ? 'pour cette destination' : 'configuree'}</p>
+            {rules.length === 0 && (
+              <Button variant="link" size="sm" className="mt-2" onClick={openCreate}>
+                Creer une regle
+              </Button>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -254,6 +284,7 @@ export function PricingClient() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="pl-4 lg:pl-6 whitespace-nowrap">Transporteur</TableHead>
+                  <TableHead className="whitespace-nowrap">Destination</TableHead>
                   <TableHead className="text-right whitespace-nowrap">Min</TableHead>
                   <TableHead className="text-right whitespace-nowrap">Max</TableHead>
                   <TableHead className="text-right whitespace-nowrap">Prix</TableHead>
@@ -261,13 +292,18 @@ export function PricingClient() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rules.map((rule) => {
+                {filteredRules.map((rule) => {
                   return (
                     <TableRow key={rule.id} className="group">
                       <TableCell className="pl-4 lg:pl-6">
                         <Badge variant="muted" className="font-medium text-xs">
                           {rule.carrier}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-sm text-muted-foreground">
+                          {rule.destination ? (DESTINATION_LABELS[rule.destination] || rule.destination) : '-'}
+                        </span>
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs lg:text-sm whitespace-nowrap">
                         {formatWeight(rule.weight_min_grams)}
@@ -316,20 +352,37 @@ export function PricingClient() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Transporteur *</label>
-              <Select value={formCarrier} onValueChange={setFormCarrier}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Sélectionner un transporteur" />
-                </SelectTrigger>
-                <SelectContent>
-                  {shipmentCarriers.map((carrier) => (
-                    <SelectItem key={carrier} value={carrier}>
-                      {carrier}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Transporteur *</label>
+                <Select value={formCarrier} onValueChange={setFormCarrier}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sélectionner" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {shipmentCarriers.map((carrier) => (
+                      <SelectItem key={carrier} value={carrier}>
+                        {carrier}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Destination *</label>
+                <Select value={formDestination} onValueChange={setFormDestination}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sélectionner" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(DESTINATION_LABELS).map(([key, label]) => (
+                      <SelectItem key={key} value={key}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -384,20 +437,37 @@ export function PricingClient() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Transporteur *</label>
-              <Select value={formCarrier} onValueChange={setFormCarrier}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Sélectionner un transporteur" />
-                </SelectTrigger>
-                <SelectContent>
-                  {shipmentCarriers.map((carrier) => (
-                    <SelectItem key={carrier} value={carrier}>
-                      {carrier}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Transporteur *</label>
+                <Select value={formCarrier} onValueChange={setFormCarrier}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sélectionner" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {shipmentCarriers.map((carrier) => (
+                      <SelectItem key={carrier} value={carrier}>
+                        {carrier}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Destination *</label>
+                <Select value={formDestination} onValueChange={setFormDestination}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sélectionner" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(DESTINATION_LABELS).map(([key, label]) => (
+                      <SelectItem key={key} value={key}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
