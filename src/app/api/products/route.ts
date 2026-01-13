@@ -40,6 +40,22 @@ export async function GET(request: NextRequest) {
       throw error
     }
 
+    // Get bundle SKU IDs to exclude them from products list
+    const { data: bundles } = await supabase
+      .from('bundles')
+      .select('bundle_sku_id')
+      .eq('tenant_id', tenantId)
+
+    const bundleSkuIds = new Set((bundles || []).map((b: { bundle_sku_id: string }) => b.bundle_sku_id))
+
+    // Filter out bundle SKUs
+    const filteredSkusData = (skusData || []).filter((sku: { id: string; sku_code: string }) => {
+      if (bundleSkuIds.has(sku.id)) return false
+      // Also filter by code pattern
+      if (sku.sku_code.toUpperCase().includes('BU-')) return false
+      return true
+    })
+
     // Get full metrics from calculateSKUMetrics
     const metrics = await calculateSKUMetrics(tenantId)
     const metricsMap = new Map(metrics.map(m => [m.sku_id, m]))
@@ -54,7 +70,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Transform data with full metrics
-    const skus = (skusData || []).map((sku: SKURow) => {
+    const skus = filteredSkusData.map((sku: SKURow) => {
       const m = metricsMap.get(sku.id)
       const qtyCurrent = m?.qty_current || 0
       const alertThreshold = sku.alert_threshold || 10
