@@ -14,7 +14,8 @@ export interface PricingRule {
 
 // Labels pour les destinations
 export const DESTINATION_LABELS: Record<string, string> = {
-  france_domicile: 'France',
+  france_domicile: 'France Domicile',
+  france_relay: 'France Relais',
   belgique: 'Belgique',
   suisse: 'Suisse',
   eu_dom: 'EU (autres)',
