@@ -14,7 +14,7 @@ import {
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { Package, TrendingDown, AlertTriangle, Warehouse, Search, X, Download, Loader2, Plus, MoreHorizontal, Pencil, Trash2, PackagePlus, History, ArrowUpRight, ArrowDownRight, Clock, Upload } from 'lucide-react'
+import { Package, TrendingDown, AlertTriangle, Warehouse, Search, X, Download, Loader2, Plus, MoreHorizontal, Pencil, Trash2, PackagePlus, History, ArrowUpRight, ArrowDownRight, Clock, Upload, BarChart3 } from 'lucide-react'
 import { useProducts, ProductFilters } from '@/hooks/useProducts'
 import { useSkus, useCreateSku, useUpdateSku, useDeleteSku, useAdjustStock, useSkuMovements, SKU, StockMovement } from '@/hooks/useSkus'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
@@ -65,6 +65,13 @@ interface ProductFormData {
   qty_initial: number
 }
 
+interface MonthlyVolumeData {
+  sku: { id: string; sku_code: string; name: string }
+  months: { month: string; label: string; volume: number }[]
+  totalVolume: number
+  avgVolume: number
+}
+
 const defaultFormData: ProductFormData = {
   sku_code: '',
   name: '',
@@ -85,6 +92,9 @@ export function ProduitsClient() {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historySkuId, setHistorySkuId] = useState<string | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  const [volumeOpen, setVolumeOpen] = useState(false)
+  const [volumeData, setVolumeData] = useState<MonthlyVolumeData | null>(null)
+  const [volumeLoading, setVolumeLoading] = useState(false)
   const [selectedSku, setSelectedSku] = useState<SKU | null>(null)
   const [formData, setFormData] = useState<ProductFormData>(defaultFormData)
   const [stockAdjustment, setStockAdjustment] = useState({ qty: 0, reason: '' })
@@ -235,6 +245,33 @@ export function ProduitsClient() {
   const closeHistory = () => {
     setHistoryOpen(false)
     setHistorySkuId(null)
+    setSelectedSku(null)
+  }
+
+  // Volume mensuel
+  const openVolume = async (skuCode: string) => {
+    const sku = getFullSku(skuCode)
+    if (sku) {
+      setSelectedSku(sku)
+      setVolumeOpen(true)
+      setVolumeLoading(true)
+      try {
+        const res = await fetch(`/api/skus/${sku.id}/monthly-volume`)
+        if (res.ok) {
+          const data = await res.json()
+          setVolumeData(data)
+        }
+      } catch (error) {
+        console.error('Error fetching volume:', error)
+      } finally {
+        setVolumeLoading(false)
+      }
+    }
+  }
+
+  const closeVolume = () => {
+    setVolumeOpen(false)
+    setVolumeData(null)
     setSelectedSku(null)
   }
 
@@ -422,6 +459,10 @@ export function ProduitsClient() {
                         <DropdownMenuItem onClick={() => openHistory(sku.sku_code)}>
                           <History className="h-4 w-4 mr-2" />
                           Historique
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openVolume(sku.sku_code)}>
+                          <BarChart3 className="h-4 w-4 mr-2" />
+                          Volume mensuel
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => openEdit(sku.sku_code)}>
@@ -689,6 +730,86 @@ export function ProduitsClient() {
         keyField="sku_code"
         onSuccess={() => refetch()}
       />
+
+      {/* Volume Mensuel Dialog */}
+      <Dialog open={volumeOpen} onOpenChange={(open) => !open && closeVolume()}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5" />
+              Volume mensuel
+            </DialogTitle>
+            <DialogDescription>
+              Ventes des 12 derniers mois pour <strong>{selectedSku?.sku_code}</strong> - {selectedSku?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            {volumeLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : volumeData ? (
+              <div className="space-y-4">
+                {/* Bar chart visualization */}
+                <div className="grid grid-cols-12 gap-1 items-end h-32 px-2">
+                  {volumeData.months.map((m) => {
+                    const maxVolume = Math.max(...volumeData.months.map(x => x.volume), 1)
+                    const height = (m.volume / maxVolume) * 100
+                    return (
+                      <div key={m.month} className="flex flex-col items-center gap-1">
+                        <div
+                          className="w-full bg-primary/80 rounded-t transition-all hover:bg-primary"
+                          style={{ height: `${Math.max(height, 2)}%` }}
+                          title={`${m.label}: ${m.volume}`}
+                        />
+                        <span className="text-[10px] text-muted-foreground font-medium">{m.label}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Table with values */}
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-medium">Mois</th>
+                        <th className="px-3 py-2 text-right font-medium">Volume</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {volumeData.months.map((m, i) => (
+                        <tr key={m.month} className={i % 2 === 0 ? 'bg-muted/20' : ''}>
+                          <td className="px-3 py-1.5">{m.label} {m.month.split('-')[0]}</td>
+                          <td className="px-3 py-1.5 text-right font-mono">{m.volume.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-muted/50 font-medium">
+                      <tr>
+                        <td className="px-3 py-2">Total</td>
+                        <td className="px-3 py-2 text-right font-mono">{volumeData.totalVolume.toLocaleString()}</td>
+                      </tr>
+                      <tr>
+                        <td className="px-3 py-2">Moyenne / mois</td>
+                        <td className="px-3 py-2 text-right font-mono">{volumeData.avgVolume.toLocaleString()}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <BarChart3 className="h-12 w-12 mb-4 opacity-50" />
+                <p className="text-sm">Aucune donnée disponible</p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeVolume}>Fermer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
