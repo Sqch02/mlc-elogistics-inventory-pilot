@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Download, MapPin, Package, CheckCircle, XCircle, Loader2, Search, X, Plus, MoreHorizontal, Pencil, Trash2, Link2, Unlink, Table as TableIcon, LayoutGrid } from 'lucide-react'
+import { Download, MapPin, Package, CheckCircle, XCircle, Loader2, Search, X, Plus, MoreHorizontal, Pencil, Trash2, Link2, Unlink, Table as TableIcon, LayoutGrid, Upload } from 'lucide-react'
 import { useLocations, useCreateLocation, useUpdateLocation, useDeleteLocation, Location } from '@/hooks/useLocations'
 import { useSkus } from '@/hooks/useSkus'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner'
 import { WarehouseVisualMap } from '@/components/warehouse/WarehouseVisualMap'
 import { EditLocationDialog } from '@/components/warehouse/EditLocationDialog'
+import { ImportPreviewDialog } from '@/components/forms/ImportPreviewDialog'
 
 export function EmplacementsClient() {
   const [isExporting, setIsExporting] = useState(false)
@@ -31,6 +32,7 @@ export function EmplacementsClient() {
   const [assignOpen, setAssignOpen] = useState(false)
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null)
   const [quickEditOpen, setQuickEditOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
 
   // Form states
   const [formCode, setFormCode] = useState('')
@@ -38,7 +40,7 @@ export function EmplacementsClient() {
   const [formActive, setFormActive] = useState(true)
   const [formSkuCode, setFormSkuCode] = useState('')
 
-  const { data, isLoading, isFetching } = useLocations()
+  const { data, isLoading, isFetching, refetch } = useLocations()
   const { data: skusData } = useSkus()
 
   const createMutation = useCreateLocation()
@@ -249,6 +251,10 @@ export function EmplacementsClient() {
             </Button>
           </div>
 
+          <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+            <Upload className="mr-2 h-4 w-4" />
+            Importer
+          </Button>
           <Button variant="outline" size="sm" onClick={handleExport} disabled={isExporting}>
             {isExporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
             Export
@@ -614,6 +620,18 @@ export function EmplacementsClient() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Import Dialog */}
+      <ImportPreviewDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        importType="locations"
+        importEndpoint="/api/import/locations"
+        title="Importer des emplacements"
+        description="Colonnes: code, label (optionnel), sku_code (optionnel)"
+        keyField="code"
+        onSuccess={() => refetch()}
+      />
     </div>
   )
 }

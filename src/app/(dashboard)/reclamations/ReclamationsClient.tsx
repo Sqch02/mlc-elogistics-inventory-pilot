@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   AlertTriangle, Search, X, Download, Loader2, Plus, Eye, Edit2, Clock,
-  CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, Euro
+  CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, Euro, Upload
 } from 'lucide-react'
 import {
   useClaims, useUpdateClaim, useCreateClaim, useClaimHistory,
@@ -19,6 +19,7 @@ import {
   CLAIM_STATUS_LABELS, CLAIM_TYPE_LABELS, CLAIM_PRIORITY_LABELS
 } from '@/hooks/useClaims'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
+import { ImportPreviewDialog } from '@/components/forms/ImportPreviewDialog'
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '-'
@@ -230,6 +231,7 @@ export function ReclamationsClient() {
   const [filters, setFilters] = useState<ClaimFilters>({})
   const [searchInput, setSearchInput] = useState('')
   const [isExporting, setIsExporting] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
 
   // Dialogs
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -248,7 +250,7 @@ export function ReclamationsClient() {
     decision_note: '',
   })
 
-  const { data, isLoading } = useClaims(filters)
+  const { data, isLoading, refetch } = useClaims(filters)
   const createMutation = useCreateClaim()
   const updateMutation = useUpdateClaim()
 
@@ -379,10 +381,16 @@ export function ReclamationsClient() {
             {stats.total} réclamation(s) au total
           </p>
         </div>
-        <Button onClick={openCreateDialog}>
-          <Plus className="h-4 w-4 mr-2" />
-          Nouvelle réclamation
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setImportOpen(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            Import
+          </Button>
+          <Button onClick={openCreateDialog}>
+            <Plus className="h-4 w-4 mr-2" />
+            Nouvelle réclamation
+          </Button>
+        </div>
       </div>
 
       {/* KPI Row */}
@@ -773,6 +781,18 @@ export function ReclamationsClient() {
         open={historyDialogOpen}
         onOpenChange={setHistoryDialogOpen}
         claimId={selectedClaim?.id || ''}
+      />
+
+      {/* Import Dialog */}
+      <ImportPreviewDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        importType="claims"
+        importEndpoint="/api/import/claims"
+        title="Import Réclamations"
+        description="Importer ou mettre à jour des réclamations depuis un fichier CSV/Excel"
+        keyField="order_ref"
+        onSuccess={() => refetch()}
       />
     </div>
   )

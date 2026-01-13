@@ -8,13 +8,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Download, DollarSign, Truck, AlertTriangle, CheckCircle, Loader2, Plus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { Download, DollarSign, Truck, AlertTriangle, CheckCircle, Loader2, Plus, MoreHorizontal, Pencil, Trash2, Upload } from 'lucide-react'
 import { usePricing, useCreatePricingRule, useUpdatePricingRule, useDeletePricingRule, PricingRule } from '@/hooks/usePricing'
 import { useCarriers } from '@/hooks/useShipments'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
+import { ImportPreviewDialog } from '@/components/forms/ImportPreviewDialog'
 
 function formatWeight(grams: number) {
   if (grams >= 1000) {
@@ -30,6 +31,7 @@ export function PricingClient() {
   const [createOpen, setCreateOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [selectedRule, setSelectedRule] = useState<PricingRule | null>(null)
 
   // Form states
@@ -38,7 +40,7 @@ export function PricingClient() {
   const [formWeightMax, setFormWeightMax] = useState<number>(0)
   const [formPrice, setFormPrice] = useState<number>(0)
 
-  const { data, isLoading, isFetching } = usePricing()
+  const { data, isLoading, isFetching, refetch } = usePricing()
   const { data: shipmentCarriers = [] } = useCarriers()
 
   const createMutation = useCreatePricingRule()
@@ -178,6 +180,10 @@ export function PricingClient() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+            <Upload className="mr-2 h-4 w-4" />
+            Importer
+          </Button>
           <Button variant="outline" size="sm" onClick={handleExport} disabled={isExporting}>
             {isExporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
             Export
@@ -461,6 +467,18 @@ export function PricingClient() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Import Dialog */}
+      <ImportPreviewDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        importType="pricing"
+        importEndpoint="/api/import/pricing"
+        title="Importer la grille tarifaire"
+        description="Colonnes: carrier, weight_min_grams, weight_max_grams, price_eur"
+        keyField="carrier"
+        onSuccess={() => refetch()}
+      />
     </div>
   )
 }
