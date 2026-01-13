@@ -473,33 +473,66 @@ function mapReturnReason(reason?: unknown, refundType?: unknown): string | null 
 
 /**
  * Parse a Sendcloud return object
+ * Note: incoming_parcel is just an ID, actual data is in incoming_parcel_data
  */
 export function parseReturn(ret: SendcloudReturn): ParsedReturn {
-  const incoming = ret.incoming_parcel
-  const outgoing = ret.outgoing_parcel
+  const incomingData = ret.incoming_parcel_data
+  const outgoingData = ret.outgoing_parcel_data
+  const incomingStatus = ret.incoming_parcel_status
+
+  // Map status - can be string "open"/"closed" or object with id/message
+  let status = 'announced'
+  let statusMessage: string | null = null
+
+  if (typeof ret.status === 'string') {
+    // String status like "open", "closed"
+    const statusStr = ret.status.toLowerCase()
+    if (statusStr === 'open') status = 'announced'
+    else if (statusStr === 'closed') status = 'delivered'
+    else if (statusStr === 'cancelled') status = 'cancelled'
+    statusMessage = ret.status
+  } else if (ret.status && typeof ret.status === 'object') {
+    status = mapReturnStatus(ret.status.id)
+    statusMessage = ret.status.message
+  }
+
+  // Also check incoming_parcel_status
+  if (incomingStatus) {
+    status = mapReturnStatus(incomingStatus.id)
+    statusMessage = incomingStatus.message
+  }
+
+  // Check global_status_slug for more accurate status
+  if (incomingData?.global_status_slug) {
+    const slug = incomingData.global_status_slug.toLowerCase()
+    if (slug.includes('transit')) status = 'in_transit'
+    else if (slug.includes('delivered')) status = 'delivered'
+    else if (slug.includes('announced')) status = 'announced'
+    else if (slug.includes('ready')) status = 'ready'
+  }
 
   return {
-    sendcloud_id: String(incoming.id),
+    sendcloud_id: String(ret.incoming_parcel),
     sendcloud_return_id: String(ret.id),
-    order_ref: outgoing?.order_number || null,
-    tracking_number: incoming.tracking_number || null,
-    tracking_url: incoming.tracking_url || null,
-    carrier: incoming.carrier?.code || null,
-    service: incoming.carrier?.name || null,
-    status: mapReturnStatus(ret.status?.id || incoming.status?.id || 1),
-    status_message: ret.status?.message || incoming.status?.message || null,
-    sender_name: incoming.from_name || null,
-    sender_email: incoming.from_email || null,
-    sender_phone: incoming.from_telephone || null,
-    sender_company: incoming.from_company_name || null,
-    sender_address: [incoming.from_address_1, incoming.from_address_2].filter(Boolean).join(', ') || null,
-    sender_city: incoming.from_city || null,
-    sender_postal_code: incoming.from_postal_code || null,
-    sender_country_code: incoming.from_country || null,
+    order_ref: incomingData?.order_number || outgoingData?.order_number || null,
+    tracking_number: incomingData?.tracking_number || null,
+    tracking_url: incomingData?.tracking_url || null,
+    carrier: null, // Not directly available, could be derived from shipping_method
+    service: null,
+    status,
+    status_message: statusMessage,
+    sender_name: incomingData?.from_name || null,
+    sender_email: incomingData?.from_email || null,
+    sender_phone: incomingData?.from_telephone || null,
+    sender_company: incomingData?.from_company_name || null,
+    sender_address: [incomingData?.from_address_1, incomingData?.from_address_2].filter(Boolean).join(', ') || null,
+    sender_city: incomingData?.from_city || null,
+    sender_postal_code: incomingData?.from_postal_code || null,
+    sender_country_code: incomingData?.from_country || null,
     return_reason: mapReturnReason(ret.reason, ret.refund),
     return_reason_comment: ret.message || null,
     created_at: ret.created_at || new Date().toISOString(),
-    announced_at: incoming.announced_at || null,
+    announced_at: null, // Not available in this format
     raw_json: ret as unknown as Record<string, unknown>,
   }
 }

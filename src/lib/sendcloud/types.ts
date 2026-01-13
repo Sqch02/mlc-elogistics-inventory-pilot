@@ -121,46 +121,41 @@ export interface SendcloudReturn {
   brand_id?: number
   created_at: string
   updated_at?: string
-  reason?: unknown // Can be string or object
+  reason?: unknown
   message?: string
-  status: {
-    id: number
-    message: string
-  }
-  refund?: {
-    refund_type?: string
-    message?: string
-  } | unknown // Can vary in format
-  incoming_parcel: {
-    id: number
-    tracking_number?: string
-    tracking_url?: string
-    carrier?: {
-      code: string
-      name?: string
-    }
-    status?: {
-      id: number
-      message: string
-    }
-    collo_count?: number
+  status: string | { id: number; message: string } // Can be "open", "closed", etc. or object
+  refund?: unknown
+  delivered_at?: string | null
+  // incoming_parcel is just an ID, data is in incoming_parcel_data
+  incoming_parcel: number
+  incoming_parcel_data?: {
     from_name?: string
     from_email?: string
     from_telephone?: string
     from_company_name?: string
+    from_country?: string
     from_address_1?: string
     from_address_2?: string
     from_city?: string
     from_postal_code?: string
-    from_country?: string
-    created_at?: string
-    announced_at?: string
-    weight?: string
-  }
-  outgoing_parcel?: {
-    id: number
-    tracking_number?: string
     order_number?: string
+    tracking_number?: string
+    tracking_url?: string
+    shipping_method?: number
+    collo_count?: number
+    parcel_status?: number
+    global_status_slug?: string
+  }
+  incoming_parcel_status?: {
+    id: number
+    message: string
+  }
+  // outgoing_parcel is just an ID, data is in outgoing_parcel_data
+  outgoing_parcel?: number
+  outgoing_parcel_data?: {
+    order_number?: string
+    tracking_number?: string
+    from_name?: string
   }
 }
 
