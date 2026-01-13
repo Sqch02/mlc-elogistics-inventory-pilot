@@ -18,7 +18,7 @@ export async function GET() {
     const tenantId = await requireTenant()
     const supabase = await getServerDb()
 
-    // Get all SKUs with stock (excluding bundles)
+    // Get all SKUs with stock
     const { data, error } = await supabase
       .from('skus')
       .select(`
@@ -28,8 +28,7 @@ export async function GET() {
         weight_grams,
         alert_threshold,
         created_at,
-        stock_snapshots(qty_current, updated_at),
-        bundles!bundles_bundle_sku_id_fkey(id)
+        stock_snapshots(qty_current, updated_at)
       `)
       .eq('tenant_id', tenantId)
       .eq('active', true)
@@ -37,14 +36,18 @@ export async function GET() {
 
     if (error) throw error
 
-    // Filter out SKUs that are bundles (have a bundles entry)
-    interface SKUWithBundle extends SKUWithStock {
-      bundles: Array<{ id: string }> | null
-    }
+    // Get bundle SKU IDs to exclude them
+    const { data: bundles } = await supabase
+      .from('bundles')
+      .select('bundle_sku_id')
+      .eq('tenant_id', tenantId)
 
+    const bundleSkuIds = new Set((bundles || []).map((b: { bundle_sku_id: string }) => b.bundle_sku_id))
+
+    // Filter out SKUs that are bundles
     const skus = (data || [])
-      .filter((sku: SKUWithBundle) => !sku.bundles || sku.bundles.length === 0)
-      .map((sku: SKUWithBundle) => ({
+      .filter((sku: SKUWithStock) => !bundleSkuIds.has(sku.id))
+      .map((sku: SKUWithStock) => ({
         id: sku.id,
         sku_code: sku.sku_code,
         name: sku.name,
