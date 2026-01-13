@@ -111,3 +111,86 @@ export interface ParsedShipment {
     value?: number
   }>
 }
+
+// ============================================
+// RETURNS TYPES
+// ============================================
+
+export interface SendcloudReturn {
+  id: number
+  brand_id?: number
+  created_at: string
+  updated_at?: string
+  reason?: string
+  message?: string
+  status: {
+    id: number
+    message: string
+  }
+  refund?: {
+    refund_type: string
+    message?: string
+  }
+  incoming_parcel: {
+    id: number
+    tracking_number?: string
+    tracking_url?: string
+    carrier?: {
+      code: string
+      name?: string
+    }
+    status?: {
+      id: number
+      message: string
+    }
+    collo_count?: number
+    from_name?: string
+    from_email?: string
+    from_telephone?: string
+    from_company_name?: string
+    from_address_1?: string
+    from_address_2?: string
+    from_city?: string
+    from_postal_code?: string
+    from_country?: string
+    created_at?: string
+    announced_at?: string
+    weight?: string
+  }
+  outgoing_parcel?: {
+    id: number
+    tracking_number?: string
+    order_number?: string
+  }
+}
+
+export interface SendcloudReturnsResponse {
+  returns: SendcloudReturn[]
+  next?: string
+  previous?: string
+}
+
+export interface ParsedReturn {
+  sendcloud_id: string
+  sendcloud_return_id: string
+  order_ref: string | null
+  tracking_number: string | null
+  tracking_url: string | null
+  carrier: string | null
+  service: string | null
+  status: string
+  status_message: string | null
+  sender_name: string | null
+  sender_email: string | null
+  sender_phone: string | null
+  sender_company: string | null
+  sender_address: string | null
+  sender_city: string | null
+  sender_postal_code: string | null
+  sender_country_code: string | null
+  return_reason: string | null
+  return_reason_comment: string | null
+  created_at: string
+  announced_at: string | null
+  raw_json: Record<string, unknown>
+}

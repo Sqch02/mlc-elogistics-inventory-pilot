@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Package,
   Truck,
+  RotateCcw,
   Boxes,
   MapPin,
   DollarSign,
@@ -25,6 +26,7 @@ import { Button } from '@/components/ui/button'
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Expeditions', href: '/expeditions', icon: Truck },
+  { name: 'Retours', href: '/retours', icon: RotateCcw },
   { name: 'Produits & Stock', href: '/produits', icon: Package },
   { name: 'Bundles', href: '/bundles', icon: Boxes },
   { name: 'Emplacements', href: '/emplacements', icon: MapPin },

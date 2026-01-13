@@ -1,4 +1,12 @@
-import type { SendcloudParcel, SendcloudResponse, ParsedShipment, SendcloudCredentials } from './types'
+import type {
+  SendcloudParcel,
+  SendcloudResponse,
+  ParsedShipment,
+  SendcloudCredentials,
+  SendcloudReturn,
+  SendcloudReturnsResponse,
+  ParsedReturn
+} from './types'
 import { fetchMockParcels } from './mock'
 
 const SENDCLOUD_API_URL = 'https://panel.sendcloud.sc/api/v2'
@@ -399,6 +407,216 @@ export async function getParcel(
     }
 
     return { success: false, error: 'No parcel returned from Sendcloud' }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }
+  }
+}
+
+// ============================================
+// RETURNS OPERATIONS
+// ============================================
+
+/**
+ * Map Sendcloud return status to our status
+ */
+function mapReturnStatus(statusId: number): string {
+  // Based on Sendcloud status IDs for returns
+  const statusMap: Record<number, string> = {
+    1: 'announced',      // Announced / Created
+    2: 'ready',          // Ready to send
+    3: 'in_transit',     // In transit
+    4: 'delivered',      // Delivered
+    5: 'cancelled',      // Cancelled
+    6: 'at_carrier',     // At carrier
+    1000: 'announced',   // Default
+    2000: 'ready',
+    3000: 'in_transit',
+    4000: 'delivered',
+  }
+  return statusMap[statusId] || 'announced'
+}
+
+/**
+ * Map return reason from Sendcloud
+ */
+function mapReturnReason(reason?: string, refundType?: string): string | null {
+  if (!reason && !refundType) return null
+
+  const reasonLower = (reason || refundType || '').toLowerCase()
+
+  if (reasonLower.includes('remboursement') || reasonLower.includes('refund')) return 'refund'
+  if (reasonLower.includes('échange') || reasonLower.includes('exchange')) return 'exchange'
+  if (reasonLower.includes('défectueux') || reasonLower.includes('defect')) return 'defective'
+  if (reasonLower.includes('erreur') || reasonLower.includes('wrong')) return 'wrong_item'
+
+  return 'other'
+}
+
+/**
+ * Parse a Sendcloud return object
+ */
+export function parseReturn(ret: SendcloudReturn): ParsedReturn {
+  const incoming = ret.incoming_parcel
+  const outgoing = ret.outgoing_parcel
+
+  return {
+    sendcloud_id: String(incoming.id),
+    sendcloud_return_id: String(ret.id),
+    order_ref: outgoing?.order_number || null,
+    tracking_number: incoming.tracking_number || null,
+    tracking_url: incoming.tracking_url || null,
+    carrier: incoming.carrier?.code || null,
+    service: incoming.carrier?.name || null,
+    status: mapReturnStatus(ret.status?.id || incoming.status?.id || 1),
+    status_message: ret.status?.message || incoming.status?.message || null,
+    sender_name: incoming.from_name || null,
+    sender_email: incoming.from_email || null,
+    sender_phone: incoming.from_telephone || null,
+    sender_company: incoming.from_company_name || null,
+    sender_address: [incoming.from_address_1, incoming.from_address_2].filter(Boolean).join(', ') || null,
+    sender_city: incoming.from_city || null,
+    sender_postal_code: incoming.from_postal_code || null,
+    sender_country_code: incoming.from_country || null,
+    return_reason: mapReturnReason(ret.reason, ret.refund?.refund_type),
+    return_reason_comment: ret.message || null,
+    created_at: ret.created_at || new Date().toISOString(),
+    announced_at: incoming.announced_at || null,
+    raw_json: ret as unknown as Record<string, unknown>,
+  }
+}
+
+/**
+ * Fetch returns from Sendcloud
+ */
+export async function fetchReturns(
+  credentials: SendcloudCredentials,
+  options?: {
+    since?: string
+    limit?: number
+    cursor?: string
+  }
+): Promise<{ returns: ParsedReturn[]; nextCursor?: string }> {
+  // Mock mode doesn't support returns yet
+  if (process.env.SENDCLOUD_USE_MOCK === 'true') {
+    return { returns: [] }
+  }
+
+  const auth = Buffer.from(`${credentials.apiKey}:${credentials.secret}`).toString('base64')
+
+  const params = new URLSearchParams()
+  if (options?.since) {
+    params.set('updated_after', options.since)
+  }
+  if (options?.limit) {
+    params.set('limit', String(options.limit))
+  }
+  if (options?.cursor) {
+    params.set('cursor', options.cursor)
+  }
+
+  const url = `${SENDCLOUD_API_URL}/returns?${params.toString()}`
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/json',
+    },
+  })
+
+  if (!response.ok) {
+    const error = await response.text()
+    throw new Error(`Sendcloud Returns API error: ${response.status} - ${error}`)
+  }
+
+  const data: SendcloudReturnsResponse = await response.json()
+
+  const returns = data.returns.map(parseReturn)
+
+  // Extract cursor from next URL if present
+  let nextCursor: string | undefined
+  if (data.next) {
+    const nextUrl = new URL(data.next)
+    nextCursor = nextUrl.searchParams.get('cursor') || undefined
+  }
+
+  return { returns, nextCursor }
+}
+
+/**
+ * Fetch all returns from Sendcloud (with pagination)
+ */
+export async function fetchAllReturns(
+  credentials: SendcloudCredentials,
+  since?: string,
+  maxPages: number = 50
+): Promise<ParsedReturn[]> {
+  const allReturns: ParsedReturn[] = []
+  let cursor: string | undefined
+  let page = 0
+
+  while (page < maxPages) {
+    const { returns, nextCursor } = await fetchReturns(credentials, {
+      since,
+      cursor,
+      limit: 100,
+    })
+
+    allReturns.push(...returns)
+
+    if (!nextCursor || returns.length === 0) {
+      break
+    }
+
+    cursor = nextCursor
+    page++
+  }
+
+  return allReturns
+}
+
+/**
+ * Get a single return from Sendcloud
+ */
+export async function getReturn(
+  credentials: SendcloudCredentials,
+  returnId: string
+): Promise<{ success: boolean; return?: ParsedReturn; error?: string }> {
+  if (process.env.SENDCLOUD_USE_MOCK === 'true') {
+    return { success: false, error: 'Cannot get return in mock mode' }
+  }
+
+  const auth = Buffer.from(`${credentials.apiKey}:${credentials.secret}`).toString('base64')
+
+  try {
+    const response = await fetch(`${SENDCLOUD_API_URL}/returns/${returnId}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/json',
+      },
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      return {
+        success: false,
+        error: `Sendcloud API error: ${response.status} - ${error}`,
+      }
+    }
+
+    const data = await response.json()
+
+    if (data) {
+      return {
+        success: true,
+        return: parseReturn(data),
+      }
+    }
+
+    return { success: false, error: 'No return data from Sendcloud' }
   } catch (error) {
     return {
       success: false,
