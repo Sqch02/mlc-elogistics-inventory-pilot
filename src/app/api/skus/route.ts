@@ -44,9 +44,15 @@ export async function GET() {
 
     const bundleSkuIds = new Set((bundles || []).map((b: { bundle_sku_id: string }) => b.bundle_sku_id))
 
-    // Filter out SKUs that are bundles
+    // Filter out SKUs that are bundles (by ID or by code pattern)
     const skus = (data || [])
-      .filter((sku: SKUWithStock) => !bundleSkuIds.has(sku.id))
+      .filter((sku: SKUWithStock) => {
+        // Exclude if SKU ID is in bundles table
+        if (bundleSkuIds.has(sku.id)) return false
+        // Also exclude by code pattern (FLRNBU- prefix = bundle)
+        if (sku.sku_code.toUpperCase().includes('BU-') || sku.sku_code.toUpperCase().startsWith('BUNDLE')) return false
+        return true
+      })
       .map((sku: SKUWithStock) => ({
         id: sku.id,
         sku_code: sku.sku_code,
