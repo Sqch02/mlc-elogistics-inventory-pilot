@@ -113,12 +113,42 @@ export async function GET(request: NextRequest) {
     const shipmentsCount = shipmentsResult.count || 0
     const missingPricingMonthCount = missingPricingMonthResult.count || 0
     const missingPricingTotalCount = missingPricingTotalResult.count || 0
-    const criticalStockCount = stockResult.data?.filter((s: { qty_current: number }) => s.qty_current < 20).length || 0
+    // criticalStockCount will be calculated after filtering bundles below
 
-    // Group daily shipments
-    const dailyShipments = dailyShipmentsResult.data as { shipped_at: string; computed_cost_eur: number | null }[] | null
+    // Group daily shipments (with pagination to get all data)
+    const allDailyShipments: { shipped_at: string; computed_cost_eur: number | null }[] = []
+
+    // First batch from parallel query
+    if (dailyShipmentsResult.data) {
+      allDailyShipments.push(...(dailyShipmentsResult.data as { shipped_at: string; computed_cost_eur: number | null }[]))
+    }
+
+    // If we got 1000 (the limit), fetch more
+    if (dailyShipmentsResult.data?.length === 1000) {
+      let offset = 1000
+      let hasMore = true
+      while (hasMore) {
+        const { data: moreDailyShipments } = await supabase
+          .from('shipments')
+          .select('shipped_at, computed_cost_eur')
+          .eq('tenant_id', tenantId)
+          .gte('shipped_at', startOfMonth.toISOString())
+          .lte('shipped_at', endOfMonth.toISOString())
+          .order('shipped_at')
+          .range(offset, offset + 999)
+
+        if (moreDailyShipments && moreDailyShipments.length > 0) {
+          allDailyShipments.push(...(moreDailyShipments as { shipped_at: string; computed_cost_eur: number | null }[]))
+          hasMore = moreDailyShipments.length === 1000
+          offset += 1000
+        } else {
+          hasMore = false
+        }
+      }
+    }
+
     const shipmentsByDay = new Map<string, { shipments: number; cost: number }>()
-    for (const s of dailyShipments || []) {
+    for (const s of allDailyShipments) {
       const day = s.shipped_at.split('T')[0]
       const existing = shipmentsByDay.get(day) || { shipments: 0, cost: 0 }
       shipmentsByDay.set(day, {
@@ -138,12 +168,25 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    // Get bundle SKU IDs to exclude from stock health
+    const { data: bundles } = await supabase
+      .from('bundles')
+      .select('bundle_sku_id')
+      .eq('tenant_id', tenantId)
+    const bundleSkuIds = new Set((bundles || []).map((b: { bundle_sku_id: string }) => b.bundle_sku_id))
+
     // Get real consumption metrics for stock health
     const skuMetrics = await calculateSKUMetrics(tenantId)
 
-    // Filter to critical stock (low qty or low days remaining) and sort by criticality
+    // Filter out bundles and get critical stock (low qty or low days remaining)
     const stockHealth = skuMetrics
-      .filter(m => m.qty_current < 50 || (m.days_remaining !== null && m.days_remaining < 30))
+      .filter(m => {
+        // Exclude bundles
+        if (bundleSkuIds.has(m.sku_id)) return false
+        if (m.sku_code.toUpperCase().includes('BU-')) return false
+        // Only include if low stock or low days remaining
+        return m.qty_current < 50 || (m.days_remaining !== null && m.days_remaining < 30)
+      })
       .map(m => ({
         sku: m.sku_code,
         stock: m.qty_current,
@@ -154,6 +197,13 @@ export async function GET(request: NextRequest) {
       }))
       .sort((a, b) => a.daysRemaining - b.daysRemaining)
       .slice(0, 10)
+
+    // Count critical SKUs (excluding bundles, stock < 20)
+    const criticalStockCount = skuMetrics.filter(m => {
+      if (bundleSkuIds.has(m.sku_id)) return false
+      if (m.sku_code.toUpperCase().includes('BU-')) return false
+      return m.qty_current < 20
+    }).length
 
     const missingPricingStatus = missingPricingMonthCount > 0 ? 'warning' : 'success'
     const indemnityStatus = totalIndemnity > 0 ? 'success' : 'default'
