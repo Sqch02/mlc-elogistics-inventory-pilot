@@ -54,11 +54,37 @@ export type ShipmentItemsImportRow = z.infer<typeof shipmentItemsImportRowSchema
 
 // Claims Import Schema
 export const claimsImportRowSchema = z.object({
-  order_ref: z.string().optional().nullable(),
-  sendcloud_id: z.string().optional().nullable(),
+  order_ref: z.string().min(1, 'Référence commande requise'),
+  claim_type: z.string().optional().transform((v) => {
+    if (!v) return 'lost'
+    const lower = v.toLowerCase()
+    if (lower.includes('perdu') || lower.includes('lost')) return 'lost'
+    if (lower.includes('endom') || lower.includes('damage')) return 'damaged'
+    if (lower.includes('manqu') || lower.includes('missing')) return 'missing_item'
+    if (lower.includes('retard') || lower.includes('delay')) return 'delay'
+    return 'other'
+  }),
   description: z.string().optional().nullable(),
-  status: z.enum(['ouverte', 'en_analyse', 'indemnisee', 'refusee', 'cloturee']).optional().default('ouverte'),
+  status: z.string().optional().transform((v) => {
+    if (!v) return 'ouverte'
+    const lower = v.toLowerCase()
+    if (lower.includes('ouvert') || lower.includes('open')) return 'ouverte'
+    if (lower.includes('analyse') || lower.includes('review')) return 'en_analyse'
+    if (lower.includes('indem') || lower.includes('paid')) return 'indemnisee'
+    if (lower.includes('refus') || lower.includes('reject')) return 'refusee'
+    if (lower.includes('clotur') || lower.includes('close')) return 'cloturee'
+    return 'ouverte'
+  }),
   indemnity_eur: z.coerce.number().optional().nullable(),
+  priority: z.string().optional().transform((v) => {
+    if (!v) return 'normal'
+    const lower = v.toLowerCase()
+    if (lower.includes('haute') || lower.includes('high') || lower.includes('urgent')) return 'haute'
+    if (lower.includes('basse') || lower.includes('low')) return 'basse'
+    return 'normal'
+  }),
+  opened_at: z.string().optional().nullable(),
+  decision_note: z.string().optional().nullable(),
 })
 
 export type ClaimsImportRow = z.infer<typeof claimsImportRowSchema>
