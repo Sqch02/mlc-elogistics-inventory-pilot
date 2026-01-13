@@ -14,11 +14,12 @@ import {
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { Package, TrendingDown, AlertTriangle, Warehouse, Search, X, Download, Loader2, Plus, MoreHorizontal, Pencil, Trash2, PackagePlus, History, ArrowUpRight, ArrowDownRight, Clock } from 'lucide-react'
+import { Package, TrendingDown, AlertTriangle, Warehouse, Search, X, Download, Loader2, Plus, MoreHorizontal, Pencil, Trash2, PackagePlus, History, ArrowUpRight, ArrowDownRight, Clock, Upload } from 'lucide-react'
 import { useProducts, ProductFilters } from '@/hooks/useProducts'
 import { useSkus, useCreateSku, useUpdateSku, useDeleteSku, useAdjustStock, useSkuMovements, SKU, StockMovement } from '@/hooks/useSkus'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ImportPreviewDialog } from '@/components/forms/ImportPreviewDialog'
 
 function getStatusBadge(status: string) {
   switch (status) {
@@ -83,11 +84,12 @@ export function ProduitsClient() {
   const [stockOpen, setStockOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historySkuId, setHistorySkuId] = useState<string | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
   const [selectedSku, setSelectedSku] = useState<SKU | null>(null)
   const [formData, setFormData] = useState<ProductFormData>(defaultFormData)
   const [stockAdjustment, setStockAdjustment] = useState({ qty: 0, reason: '' })
 
-  const { data, isLoading, isFetching } = useProducts(filters)
+  const { data, isLoading, isFetching, refetch } = useProducts(filters)
   const { data: skusData } = useSkus()
   const { data: movementsData, isLoading: movementsLoading } = useSkuMovements(historySkuId)
   const createMutation = useCreateSku()
@@ -253,10 +255,16 @@ export function ProduitsClient() {
             {stats.totalSkus} SKU(s) {isFetching && '(chargement...)'}
           </p>
         </div>
-        <Button onClick={() => { setFormData(defaultFormData); setCreateOpen(true) }}>
-          <Plus className="h-4 w-4 mr-2" />
-          Nouveau produit
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setImportOpen(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            Importer
+          </Button>
+          <Button onClick={() => { setFormData(defaultFormData); setCreateOpen(true) }}>
+            <Plus className="h-4 w-4 mr-2" />
+            Nouveau produit
+          </Button>
+        </div>
       </div>
 
       {/* KPI Row */}
@@ -669,6 +677,18 @@ export function ProduitsClient() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Import Dialog */}
+      <ImportPreviewDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        importType="skus"
+        importEndpoint="/api/import/skus"
+        title="Importer des produits"
+        description="Importez vos SKUs depuis un fichier CSV ou Excel. Les produits existants seront mis à jour."
+        keyField="sku_code"
+        onSuccess={() => refetch()}
+      />
     </div>
   )
 }
