@@ -12,13 +12,13 @@ interface SKUWithStock {
   stock_snapshots: Array<{ qty_current: number; updated_at: string }> | null
 }
 
-// GET /api/skus - List all SKUs with stock
+// GET /api/skus - List all SKUs with stock (excludes bundle SKUs)
 export async function GET() {
   try {
     const tenantId = await requireTenant()
     const supabase = await getServerDb()
 
-    // Use left join (no !inner) to get all SKUs even without stock snapshots
+    // Get all SKUs with stock (excluding bundles)
     const { data, error } = await supabase
       .from('skus')
       .select(`
@@ -28,7 +28,8 @@ export async function GET() {
         weight_grams,
         alert_threshold,
         created_at,
-        stock_snapshots(qty_current, updated_at)
+        stock_snapshots(qty_current, updated_at),
+        bundles!bundles_bundle_sku_id_fkey(id)
       `)
       .eq('tenant_id', tenantId)
       .eq('active', true)
@@ -36,11 +37,23 @@ export async function GET() {
 
     if (error) throw error
 
-    const skus = (data || []).map((sku: SKUWithStock) => ({
-      ...sku,
-      qty_current: sku.stock_snapshots?.[0]?.qty_current || 0,
-      stock_updated_at: sku.stock_snapshots?.[0]?.updated_at || null,
-    }))
+    // Filter out SKUs that are bundles (have a bundles entry)
+    interface SKUWithBundle extends SKUWithStock {
+      bundles: Array<{ id: string }> | null
+    }
+
+    const skus = (data || [])
+      .filter((sku: SKUWithBundle) => !sku.bundles || sku.bundles.length === 0)
+      .map((sku: SKUWithBundle) => ({
+        id: sku.id,
+        sku_code: sku.sku_code,
+        name: sku.name,
+        weight_grams: sku.weight_grams,
+        alert_threshold: sku.alert_threshold,
+        created_at: sku.created_at,
+        qty_current: sku.stock_snapshots?.[0]?.qty_current || 0,
+        stock_updated_at: sku.stock_snapshots?.[0]?.updated_at || null,
+      }))
 
     return NextResponse.json({ skus })
   } catch (error) {
