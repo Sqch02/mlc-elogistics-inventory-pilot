@@ -21,9 +21,12 @@ export interface InvoicePDFData {
     address?: string
   }
   lines: Array<{
-    carrier: string
-    weightMin: number
-    weightMax: number
+    lineType?: string
+    description?: string
+    carrier?: string | null
+    weightMin?: number | null
+    weightMax?: number | null
+    quantity?: number
     shipmentCount: number
     unitPrice: number
     total: number
@@ -120,18 +123,31 @@ export function generateInvoicePDF(data: InvoicePDFData): jsPDF {
 
   yPos += 15
 
-  // Table
-  const tableData = data.lines.map((line) => [
-    line.carrier,
-    `${line.weightMin}g - ${line.weightMax}g`,
-    line.shipmentCount.toString(),
-    `${line.unitPrice.toFixed(2)} EUR`,
-    `${line.total.toFixed(2)} EUR`,
-  ])
+  // Table - build description based on line type
+  const tableData = data.lines.map((line) => {
+    let description = line.description || ''
+
+    // If no description provided, build one from carrier/weight
+    if (!description && line.carrier) {
+      const weightLabel = line.weightMax && line.weightMax >= 1000
+        ? `${(line.weightMax || 0) / 1000}kg`
+        : `${line.weightMax || 0}g`
+      description = `Prépa & Expédition - ${line.carrier} ${weightLabel}`
+    }
+
+    const qty = line.quantity || line.shipmentCount || 1
+
+    return [
+      description,
+      qty.toString(),
+      `${line.unitPrice.toFixed(2)} EUR`,
+      `${line.total.toFixed(2)} EUR`,
+    ]
+  })
 
   autoTable(doc, {
     startY: yPos,
-    head: [['Transporteur', 'Tranche poids', 'Qty', 'Prix unit. HT', 'Total HT']],
+    head: [['Description', 'Qty', 'Prix unit. HT', 'Total HT']],
     body: tableData,
     theme: 'striped',
     headStyles: {
@@ -145,11 +161,10 @@ export function generateInvoicePDF(data: InvoicePDFData): jsPDF {
       textColor: darkGray,
     },
     columnStyles: {
-      0: { cellWidth: 45 },
-      1: { cellWidth: 40 },
-      2: { cellWidth: 20, halign: 'center' },
+      0: { cellWidth: 90 },
+      1: { cellWidth: 20, halign: 'center' },
+      2: { cellWidth: 35, halign: 'right' },
       3: { cellWidth: 35, halign: 'right' },
-      4: { cellWidth: 35, halign: 'right' },
     },
     margin: { left: margin, right: margin },
   })

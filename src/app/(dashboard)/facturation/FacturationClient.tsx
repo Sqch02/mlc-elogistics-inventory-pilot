@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { FileText, Receipt, Euro, AlertTriangle, CheckCircle, Loader2, MoreHorizontal, Download, Trash2, Send, CreditCard, FileDown } from 'lucide-react'
+import { FileText, Receipt, Euro, AlertTriangle, CheckCircle, Loader2, MoreHorizontal, Download, Trash2, Send, CreditCard, FileDown, ChevronDown, ChevronUp, Package, Truck, Fuel, RotateCcw, Cpu, Warehouse } from 'lucide-react'
 import { useInvoices, useGenerateInvoice, useUpdateInvoiceStatus, useDeleteInvoice, Invoice } from '@/hooks/useInvoices'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ExportInvoicesButton } from './FacturationActions'
@@ -42,11 +42,22 @@ function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('fr-FR')
 }
 
+// Line type icons and labels
+const lineTypeConfig: Record<string, { icon: React.ElementType; label: string; color: string }> = {
+  software: { icon: Cpu, label: 'Logiciel', color: 'text-blue-600 bg-blue-100' },
+  storage: { icon: Warehouse, label: 'Stockage', color: 'text-purple-600 bg-purple-100' },
+  reception: { icon: Package, label: 'Réception', color: 'text-indigo-600 bg-indigo-100' },
+  shipping: { icon: Truck, label: 'Expédition', color: 'text-green-600 bg-green-100' },
+  fuel_surcharge: { icon: Fuel, label: 'Carburant', color: 'text-amber-600 bg-amber-100' },
+  returns: { icon: RotateCcw, label: 'Retours', color: 'text-gray-600 bg-gray-100' },
+}
+
 export function FacturationClient() {
   const [selectedMonth, setSelectedMonth] = useState('')
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null)
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null)
+  const [expandedInvoices, setExpandedInvoices] = useState<Set<string>>(new Set())
 
   const { data, isLoading, isFetching } = useInvoices()
 
@@ -109,20 +120,24 @@ export function FacturationClient() {
   const handleDownloadCSV = (invoice: Invoice) => {
     type ExportRow = {
       periode: string
+      type: string
+      description: string
       transporteur: string
       poids_min_g: number | string
       poids_max_g: number | string
-      nb_expeditions: number
+      quantite: number | string
       prix_unitaire_eur: number | string
       total_eur: number
     }
 
     const exportData: ExportRow[] = invoice.invoice_lines.map(line => ({
       periode: invoice.month,
-      transporteur: line.carrier,
-      poids_min_g: line.weight_min_grams,
-      poids_max_g: line.weight_max_grams,
-      nb_expeditions: line.shipment_count,
+      type: line.line_type || 'shipping',
+      description: line.description || '',
+      transporteur: line.carrier || '',
+      poids_min_g: line.weight_min_grams || '',
+      poids_max_g: line.weight_max_grams || '',
+      quantite: line.quantity || line.shipment_count || 1,
       prix_unitaire_eur: line.unit_price_eur || '',
       total_eur: line.total_eur,
     }))
@@ -130,16 +145,30 @@ export function FacturationClient() {
     // Add summary row
     exportData.push({
       periode: invoice.month,
-      transporteur: 'TOTAL',
+      type: 'TOTAL',
+      description: `Total ${invoice.invoice_lines.reduce((sum, l) => sum + l.shipment_count, 0)} expéditions`,
+      transporteur: '',
       poids_min_g: '',
       poids_max_g: '',
-      nb_expeditions: invoice.invoice_lines.reduce((sum, l) => sum + l.shipment_count, 0),
+      quantite: '',
       prix_unitaire_eur: '',
       total_eur: invoice.total_eur,
     })
 
     const csv = generateCSV(exportData, { delimiter: ';' })
     downloadCSV(csv, `facture_${invoice.month}.csv`)
+  }
+
+  const toggleExpanded = (invoiceId: string) => {
+    setExpandedInvoices(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(invoiceId)) {
+        newSet.delete(invoiceId)
+      } else {
+        newSet.add(invoiceId)
+      }
+      return newSet
+    })
   }
 
   const handleDownloadPDF = (invoice: Invoice) => {
@@ -178,11 +207,14 @@ export function FacturationClient() {
         phone: companySettings.company_phone,
       },
       lines: invoice.invoice_lines.map(line => ({
+        lineType: line.line_type,
+        description: line.description || undefined,
         carrier: line.carrier,
         weightMin: line.weight_min_grams,
         weightMax: line.weight_max_grams,
+        quantity: line.quantity || undefined,
         shipmentCount: line.shipment_count,
-        unitPrice: Number(line.unit_price_eur) || Number(line.total_eur) / line.shipment_count,
+        unitPrice: Number(line.unit_price_eur) || (line.shipment_count > 0 ? Number(line.total_eur) / line.shipment_count : Number(line.total_eur)),
         total: Number(line.total_eur),
       })),
       totalHT,
@@ -297,34 +329,62 @@ export function FacturationClient() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="pl-4 lg:pl-6 whitespace-nowrap">Periode</TableHead>
-                  <TableHead className="hidden sm:table-cell whitespace-nowrap">Date creation</TableHead>
-                  <TableHead className="text-right whitespace-nowrap">Expeditions</TableHead>
-                  <TableHead className="text-right whitespace-nowrap">Montant</TableHead>
+                  <TableHead className="pl-4 lg:pl-6 whitespace-nowrap w-8"></TableHead>
+                  <TableHead className="whitespace-nowrap">Periode</TableHead>
+                  <TableHead className="hidden sm:table-cell whitespace-nowrap">Date</TableHead>
+                  <TableHead className="text-right whitespace-nowrap">Total HT</TableHead>
+                  <TableHead className="text-right whitespace-nowrap hidden md:table-cell">TVA 20%</TableHead>
+                  <TableHead className="text-right whitespace-nowrap">Total TTC</TableHead>
                   <TableHead className="text-center whitespace-nowrap">Statut</TableHead>
                   <TableHead className="text-right pr-4 lg:pr-6 whitespace-nowrap">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {invoices.map((inv) => {
-                  const shipmentCount = inv.invoice_lines.reduce((sum, l) => sum + l.shipment_count, 0)
+                  const isExpanded = expandedInvoices.has(inv.id)
+                  const shipmentCount = inv.invoice_lines.filter(l => l.line_type === 'shipping').reduce((sum, l) => sum + l.shipment_count, 0)
+                  // Use new fields if available, otherwise calculate from total_eur
+                  const subtotalHt = inv.subtotal_ht ? Number(inv.subtotal_ht) : Number(inv.total_eur)
+                  const vatAmount = inv.vat_amount ? Number(inv.vat_amount) : subtotalHt * 0.20
+                  const totalTtc = inv.total_ttc ? Number(inv.total_ttc) : subtotalHt * 1.20
+
+                  // Group lines by type
+                  const linesByType = inv.invoice_lines.reduce((acc, line) => {
+                    const type = line.line_type || 'shipping'
+                    if (!acc[type]) acc[type] = []
+                    acc[type].push(line)
+                    return acc
+                  }, {} as Record<string, typeof inv.invoice_lines>)
+
                   return (
-                    <TableRow key={inv.id}>
-                      <TableCell className="font-medium pl-4 lg:pl-6 whitespace-nowrap">{formatMonth(inv.month)}</TableCell>
-                      <TableCell className="text-muted-foreground hidden sm:table-cell">{formatDate(inv.created_at)}</TableCell>
-                      <TableCell className="text-right whitespace-nowrap">
-                        {shipmentCount}
-                        {inv.missing_pricing_count > 0 && (
-                          <span className="text-amber-600 text-xs ml-1 hidden lg:inline">(+{inv.missing_pricing_count})</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right font-bold whitespace-nowrap">{Number(inv.total_eur).toFixed(2)} EUR</TableCell>
-                      <TableCell className="text-center">
-                        <Badge variant={inv.status === 'paid' ? 'success' : inv.status === 'sent' ? 'info' : 'secondary'} className="text-xs">
-                          {inv.status === 'sent' ? 'Envoyée' : inv.status === 'paid' ? 'Payée' : 'Brouillon'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right pr-4 lg:pr-6">
+                    <>
+                      <TableRow key={inv.id} className="cursor-pointer hover:bg-muted/50" onClick={() => toggleExpanded(inv.id)}>
+                        <TableCell className="pl-4 lg:pl-6 w-8">
+                          <Button variant="ghost" size="icon" className="h-6 w-6">
+                            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          </Button>
+                        </TableCell>
+                        <TableCell className="font-medium whitespace-nowrap">
+                          {formatMonth(inv.month)}
+                          {shipmentCount > 0 && (
+                            <span className="text-muted-foreground text-xs ml-2">({shipmentCount} exp.)</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground hidden sm:table-cell">{formatDate(inv.created_at)}</TableCell>
+                        <TableCell className="text-right whitespace-nowrap font-medium">{subtotalHt.toFixed(2)} €</TableCell>
+                        <TableCell className="text-right whitespace-nowrap text-muted-foreground hidden md:table-cell">{vatAmount.toFixed(2)} €</TableCell>
+                        <TableCell className="text-right font-bold whitespace-nowrap text-primary">{totalTtc.toFixed(2)} €</TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant={inv.status === 'paid' ? 'success' : inv.status === 'sent' ? 'info' : 'secondary'} className="text-xs">
+                            {inv.status === 'sent' ? 'Envoyée' : inv.status === 'paid' ? 'Payée' : 'Brouillon'}
+                          </Badge>
+                          {inv.missing_pricing_count > 0 && (
+                            <Badge variant="warning" className="text-xs ml-1">
+                              {inv.missing_pricing_count} manq.
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right pr-4 lg:pr-6" onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -373,8 +433,96 @@ export function FacturationClient() {
                             )}
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
+                        </TableCell>
+                      </TableRow>
+
+                      {/* Expanded detail rows */}
+                      {isExpanded && (
+                        <TableRow className="bg-muted/30 hover:bg-muted/30">
+                          <TableCell colSpan={8} className="p-0">
+                            <div className="p-4 space-y-4">
+                              {/* Line types summary */}
+                              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                                {Object.entries(linesByType).map(([type, lines]) => {
+                                  const config = lineTypeConfig[type] || { icon: FileText, label: type, color: 'text-gray-600 bg-gray-100' }
+                                  const Icon = config.icon
+                                  const typeTotal = lines.reduce((sum, l) => sum + Number(l.total_eur), 0)
+                                  return (
+                                    <div key={type} className="flex items-center gap-2 p-2 rounded-lg bg-background border">
+                                      <div className={`p-1.5 rounded ${config.color}`}>
+                                        <Icon className="h-3.5 w-3.5" />
+                                      </div>
+                                      <div className="min-w-0">
+                                        <p className="text-xs text-muted-foreground truncate">{config.label}</p>
+                                        <p className="text-sm font-semibold">{typeTotal.toFixed(2)} €</p>
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+
+                              {/* Detailed lines table */}
+                              <div className="border rounded-lg overflow-hidden">
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow className="bg-muted/50">
+                                      <TableHead className="text-xs">Type</TableHead>
+                                      <TableHead className="text-xs">Description</TableHead>
+                                      <TableHead className="text-xs text-right">Qté</TableHead>
+                                      <TableHead className="text-xs text-right">Prix unit.</TableHead>
+                                      <TableHead className="text-xs text-right">Total HT</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {inv.invoice_lines.map((line, idx) => {
+                                      const config = lineTypeConfig[line.line_type || 'shipping'] || { icon: FileText, label: line.line_type, color: 'text-gray-600 bg-gray-100' }
+                                      const Icon = config.icon
+                                      return (
+                                        <TableRow key={idx} className="text-sm">
+                                          <TableCell className="py-2">
+                                            <div className="flex items-center gap-1.5">
+                                              <div className={`p-1 rounded ${config.color}`}>
+                                                <Icon className="h-3 w-3" />
+                                              </div>
+                                              <span className="text-xs">{config.label}</span>
+                                            </div>
+                                          </TableCell>
+                                          <TableCell className="py-2 text-xs text-muted-foreground max-w-[300px] truncate">
+                                            {line.description || (line.carrier ? `${line.carrier} ${line.weight_min_grams}-${line.weight_max_grams}g` : '-')}
+                                          </TableCell>
+                                          <TableCell className="py-2 text-xs text-right">
+                                            {line.quantity || line.shipment_count || 1}
+                                          </TableCell>
+                                          <TableCell className="py-2 text-xs text-right">
+                                            {Number(line.unit_price_eur || 0).toFixed(2)} €
+                                          </TableCell>
+                                          <TableCell className="py-2 text-xs text-right font-medium">
+                                            {Number(line.total_eur).toFixed(2)} €
+                                          </TableCell>
+                                        </TableRow>
+                                      )
+                                    })}
+                                    {/* Totals */}
+                                    <TableRow className="bg-muted/30 font-medium">
+                                      <TableCell colSpan={4} className="py-2 text-right text-xs">Total HT</TableCell>
+                                      <TableCell className="py-2 text-right text-xs">{subtotalHt.toFixed(2)} €</TableCell>
+                                    </TableRow>
+                                    <TableRow className="bg-muted/30">
+                                      <TableCell colSpan={4} className="py-2 text-right text-xs text-muted-foreground">TVA 20%</TableCell>
+                                      <TableCell className="py-2 text-right text-xs text-muted-foreground">{vatAmount.toFixed(2)} €</TableCell>
+                                    </TableRow>
+                                    <TableRow className="bg-primary/5 font-bold">
+                                      <TableCell colSpan={4} className="py-2 text-right text-sm">Total TTC</TableCell>
+                                      <TableCell className="py-2 text-right text-sm text-primary">{totalTtc.toFixed(2)} €</TableCell>
+                                    </TableRow>
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </>
                   )
                 })}
               </TableBody>

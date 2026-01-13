@@ -5,19 +5,30 @@ import { toast } from 'sonner'
 
 export interface InvoiceLine {
   id: string
-  carrier: string
-  weight_min_grams: number
-  weight_max_grams: number
+  line_type: string
+  description: string | null
+  carrier: string | null
+  weight_min_grams: number | null
+  weight_max_grams: number | null
   shipment_count: number
+  quantity: number | null
   total_eur: number
   unit_price_eur: number | null
+  vat_amount: number | null
 }
 
 export interface Invoice {
   id: string
   month: string
   total_eur: number
+  subtotal_ht: number | null
+  vat_amount: number | null
+  total_ttc: number | null
   missing_pricing_count: number
+  storage_m3: number | null
+  reception_quarters: number | null
+  returns_count: number | null
+  free_returns_count: number | null
   status: 'draft' | 'sent' | 'paid'
   created_at: string
   invoice_lines: InvoiceLine[]
@@ -95,9 +106,9 @@ export function useGenerateInvoice() {
       return data
     },
     onSuccess: (data) => {
-      const total = data.invoice?.total_eur
+      const totalTtc = data.invoice?.total_ttc || data.invoice?.total_eur
       toast.success(`Facture générée`, {
-        description: total ? `Total: ${Number(total).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}` : undefined,
+        description: totalTtc ? `Total TTC: ${Number(totalTtc).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}` : undefined,
       })
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
     },
