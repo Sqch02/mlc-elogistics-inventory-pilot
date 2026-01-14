@@ -8,10 +8,10 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { FileText, Receipt, Euro, AlertTriangle, CheckCircle, Loader2, MoreHorizontal, Download, Trash2, Send, CreditCard, FileDown, ChevronDown, ChevronUp, Package, Truck, Fuel, RotateCcw, Cpu, Warehouse } from 'lucide-react'
+import { FileText, Receipt, Euro, AlertTriangle, CheckCircle, Loader2, MoreHorizontal, Download, Trash2, Send, CreditCard, FileDown, ChevronDown, ChevronUp, Package, Truck, Fuel, RotateCcw, Cpu, Warehouse, Calculator } from 'lucide-react'
 import { useInvoices, useGenerateInvoice, useUpdateInvoiceStatus, useDeleteInvoice, Invoice } from '@/hooks/useInvoices'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ExportInvoicesButton } from './FacturationActions'
+import { ExportInvoicesButton, AccountingExportButton } from './FacturationActions'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { downloadInvoicePDF, formatInvoiceNumber, type InvoicePDFData } from '@/lib/utils/invoice-pdf'
 import { toast } from 'sonner'
@@ -169,6 +169,40 @@ export function FacturationClient() {
       }
       return newSet
     })
+  }
+
+  const handleAccountingExport = async (invoice: Invoice, format: 'fec' | 'sage') => {
+    try {
+      const response = await fetch(`/api/invoices/${invoice.id}/export?format=${format}`)
+
+      if (!response.ok) {
+        const error = await response.json()
+        toast.error(error.error || 'Erreur lors de l\'export')
+        return
+      }
+
+      const contentDisposition = response.headers.get('Content-Disposition')
+      let filename = format === 'fec' ? `FEC_${invoice.month}.txt` : `Sage_${invoice.month}.csv`
+
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="(.+)"/)
+        if (match) filename = match[1]
+      }
+
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast.success(`Export ${format.toUpperCase()} téléchargé`)
+    } catch (error) {
+      console.error('Export error:', error)
+      toast.error('Erreur lors de l\'export')
+    }
   }
 
   const handleDownloadPDF = (invoice: Invoice) => {
@@ -399,6 +433,15 @@ export function FacturationClient() {
                             <DropdownMenuItem onClick={() => handleDownloadCSV(inv)}>
                               <Download className="mr-2 h-4 w-4" />
                               Telecharger CSV
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => handleAccountingExport(inv, 'fec')}>
+                              <Calculator className="mr-2 h-4 w-4" />
+                              Export FEC (Fiscal)
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleAccountingExport(inv, 'sage')}>
+                              <Calculator className="mr-2 h-4 w-4" />
+                              Export Sage CSV
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             {inv.status === 'draft' && (

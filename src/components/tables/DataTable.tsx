@@ -11,6 +11,7 @@ import {
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
+  RowSelectionState,
 } from '@tanstack/react-table'
 import {
   Table,
@@ -22,14 +23,22 @@ import {
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { ChevronLeft, ChevronRight, Columns, Download, Search } from 'lucide-react'
-import { useState } from 'react'
+import { ChevronLeft, ChevronRight, Columns, Download, Search, X } from 'lucide-react'
+import { useState, useEffect, ReactNode } from 'react'
+
+export interface BulkAction<TData> {
+  label: string
+  icon?: ReactNode
+  variant?: 'default' | 'destructive' | 'outline' | 'secondary'
+  onClick: (selectedRows: TData[]) => void | Promise<void>
+}
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
@@ -38,6 +47,9 @@ interface DataTableProps<TData, TValue> {
   searchPlaceholder?: string
   onExport?: () => void
   exportLabel?: string
+  enableRowSelection?: boolean
+  bulkActions?: BulkAction<TData>[]
+  getRowId?: (row: TData) => string
 }
 
 export function DataTable<TData, TValue>({
@@ -47,15 +59,53 @@ export function DataTable<TData, TValue>({
   searchPlaceholder = 'Rechercher...',
   onExport,
   exportLabel = 'Exporter CSV',
+  enableRowSelection = false,
+  bulkActions = [],
+  getRowId,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
-  const [rowSelection, setRowSelection] = useState({})
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+
+  // Reset selection when data changes
+  useEffect(() => {
+    setRowSelection({})
+  }, [data])
+
+  // Add selection column if enabled
+  const columnsWithSelection: ColumnDef<TData, TValue>[] = enableRowSelection
+    ? [
+        {
+          id: 'select',
+          header: ({ table }) => (
+            <Checkbox
+              checked={
+                table.getIsAllPageRowsSelected() ||
+                (table.getIsSomePageRowsSelected() && 'indeterminate')
+              }
+              onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+              aria-label="Tout sélectionner"
+            />
+          ),
+          cell: ({ row }) => (
+            <Checkbox
+              checked={row.getIsSelected()}
+              onCheckedChange={(value) => row.toggleSelected(!!value)}
+              aria-label="Sélectionner la ligne"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ),
+          enableSorting: false,
+          enableHiding: false,
+        } as ColumnDef<TData, TValue>,
+        ...columns,
+      ]
+    : columns
 
   const table = useReactTable({
     data,
-    columns,
+    columns: columnsWithSelection,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -64,6 +114,8 @@ export function DataTable<TData, TValue>({
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: setRowSelection,
+    enableRowSelection,
+    getRowId: getRowId ? (row) => getRowId(row) : undefined,
     state: {
       sorting,
       columnFilters,
@@ -72,8 +124,48 @@ export function DataTable<TData, TValue>({
     },
   })
 
+  const selectedRows = table.getFilteredSelectedRowModel().rows.map(row => row.original)
+  const hasSelection = selectedRows.length > 0
+
+  const handleBulkAction = async (action: BulkAction<TData>) => {
+    await action.onClick(selectedRows)
+    setRowSelection({})
+  }
+
+  const clearSelection = () => {
+    setRowSelection({})
+  }
+
   return (
     <div className="space-y-4">
+      {/* Bulk Actions Bar */}
+      {hasSelection && bulkActions.length > 0 && (
+        <div className="flex items-center justify-between px-4 py-3 bg-primary/5 border border-primary/20 rounded-lg">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium text-primary">
+              {selectedRows.length} élément(s) sélectionné(s)
+            </span>
+            <Button variant="ghost" size="sm" onClick={clearSelection} className="h-7 px-2">
+              <X className="h-4 w-4 mr-1" />
+              Annuler
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            {bulkActions.map((action, idx) => (
+              <Button
+                key={idx}
+                variant={action.variant || 'outline'}
+                size="sm"
+                onClick={() => handleBulkAction(action)}
+              >
+                {action.icon}
+                {action.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2 flex-1">
@@ -157,6 +249,7 @@ export function DataTable<TData, TValue>({
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && 'selected'}
+                  className={row.getIsSelected() ? 'bg-primary/5' : ''}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
@@ -171,7 +264,7 @@ export function DataTable<TData, TValue>({
             ) : (
               <TableRow>
                 <TableCell
-                  colSpan={columns.length}
+                  colSpan={columnsWithSelection.length}
                   className="h-24 text-center"
                 >
                   Aucun resultat.
@@ -185,6 +278,9 @@ export function DataTable<TData, TValue>({
       {/* Pagination */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
+          {hasSelection && (
+            <span className="mr-2 text-primary font-medium">{selectedRows.length} sélectionné(s) •</span>
+          )}
           {table.getFilteredRowModel().rows.length} resultat(s)
         </div>
         <div className="flex items-center gap-2">

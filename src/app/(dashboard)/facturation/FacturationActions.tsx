@@ -4,7 +4,15 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { FileText, Loader2, Download } from 'lucide-react'
+import { FileText, Loader2, Download, Calculator } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 
 export function GenerateInvoiceButton() {
@@ -304,5 +312,77 @@ export function ExportInvoicesButton() {
       )}
       Export détaillé
     </Button>
+  )
+}
+
+interface AccountingExportButtonProps {
+  invoiceId: string
+  invoiceNumber: string
+}
+
+export function AccountingExportButton({ invoiceId, invoiceNumber }: AccountingExportButtonProps) {
+  const [isExporting, setIsExporting] = useState<'fec' | 'sage' | null>(null)
+
+  const handleExport = async (format: 'fec' | 'sage') => {
+    setIsExporting(format)
+    try {
+      const response = await fetch(`/api/invoices/${invoiceId}/export?format=${format}`)
+
+      if (!response.ok) {
+        const error = await response.json()
+        console.error('Export error:', error)
+        return
+      }
+
+      // Get filename from Content-Disposition header or generate one
+      const contentDisposition = response.headers.get('Content-Disposition')
+      let filename = format === 'fec' ? `FEC_${invoiceNumber}.txt` : `Sage_${invoiceNumber}.csv`
+
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="(.+)"/)
+        if (match) filename = match[1]
+      }
+
+      // Download file
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error('Export error:', error)
+    } finally {
+      setIsExporting(null)
+    }
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="sm" disabled={!!isExporting}>
+          {isExporting ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Calculator className="h-4 w-4" />
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuLabel>Export Comptable</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => handleExport('fec')}>
+          <FileText className="mr-2 h-4 w-4" />
+          FEC (Fiscal)
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => handleExport('sage')}>
+          <Download className="mr-2 h-4 w-4" />
+          Sage CSV
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
