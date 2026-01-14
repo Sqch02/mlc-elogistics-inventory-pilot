@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createHmac } from 'crypto'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { parseParcel } from '@/lib/sendcloud/client'
-import type { SendcloudParcel } from '@/lib/sendcloud/types'
+import type { SendcloudParcel, ParsedShipment } from '@/lib/sendcloud/types'
 import { consumeStock } from '@/lib/stock/consume'
 import { getDestination } from '@/lib/utils/pricing'
 
@@ -13,6 +13,116 @@ interface SendcloudWebhookPayload {
   parcel?: SendcloudParcel
   // Legacy format - some webhooks may send this
   parcels?: SendcloudParcel[]
+}
+
+// Sendcloud problematic status IDs that should trigger claims
+// Based on Sendcloud documentation:
+// - 1000+: Exception statuses
+// - 1001: Exception/Problem
+// - 1002: Lost
+// - 1999: Cancelled by carrier
+// - 80: Failed delivery
+const PROBLEMATIC_STATUS_IDS = [80, 1000, 1001, 1002, 1003, 1999, 2000]
+
+// Map status to claim type
+function getClaimTypeFromStatus(statusId: number, statusMessage: string): {
+  shouldCreateClaim: boolean
+  claimType: 'lost' | 'damaged' | 'delay' | 'wrong_content' | 'missing_items' | 'other'
+  priority: 'low' | 'normal' | 'high' | 'urgent'
+} {
+  const messageLower = statusMessage.toLowerCase()
+
+  // Check for lost
+  if (statusId === 1002 || messageLower.includes('lost') || messageLower.includes('perdu')) {
+    return { shouldCreateClaim: true, claimType: 'lost', priority: 'urgent' }
+  }
+
+  // Check for damaged
+  if (messageLower.includes('damaged') || messageLower.includes('endommagé') || messageLower.includes('broken')) {
+    return { shouldCreateClaim: true, claimType: 'damaged', priority: 'high' }
+  }
+
+  // Check for delivery issues (potential delay)
+  if (statusId === 80 || messageLower.includes('delivery exception') || messageLower.includes('unable to deliver')) {
+    return { shouldCreateClaim: true, claimType: 'delay', priority: 'normal' }
+  }
+
+  // Check for cancelled by carrier
+  if (statusId === 1999 || messageLower.includes('cancelled') || messageLower.includes('annulé')) {
+    return { shouldCreateClaim: true, claimType: 'other', priority: 'high' }
+  }
+
+  // Generic exception
+  if (PROBLEMATIC_STATUS_IDS.includes(statusId) || messageLower.includes('exception')) {
+    return { shouldCreateClaim: true, claimType: 'other', priority: 'normal' }
+  }
+
+  return { shouldCreateClaim: false, claimType: 'other', priority: 'normal' }
+}
+
+// Create a claim from a problematic shipment
+async function createClaimFromShipment(
+  adminClient: ReturnType<typeof getAdminDb>,
+  tenantId: string,
+  shipmentId: string,
+  parcel: ParsedShipment,
+  claimType: 'lost' | 'damaged' | 'delay' | 'wrong_content' | 'missing_items' | 'other',
+  priority: 'low' | 'normal' | 'high' | 'urgent'
+): Promise<boolean> {
+  try {
+    // Check if claim already exists for this shipment
+    const { data: existingClaim } = await adminClient
+      .from('claims')
+      .select('id')
+      .eq('shipment_id', shipmentId)
+      .single()
+
+    if (existingClaim) {
+      console.log('[Webhook] Claim already exists for shipment:', shipmentId)
+      return false
+    }
+
+    // Calculate deadline based on priority
+    const now = new Date()
+    const deadlineDays = { urgent: 1, high: 3, normal: 7, low: 14 }
+    const deadline = new Date(now.getTime() + deadlineDays[priority] * 24 * 60 * 60 * 1000)
+
+    // Create the claim
+    const { data: claim, error } = await adminClient
+      .from('claims')
+      .insert({
+        tenant_id: tenantId,
+        shipment_id: shipmentId,
+        order_ref: parcel.order_ref,
+        description: `Réclamation automatique: ${parcel.status_message || 'Problème détecté'}. Transporteur: ${parcel.carrier}. Tracking: ${parcel.tracking || 'N/A'}`,
+        status: 'ouverte',
+        claim_type: claimType,
+        priority: priority,
+        resolution_deadline: deadline.toISOString(),
+      })
+      .select('id')
+      .single()
+
+    if (error) {
+      console.error('[Webhook] Error creating claim:', error.message)
+      return false
+    }
+
+    // Log in claim history
+    await adminClient.from('claim_history').insert({
+      claim_id: claim.id,
+      tenant_id: tenantId,
+      action: 'created',
+      new_value: { status: 'ouverte', claim_type: claimType, priority, source: 'sendcloud_webhook' },
+      note: `Créé automatiquement depuis webhook Sendcloud. Statut: ${parcel.status_message}`,
+    })
+
+    console.log('[Webhook] Created claim:', claim.id, 'for shipment:', shipmentId, 'type:', claimType)
+    return true
+  } catch (err) {
+    console.error('[Webhook] Exception creating claim:', err)
+    return false
+  }
 }
 
 interface PricingRule {
@@ -238,6 +348,28 @@ export async function POST(request: NextRequest) {
 
         results.processed++
         console.log('[Webhook] Processed parcel:', parcel.sendcloud_id, '- Status:', parcel.status_message, isNewShipment ? '(NEW)' : '(UPDATE)')
+
+        // Check if status indicates a problem that should create a claim
+        if (parcel.status_id && shipment) {
+          const { shouldCreateClaim, claimType, priority } = getClaimTypeFromStatus(
+            parcel.status_id,
+            parcel.status_message || ''
+          )
+
+          if (shouldCreateClaim) {
+            const claimCreated = await createClaimFromShipment(
+              adminClient,
+              tenantId,
+              shipment.id,
+              parcel,
+              claimType,
+              priority
+            )
+            if (claimCreated) {
+              console.log('[Webhook] Auto-created claim for problematic status:', parcel.status_message)
+            }
+          }
+        }
 
         // Process items if available
         if (parcel.items && parcel.items.length > 0 && shipment) {
