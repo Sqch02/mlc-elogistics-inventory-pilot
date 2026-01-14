@@ -2,9 +2,10 @@
 
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Banknote, Award } from 'lucide-react'
+import { Banknote, Award, ChevronDown, ChevronUp, BarChart3 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useDashboard } from '@/hooks/useDashboard'
+import { useAnalytics } from '@/hooks/useAnalytics'
 import { DashboardHeader } from './DashboardHeader'
 import { HeroMetricCard } from './HeroMetricCard'
 import { SecondaryKpiCard } from './SecondaryKpiCard'
@@ -14,6 +15,10 @@ import { BillingArcCard } from './BillingArcCard'
 import { AlertsTimeline } from './AlertsTimeline'
 import { StockWatchlist } from './StockWatchlist'
 import { Skeleton } from '@/components/ui/skeleton'
+import { CostTrendChart } from '@/components/dashboard/CostTrendChart'
+import { CarrierPerformance } from '@/components/dashboard/CarrierPerformance'
+import { StockForecast } from '@/components/dashboard/StockForecast'
+import { Button } from '@/components/ui/button'
 
 // Loading skeleton for the dashboard
 function DashboardSkeleton() {
@@ -62,7 +67,9 @@ export function DashboardV2() {
   const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 
   const [selectedMonth, setSelectedMonth] = useState(defaultMonth)
+  const [showAnalytics, setShowAnalytics] = useState(false)
   const { data, isLoading, isRefetching } = useDashboard(selectedMonth)
+  const { data: analyticsData, isLoading: analyticsLoading } = useAnalytics()
 
   // Generate invoice handler
   const handleGenerateInvoice = async () => {
@@ -192,6 +199,63 @@ export function DashboardV2() {
         <AlertsTimeline alerts={data.alerts} delay={1.0} />
         <StockWatchlist items={data.stockHealth} delay={1.2} />
       </div>
+
+      {/* Analytics Section Toggle */}
+      <div className="flex justify-center">
+        <Button
+          variant="outline"
+          onClick={() => setShowAnalytics(!showAnalytics)}
+          className="flex items-center gap-2"
+        >
+          <BarChart3 className="h-4 w-4" />
+          Analytics Avancées
+          {showAnalytics ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </Button>
+      </div>
+
+      {/* Analytics Section */}
+      {showAnalytics && (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: 'auto' }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={{ duration: 0.3 }}
+          className="space-y-6"
+        >
+          {analyticsLoading ? (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <Skeleton className="h-[400px] lg:col-span-2 rounded-2xl" />
+              <Skeleton className="h-[400px] rounded-2xl" />
+            </div>
+          ) : analyticsData ? (
+            <>
+              {/* Cost Trend + Carrier Performance */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <CostTrendChart
+                  data={analyticsData.costTrend.data}
+                  percentChange={analyticsData.costTrend.percentChange}
+                  shipmentsPercentChange={analyticsData.costTrend.shipmentsPercentChange}
+                />
+                <CarrierPerformance
+                  data={analyticsData.carrierPerformance.data}
+                  totalCarriers={analyticsData.carrierPerformance.totalCarriers}
+                />
+              </div>
+
+              {/* Stock Forecast */}
+              <StockForecast
+                data={analyticsData.stockForecast.data}
+                criticalCount={analyticsData.stockForecast.criticalCount}
+                totalTracked={analyticsData.stockForecast.totalTracked}
+              />
+            </>
+          ) : (
+            <div className="text-center text-muted-foreground py-8">
+              Erreur lors du chargement des analytics
+            </div>
+          )}
+        </motion.div>
+      )}
     </motion.div>
   )
 }
