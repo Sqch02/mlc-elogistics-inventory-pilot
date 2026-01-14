@@ -55,6 +55,36 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  // Get user profile with tenant info for role and active checks
+  let profile: { role: string; tenant_id: string } | null = null
+  if (user) {
+    const { data } = await supabase
+      .from('profiles')
+      .select('role, tenant_id')
+      .eq('id', user.id)
+      .single()
+    profile = data
+  }
+
+  // Check if tenant is active (skip for super_admin)
+  if (user && profile && profile.role !== 'super_admin' && !isPublicRoute) {
+    const { data: tenant } = await supabase
+      .from('tenants')
+      .select('is_active')
+      .eq('id', profile.tenant_id)
+      .single()
+
+    // If tenant is inactive, redirect to login with error
+    if (tenant && tenant.is_active === false) {
+      // Sign out the user
+      await supabase.auth.signOut()
+      const url = request.nextUrl.clone()
+      url.pathname = '/login'
+      url.searchParams.set('error', 'tenant_inactive')
+      return NextResponse.redirect(url)
+    }
+  }
+
   // Check admin routes - only super_admin can access
   if (path.startsWith('/admin')) {
     if (!user) {
@@ -62,13 +92,6 @@ export async function middleware(request: NextRequest) {
       url.pathname = '/login'
       return NextResponse.redirect(url)
     }
-
-    // Get user profile to check role
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
 
     if (!profile || profile.role !== 'super_admin') {
       // Redirect non-super-admin users to dashboard

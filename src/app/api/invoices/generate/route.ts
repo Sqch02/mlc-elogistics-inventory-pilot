@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
 import { requireTenant } from '@/lib/supabase/auth'
 
+interface TenantSettings {
+  invoice_prefix: string | null
+  invoice_next_number: number | null
+  default_vat_rate: number | null
+}
+
 interface Shipment {
   id: string
   carrier: string
@@ -64,6 +70,19 @@ export async function POST(request: NextRequest) {
       .eq('tenant_id', tenantId)
       .single()
 
+    // Get tenant settings for invoice numbering
+    const { data: tenantSettings } = await supabase
+      .from('tenant_settings')
+      .select('invoice_prefix, invoice_next_number, default_vat_rate')
+      .eq('tenant_id', tenantId)
+      .single()
+
+    const invoiceSettings: TenantSettings = tenantSettings || {
+      invoice_prefix: 'FAC',
+      invoice_next_number: 1,
+      default_vat_rate: 20.00,
+    }
+
     const config: BillingConfig = billingConfig || {
       software_fee_eur: 49.00,
       storage_fee_per_m3: 25.00,
@@ -71,7 +90,7 @@ export async function POST(request: NextRequest) {
       fuel_surcharge_pct: 4.00,
       return_fee_eur: 0.90,
       free_returns_pct: 0.50,
-      vat_rate_pct: 20.00,
+      vat_rate_pct: invoiceSettings.default_vat_rate || 20.00,
     }
 
     // Parse month dates
@@ -248,12 +267,18 @@ export async function POST(request: NextRequest) {
         .delete()
         .eq('invoice_id', invoiceId)
     } else {
+      // Generate invoice number from tenant settings
+      const prefix = invoiceSettings.invoice_prefix || 'FAC'
+      const nextNum = invoiceSettings.invoice_next_number || 1
+      const invoiceNumber = `${prefix}-${year}-${String(nextNum).padStart(3, '0')}`
+
       // Create new invoice
       const { data: newInvoice, error: invoiceError } = await supabase
         .from('invoices_monthly')
         .insert({
           tenant_id: tenantId,
           month,
+          invoice_number: invoiceNumber,
           total_eur: shippingTotalEur,
           subtotal_ht: subtotalHt,
           vat_amount: totalVat,
@@ -273,6 +298,12 @@ export async function POST(request: NextRequest) {
       }
 
       invoiceId = newInvoice.id
+
+      // Increment invoice number in tenant settings
+      await supabase
+        .from('tenant_settings')
+        .update({ invoice_next_number: nextNum + 1 })
+        .eq('tenant_id', tenantId)
     }
 
     // Create all invoice lines
