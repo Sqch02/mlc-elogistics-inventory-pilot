@@ -1,6 +1,6 @@
 'use client'
 
-import { Bell, User, Shield } from 'lucide-react'
+import { Bell, User, Shield, Building2, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -13,6 +13,8 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { useTenant } from '@/components/providers/TenantProvider'
+import { Badge } from '@/components/ui/badge'
 
 interface HeaderProps {
   user?: {
@@ -24,10 +26,13 @@ interface HeaderProps {
 
 export function Header({ user }: HeaderProps) {
   const router = useRouter()
+  const { tenants, activeTenant, activeTenantId, setActiveTenantId, isSuperAdmin, isLoading } = useTenant()
 
   const handleLogout = async () => {
     const supabase = createClient()
     await supabase.auth.signOut()
+    // Clear tenant cookie
+    document.cookie = 'mlc_active_tenant=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
     router.push('/login')
     router.refresh()
   }
@@ -42,8 +47,48 @@ export function Header({ user }: HeaderProps) {
 
   return (
     <header className="h-16 border-b border-border bg-background flex items-center justify-between px-4 lg:px-6">
-      {/* Empty space for mobile menu button or breadcrumb */}
-      <div className="w-10 lg:w-0" />
+      {/* Tenant selector for super_admin */}
+      <div className="flex items-center gap-2">
+        {isSuperAdmin && !isLoading && tenants.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <Building2 className="h-4 w-4" />
+                <span className="hidden sm:inline max-w-[150px] truncate">
+                  {activeTenant?.name || 'Selectionner'}
+                </span>
+                {activeTenant?.code && (
+                  <Badge variant="secondary" className="hidden md:inline-flex text-xs">
+                    {activeTenant.code}
+                  </Badge>
+                )}
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-64">
+              <DropdownMenuLabel>Changer de client</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {tenants.map((tenant) => (
+                <DropdownMenuItem
+                  key={tenant.id}
+                  onClick={() => setActiveTenantId(tenant.id)}
+                  className={tenant.id === activeTenantId ? 'bg-accent' : ''}
+                >
+                  <div className="flex items-center justify-between w-full">
+                    <span className="truncate">{tenant.name}</span>
+                    {tenant.code && (
+                      <Badge variant="outline" className="ml-2 text-xs">
+                        {tenant.code}
+                      </Badge>
+                    )}
+                  </div>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        {!isSuperAdmin && <div className="w-10 lg:w-0" />}
+      </div>
 
       <div className="flex items-center gap-2 sm:gap-4">
         {/* Notifications */}

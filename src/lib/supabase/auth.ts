@@ -1,4 +1,5 @@
 import { createClient } from './server'
+import { cookies } from 'next/headers'
 import type { UserRole } from '@/types/database'
 
 export interface UserProfile {
@@ -38,7 +39,18 @@ export async function getCurrentUser(): Promise<UserProfile | null> {
 
 export async function getTenantId(): Promise<string | null> {
   const user = await getCurrentUser()
-  return user?.tenant_id ?? null
+  if (!user) return null
+
+  // For super_admin, check if they have selected a different tenant
+  if (user.role === 'super_admin') {
+    const cookieStore = await cookies()
+    const activeTenant = cookieStore.get('mlc_active_tenant')?.value
+    if (activeTenant) {
+      return activeTenant
+    }
+  }
+
+  return user.tenant_id
 }
 
 export async function requireAuth(): Promise<UserProfile> {
@@ -52,13 +64,21 @@ export async function requireAuth(): Promise<UserProfile> {
 }
 
 export async function requireTenant(): Promise<string> {
-  const tenantId = await getTenantId()
-
-  if (!tenantId) {
+  const user = await getCurrentUser()
+  if (!user) {
     throw new Error('Tenant not found')
   }
 
-  return tenantId
+  // For super_admin, check if they have selected a different tenant
+  if (user.role === 'super_admin') {
+    const cookieStore = await cookies()
+    const activeTenant = cookieStore.get('mlc_active_tenant')?.value
+    if (activeTenant) {
+      return activeTenant
+    }
+  }
+
+  return user.tenant_id
 }
 
 export async function requireRole(allowedRoles: UserRole[]): Promise<UserProfile> {

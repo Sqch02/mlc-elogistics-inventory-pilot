@@ -1,8 +1,8 @@
 import { Sidebar } from '@/components/layout/Sidebar'
-import { Header } from '@/components/layout/Header'
 import { QueryProvider } from '@/components/providers/QueryProvider'
 import { getFastUser } from '@/lib/supabase/fast-auth'
 import { redirect } from 'next/navigation'
+import { DashboardShell } from './DashboardShell'
 
 export default async function DashboardLayout({
   children,
@@ -28,14 +28,15 @@ export default async function DashboardLayout({
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden lg:ml-[260px]">
-        <Header user={user} />
-        <main className="flex-1 overflow-y-auto bg-background p-4 lg:p-6">
-          <div className="max-w-[1280px] mx-auto w-full">
-            <QueryProvider>
-              {children}
-            </QueryProvider>
-          </div>
-        </main>
+        <DashboardShell user={user}>
+          <main className="flex-1 overflow-y-auto bg-background p-4 lg:p-6">
+            <div className="max-w-[1280px] mx-auto w-full">
+              <QueryProvider>
+                {children}
+              </QueryProvider>
+            </div>
+          </main>
+        </DashboardShell>
       </div>
     </div>
   )
