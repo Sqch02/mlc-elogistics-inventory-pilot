@@ -48,3 +48,6 @@ next-env.d.ts
 # Claude Code
 .claude/
 CLAUDE.md
+
+# MCP config
+.mcp.json
