@@ -131,7 +131,7 @@ export async function PATCH(
       updated_at: new Date().toISOString(),
     }
     const settingsFieldNames = [
-      'sendcloud_api_key', 'sendcloud_secret', 'sync_enabled',
+      'sendcloud_api_key', 'sendcloud_secret', 'sendcloud_webhook_secret', 'sync_enabled',
       'invoice_prefix', 'invoice_next_number', 'payment_terms',
       'bank_details', 'default_vat_rate'
     ]

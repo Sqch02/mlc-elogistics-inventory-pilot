@@ -47,6 +47,9 @@ import {
   AlertTriangle,
   Power,
   PowerOff,
+  Copy,
+  CheckCircle2,
+  ExternalLink,
 } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
@@ -72,6 +75,7 @@ interface Tenant {
 interface TenantSettings {
   sendcloud_api_key: string | null
   sendcloud_secret: string | null
+  sendcloud_webhook_secret: string | null
   sync_enabled: boolean
   invoice_prefix: string | null
   invoice_next_number: number | null
@@ -103,6 +107,7 @@ export default function TenantDetailPage() {
   const [settings, setSettings] = useState<TenantSettings>({
     sendcloud_api_key: null,
     sendcloud_secret: null,
+    sendcloud_webhook_secret: null,
     sync_enabled: true,
     invoice_prefix: 'FAC',
     invoice_next_number: 1,
@@ -135,6 +140,24 @@ export default function TenantDetailPage() {
   const [newUserPassword, setNewUserPassword] = useState('')
   const [newUserRole, setNewUserRole] = useState('ops')
   const [creatingUser, setCreatingUser] = useState(false)
+  const [copiedWebhook, setCopiedWebhook] = useState(false)
+
+  // Generate webhook URL based on tenant code
+  const webhookUrl = tenant?.code
+    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/api/webhooks/sendcloud/${tenant.code}`
+    : null
+
+  const copyWebhookUrl = async () => {
+    if (!webhookUrl) return
+    try {
+      await navigator.clipboard.writeText(webhookUrl)
+      setCopiedWebhook(true)
+      toast.success('URL copiee dans le presse-papier')
+      setTimeout(() => setCopiedWebhook(false), 2000)
+    } catch {
+      toast.error('Erreur lors de la copie')
+    }
+  }
 
   useEffect(() => {
     fetchTenant()
@@ -148,6 +171,7 @@ export default function TenantDetailPage() {
       setSettings({
         sendcloud_api_key: data.settings?.sendcloud_api_key || null,
         sendcloud_secret: data.settings?.sendcloud_secret || null,
+        sendcloud_webhook_secret: data.settings?.sendcloud_webhook_secret || null,
         sync_enabled: data.settings?.sync_enabled ?? true,
         invoice_prefix: data.settings?.invoice_prefix || 'FAC',
         invoice_next_number: data.settings?.invoice_next_number || 1,
@@ -630,57 +654,130 @@ export default function TenantDetailPage() {
 
         {/* Sendcloud Tab */}
         <TabsContent value="sendcloud">
-          <Card>
-            <CardHeader>
-              <CardTitle>Configuration Sendcloud</CardTitle>
-              <CardDescription>
-                Credentials API pour la synchronisation des expeditions
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="api_key">API Key</Label>
-                  <Input
-                    id="api_key"
-                    type="password"
-                    value={settings.sendcloud_api_key || ''}
-                    onChange={(e) =>
-                      setSettings({ ...settings, sendcloud_api_key: e.target.value || null })
-                    }
-                    placeholder="Entrez la cle API Sendcloud"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="secret">Secret</Label>
-                  <Input
-                    id="secret"
-                    type="password"
-                    value={settings.sendcloud_secret || ''}
-                    onChange={(e) =>
-                      setSettings({ ...settings, sendcloud_secret: e.target.value || null })
-                    }
-                    placeholder="Entrez le secret Sendcloud"
-                  />
-                </div>
-              </div>
+          <div className="space-y-6">
+            {/* Webhook Configuration Card */}
+            <Card className="border-blue-200 bg-blue-50/50">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ExternalLink className="h-5 w-5 text-blue-600" />
+                  URL Webhook
+                </CardTitle>
+                <CardDescription>
+                  Configurez cette URL dans votre compte Sendcloud pour recevoir les mises a jour en temps reel
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {tenant?.code ? (
+                  <>
+                    <div className="flex gap-2">
+                      <Input
+                        value={webhookUrl || ''}
+                        readOnly
+                        className="font-mono text-sm bg-white"
+                      />
+                      <Button
+                        variant="outline"
+                        onClick={copyWebhookUrl}
+                        className="shrink-0"
+                      >
+                        {copiedWebhook ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                    <div className="text-sm text-muted-foreground space-y-1">
+                      <p><strong>Instructions:</strong></p>
+                      <ol className="list-decimal list-inside space-y-1 ml-2">
+                        <li>Connectez-vous a votre compte Sendcloud</li>
+                        <li>Allez dans Settings &rarr; Integrations &rarr; Webhooks</li>
+                        <li>Activez &quot;Webhook Feedback&quot;</li>
+                        <li>Collez l&apos;URL ci-dessus</li>
+                        <li>Selectionnez les events: parcel_status_changed, parcel_created</li>
+                        <li>Copiez le webhook secret et collez-le ci-dessous</li>
+                      </ol>
+                    </div>
+                  </>
+                ) : (
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                    <p className="text-amber-800 text-sm">
+                      Definissez un <strong>code client</strong> dans l&apos;onglet General pour generer l&apos;URL webhook.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
-              <div className="flex items-center justify-between pt-4 border-t">
-                <div>
-                  <Label>Synchronisation automatique</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Synchroniser les expeditions depuis Sendcloud (cron toutes les 15 min)
+            {/* API Credentials Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Credentials API</CardTitle>
+                <CardDescription>
+                  Cles API pour la synchronisation des expeditions
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="api_key">API Key</Label>
+                    <Input
+                      id="api_key"
+                      type="password"
+                      value={settings.sendcloud_api_key || ''}
+                      onChange={(e) =>
+                        setSettings({ ...settings, sendcloud_api_key: e.target.value || null })
+                      }
+                      placeholder="Entrez la cle API Sendcloud"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="secret">API Secret</Label>
+                    <Input
+                      id="secret"
+                      type="password"
+                      value={settings.sendcloud_secret || ''}
+                      onChange={(e) =>
+                        setSettings({ ...settings, sendcloud_secret: e.target.value || null })
+                      }
+                      placeholder="Entrez le secret API Sendcloud"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="webhook_secret">Webhook Secret</Label>
+                  <Input
+                    id="webhook_secret"
+                    type="password"
+                    value={settings.sendcloud_webhook_secret || ''}
+                    onChange={(e) =>
+                      setSettings({ ...settings, sendcloud_webhook_secret: e.target.value || null })
+                    }
+                    placeholder="Copiez le secret depuis Sendcloud &rarr; Webhooks"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Utilise pour valider l&apos;authenticite des webhooks recus
                   </p>
                 </div>
-                <Switch
-                  checked={settings.sync_enabled}
-                  onCheckedChange={(checked) =>
-                    setSettings({ ...settings, sync_enabled: checked })
-                  }
-                />
-              </div>
-            </CardContent>
-          </Card>
+
+                <div className="flex items-center justify-between pt-4 border-t">
+                  <div>
+                    <Label>Synchronisation automatique</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Synchroniser les expeditions via cron (toutes les 15 min, en complement du webhook)
+                    </p>
+                  </div>
+                  <Switch
+                    checked={settings.sync_enabled}
+                    onCheckedChange={(checked) =>
+                      setSettings({ ...settings, sync_enabled: checked })
+                    }
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         {/* Users Tab */}
