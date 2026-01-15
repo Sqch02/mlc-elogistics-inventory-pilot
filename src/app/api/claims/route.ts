@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
       `)
       .eq('tenant_id', tenantId)
       .order('opened_at', { ascending: false })
+      .limit(5000)
 
     if (status) {
       query = query.eq('status', status)
