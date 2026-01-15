@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { requireAuth } from '@/lib/supabase/auth'
 import { generateFECEntries, generateFECFile, generateFECFilename } from '@/lib/utils/export-fec'
 import { generateSageEntries, generateSageCSV, generateSageFilename, validateSageBalance } from '@/lib/utils/export-sage'
+import { getServerFeatures } from '@/lib/config/features'
 
 interface InvoiceLine {
   line_type: string
@@ -33,6 +34,15 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Check feature flag - FEC/Sage exports are out of scope for V1 Pilot
+    const serverFeatures = getServerFeatures()
+    if (!serverFeatures.accountingExports) {
+      return NextResponse.json(
+        { error: 'Export comptable non disponible. Contactez votre administrateur.' },
+        { status: 403 }
+      )
+    }
+
     await requireAuth()
     const supabase = await createClient()
     const { id } = await params

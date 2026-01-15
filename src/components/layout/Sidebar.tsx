@@ -20,20 +20,22 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
+import { features } from '@/lib/config/features'
 
-const navigation = [
-  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Expeditions', href: '/expeditions', icon: Truck },
-  { name: 'Retours', href: '/retours', icon: RotateCcw },
-  { name: 'Produits & Stock', href: '/produits', icon: Package },
-  { name: 'Bundles', href: '/bundles', icon: Boxes },
-  { name: 'Emplacements', href: '/emplacements', icon: MapPin },
-  { name: 'Pricing', href: '/pricing', icon: DollarSign },
-  { name: 'Facturation', href: '/facturation', icon: FileText },
-  { name: 'Reclamations', href: '/reclamations', icon: AlertTriangle },
-  { name: 'Parametres', href: '/parametres', icon: Settings },
+// Base navigation items
+const baseNavigation = [
+  { name: 'Dashboard', href: '/', icon: LayoutDashboard, feature: null },
+  { name: 'Expeditions', href: '/expeditions', icon: Truck, feature: null },
+  { name: 'Retours', href: '/retours', icon: RotateCcw, feature: 'returnsModule' as const },
+  { name: 'Produits & Stock', href: '/produits', icon: Package, feature: null },
+  { name: 'Bundles', href: '/bundles', icon: Boxes, feature: null },
+  { name: 'Emplacements', href: '/emplacements', icon: MapPin, feature: null },
+  { name: 'Pricing', href: '/pricing', icon: DollarSign, feature: null },
+  { name: 'Facturation', href: '/facturation', icon: FileText, feature: null },
+  { name: 'Reclamations', href: '/reclamations', icon: AlertTriangle, feature: null },
+  { name: 'Parametres', href: '/parametres', icon: Settings, feature: null },
 ]
 
 interface SidebarContentProps {
@@ -43,6 +45,15 @@ interface SidebarContentProps {
 }
 
 function SidebarContent({ pathname, onClose, onLogout }: SidebarContentProps) {
+  // Filter navigation based on feature flags
+  const navigation = useMemo(() => {
+    return baseNavigation.filter((item) => {
+      if (item.feature === null) return true
+      if (item.feature === 'returnsModule') return features.returnsModule
+      return true
+    })
+  }, [])
+
   return (
     <>
       {/* Header */}

@@ -18,6 +18,7 @@ import { toast } from 'sonner'
 import { WarehouseVisualMap } from '@/components/warehouse/WarehouseVisualMap'
 import { EditLocationDialog } from '@/components/warehouse/EditLocationDialog'
 import { ImportPreviewDialog } from '@/components/forms/ImportPreviewDialog'
+import { features } from '@/lib/config/features'
 
 export function EmplacementsClient() {
   const [isExporting, setIsExporting] = useState(false)
@@ -229,27 +230,29 @@ export function EmplacementsClient() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* View toggle */}
-          <div className="flex items-center border rounded-lg p-0.5 bg-muted/50">
-            <Button
-              variant={viewMode === 'table' ? 'secondary' : 'ghost'}
-              size="sm"
-              onClick={() => setViewMode('table')}
-              className="h-7 px-2"
-            >
-              <TableIcon className="h-4 w-4 mr-1" />
-              <span className="hidden sm:inline">Tableau</span>
-            </Button>
-            <Button
-              variant={viewMode === 'visual' ? 'secondary' : 'ghost'}
-              size="sm"
-              onClick={() => setViewMode('visual')}
-              className="h-7 px-2"
-            >
-              <LayoutGrid className="h-4 w-4 mr-1" />
-              <span className="hidden sm:inline">Carte</span>
-            </Button>
-          </div>
+          {/* View toggle - Only show if warehouse map feature is enabled */}
+          {features.warehouseMap && (
+            <div className="flex items-center border rounded-lg p-0.5 bg-muted/50">
+              <Button
+                variant={viewMode === 'table' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setViewMode('table')}
+                className="h-7 px-2"
+              >
+                <TableIcon className="h-4 w-4 mr-1" />
+                <span className="hidden sm:inline">Tableau</span>
+              </Button>
+              <Button
+                variant={viewMode === 'visual' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setViewMode('visual')}
+                className="h-7 px-2"
+              >
+                <LayoutGrid className="h-4 w-4 mr-1" />
+                <span className="hidden sm:inline">Carte</span>
+              </Button>
+            </div>
+          )}
 
           <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
             <Upload className="mr-2 h-4 w-4" />
@@ -357,8 +360,8 @@ export function EmplacementsClient() {
         )}
       </div>
 
-      {/* Content: Table or Visual Map */}
-      {viewMode === 'visual' ? (
+      {/* Content: Table or Visual Map (only if feature enabled) */}
+      {features.warehouseMap && viewMode === 'visual' ? (
         <WarehouseVisualMap
           onLocationClick={(location) => {
             setSelectedLocation(location)

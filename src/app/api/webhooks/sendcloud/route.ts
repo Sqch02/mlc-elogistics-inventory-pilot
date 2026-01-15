@@ -5,6 +5,7 @@ import { parseParcel } from '@/lib/sendcloud/client'
 import type { SendcloudParcel, ParsedShipment } from '@/lib/sendcloud/types'
 import { consumeStock } from '@/lib/stock/consume'
 import { getDestination } from '@/lib/utils/pricing'
+import { getServerFeatures } from '@/lib/config/features'
 
 // Sendcloud webhook payload structure
 interface SendcloudWebhookPayload {
@@ -350,7 +351,10 @@ export async function POST(request: NextRequest) {
         console.log('[Webhook] Processed parcel:', parcel.sendcloud_id, '- Status:', parcel.status_message, isNewShipment ? '(NEW)' : '(UPDATE)')
 
         // Check if status indicates a problem that should create a claim
-        if (parcel.status_id && shipment) {
+        // NOTE: Auto-creation of claims is disabled by default (out of scope for V1 Pilot)
+        // Devis specifies: "indemnisation manuelle (montant saisi au cas par cas)"
+        const serverFeatures = getServerFeatures()
+        if (serverFeatures.autoCreateClaims && parcel.status_id && shipment) {
           const { shouldCreateClaim, claimType, priority } = getClaimTypeFromStatus(
             parcel.status_id,
             parcel.status_message || ''
