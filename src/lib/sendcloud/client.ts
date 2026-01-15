@@ -441,31 +441,39 @@ function mapReturnStatus(statusId: number): string {
 
 /**
  * Map return reason from Sendcloud
- * Handles both string and object formats from API
+ * Handles various formats from API including:
+ * - { reason: "..." }
+ * - { refund: { refund_type: { code: "money", label: "Money back" } } }
  */
-function mapReturnReason(reason?: unknown, refundType?: unknown): string | null {
-  // Extract string from various formats
+function mapReturnReason(reason?: unknown, refundObj?: unknown): string | null {
+  // Extract string from nested object structures
   const extractString = (val: unknown): string => {
     if (!val) return ''
     if (typeof val === 'string') return val
     if (typeof val === 'object' && val !== null) {
-      // Handle objects like { message: "Remboursement" } or { refund_type: "refund" }
       const obj = val as Record<string, unknown>
-      return String(obj.message || obj.refund_type || obj.reason || obj.name || '')
+      // Handle nested structures like { refund_type: { code: "money", label: "..." } }
+      if (obj.refund_type && typeof obj.refund_type === 'object') {
+        const rt = obj.refund_type as Record<string, unknown>
+        return String(rt.code || rt.label || '')
+      }
+      // Handle direct properties
+      return String(obj.message || obj.code || obj.label || obj.reason || obj.name || '')
     }
     return String(val)
   }
 
   const reasonStr = extractString(reason)
-  const refundStr = extractString(refundType)
+  const refundStr = extractString(refundObj)
 
   if (!reasonStr && !refundStr) return null
 
   const combined = (reasonStr + ' ' + refundStr).toLowerCase()
 
-  if (combined.includes('remboursement') || combined.includes('refund')) return 'refund'
-  if (combined.includes('échange') || combined.includes('exchange')) return 'exchange'
-  if (combined.includes('défectueux') || combined.includes('defect')) return 'defective'
+  // Map to our return reason types
+  if (combined.includes('money') || combined.includes('remboursement') || combined.includes('refund')) return 'refund'
+  if (combined.includes('échange') || combined.includes('exchange') || combined.includes('replace')) return 'exchange'
+  if (combined.includes('défectueux') || combined.includes('defect') || combined.includes('broken')) return 'defective'
   if (combined.includes('erreur') || combined.includes('wrong')) return 'wrong_item'
 
   return 'other'
