@@ -27,48 +27,51 @@ export async function GET(request: NextRequest) {
     const from = searchParams.get('from')
     const to = searchParams.get('to')
 
-    let query = db
-      .from('claims')
-      .select(`
-        *,
-        shipments(sendcloud_id, order_ref, carrier)
-      `)
-      .eq('tenant_id', tenantId)
-      .order('opened_at', { ascending: false })
-      .limit(5000)
-
-    if (status) {
-      query = query.eq('status', status)
-    }
-
-    if (claim_type) {
-      query = query.eq('claim_type', claim_type)
-    }
-
-    if (priority) {
-      query = query.eq('priority', priority)
-    }
-
-    if (from) {
-      query = query.gte('opened_at', from)
-    }
-
-    if (to) {
-      query = query.lte('opened_at', to)
-    }
-
-    const { data: claims, error } = await query
+    // Use RPC function to bypass 1000 row limit
+    const { data: rawClaims, error } = await db.rpc('get_all_claims', {
+      p_tenant_id: tenantId
+    })
 
     if (error) {
       throw error
     }
 
-    // Filter by search text (order_ref or description)
+    // Transform RPC result to match expected format
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let filteredClaims: any[] = claims || []
+    let claims = (rawClaims || []).map((c: any) => ({
+      ...c,
+      shipments: c.shipment_sendcloud_id ? {
+        sendcloud_id: c.shipment_sendcloud_id,
+        order_ref: c.shipment_order_ref,
+        carrier: c.shipment_carrier,
+      } : null,
+    }))
+
+    // Apply filters
+    if (status) {
+      claims = claims.filter((c: { status: string }) => c.status === status)
+    }
+
+    if (claim_type) {
+      claims = claims.filter((c: { claim_type: string }) => c.claim_type === claim_type)
+    }
+
+    if (priority) {
+      claims = claims.filter((c: { priority: string }) => c.priority === priority)
+    }
+
+    if (from) {
+      claims = claims.filter((c: { opened_at: string }) => c.opened_at >= from)
+    }
+
+    if (to) {
+      claims = claims.filter((c: { opened_at: string }) => c.opened_at <= to)
+    }
+
+    // Filter by search text (order_ref or description)
     if (search) {
       const searchLower = search.toLowerCase()
-      filteredClaims = filteredClaims.filter(c =>
+      claims = claims.filter((c: { order_ref?: string; description?: string; shipments?: { order_ref?: string; carrier?: string } }) =>
         c.order_ref?.toLowerCase().includes(searchLower) ||
         c.description?.toLowerCase().includes(searchLower) ||
         c.shipments?.order_ref?.toLowerCase().includes(searchLower) ||
@@ -76,7 +79,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    return NextResponse.json({ claims: filteredClaims })
+    return NextResponse.json({ claims })
   } catch (error) {
     console.error('Get claims error:', error)
     return NextResponse.json(
