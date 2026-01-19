@@ -12,7 +12,7 @@ import { AreaShipmentsChart } from './AreaShipmentsChart'
 import { BillingArcCard } from './BillingArcCard'
 import { AlertsTimeline } from './AlertsTimeline'
 import { StockHealthPanel } from './StockHealthPanel'
-import { ProductsSummary } from './ProductsSummary'
+import { ProductsAnalytics } from './ProductsAnalytics'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CostTrendChart } from '@/components/dashboard/CostTrendChart'
 import { CarrierPerformance } from '@/components/dashboard/CarrierPerformance'
@@ -204,11 +204,11 @@ export function DashboardV2() {
         />
       </div>
 
-      {/* Section 4: Alerts + Products */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <AlertsTimeline alerts={data.alerts} delay={0.6} />
-        <ProductsSummary delay={0.7} />
-      </div>
+      {/* Section 4: Products Analytics (full width) */}
+      <ProductsAnalytics delay={0.6} />
+
+      {/* Section 5: Alerts */}
+      <AlertsTimeline alerts={data.alerts} delay={0.7} />
     </motion.div>
   )
 }
