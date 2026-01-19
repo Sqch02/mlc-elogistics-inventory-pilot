@@ -1,6 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getFastUser } from '@/lib/supabase/fast-auth'
+
+interface ReturnRow {
+  id: string
+  tenant_id: string
+  sendcloud_id: string
+  order_ref: string | null
+  status: string
+  return_reason: string | null
+  return_reason_comment: string | null
+  sender_name: string | null
+  sender_company: string | null
+  sender_email: string | null
+  sender_phone: string | null
+  sender_address: string | null
+  sender_postal_code: string | null
+  sender_city: string | null
+  sender_country_code: string | null
+  carrier: string | null
+  service: string | null
+  tracking_number: string | null
+  tracking_url: string | null
+  announced_at: string | null
+  created_at: string
+}
+
+interface ShipmentData {
+  carrier: string | null
+  service: string | null
+  city: string | null
+  address_line1: string | null
+  postal_code: string | null
+  country_code: string | null
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -11,6 +45,7 @@ export async function GET(request: NextRequest) {
 
     const tenantId = user.tenant_id
     const supabase = await createClient()
+    const adminClient = createAdminClient()
 
     const searchParams = request.nextUrl.searchParams
     const from = searchParams.get('from')
@@ -51,7 +86,48 @@ export async function GET(request: NextRequest) {
       query = query.or(`order_ref.ilike.%${search}%,tracking_number.ilike.%${search}%,sender_name.ilike.%${search}%`)
     }
 
-    const { data: returns, error, count } = await query
+    const { data: returnsData, error, count } = await query
+
+    // Enrich returns with carrier/service data from shipments table
+    let returns = returnsData as ReturnRow[] | null
+    if (returns && returns.length > 0) {
+      const sendcloudIds = returns.map(r => r.sendcloud_id)
+
+      // Get matching shipments with carrier/service info
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db = adminClient as any
+      const { data: shipments } = await db
+        .from('shipments')
+        .select('sendcloud_id, carrier, service, city, address_line1, postal_code, country_code')
+        .eq('tenant_id', tenantId)
+        .eq('is_return', true)
+        .in('sendcloud_id', sendcloudIds) as { data: (ShipmentData & { sendcloud_id: string })[] | null }
+
+      // Create a map for quick lookup
+      const shipmentMap = new Map<string, ShipmentData>()
+      if (shipments) {
+        for (const s of shipments) {
+          shipmentMap.set(s.sendcloud_id, s)
+        }
+      }
+
+      // Merge shipment data into returns
+      returns = returns.map(r => {
+        const shipmentData = shipmentMap.get(r.sendcloud_id)
+        if (shipmentData) {
+          return {
+            ...r,
+            carrier: r.carrier || shipmentData.carrier,
+            service: r.service || shipmentData.service,
+            sender_city: r.sender_city || shipmentData.city,
+            sender_address: r.sender_address || shipmentData.address_line1,
+            sender_postal_code: r.sender_postal_code || shipmentData.postal_code,
+            sender_country_code: r.sender_country_code || shipmentData.country_code,
+          }
+        }
+        return r
+      })
+    }
 
     if (error) {
       throw error
