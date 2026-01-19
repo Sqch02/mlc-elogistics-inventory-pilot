@@ -43,6 +43,9 @@ export const features = {
 export function getServerFeatures() {
   return {
     accountingExports: process.env.ENABLE_ACCOUNTING_EXPORTS === 'true',
-    autoCreateClaims: process.env.AUTO_CREATE_CLAIMS === 'true',
+    // Auto-create claims is NOW ENABLED BY DEFAULT for full automation
+    autoCreateClaims: process.env.AUTO_CREATE_CLAIMS !== 'false',
+    // Returns sync is NOW ENABLED BY DEFAULT for full automation
+    returnsSync: process.env.RETURNS_SYNC !== 'false',
   }
 }

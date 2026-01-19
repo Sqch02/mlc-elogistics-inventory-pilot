@@ -61,6 +61,80 @@ function getClaimTypeFromStatus(statusId: number, statusMessage: string): {
   return { shouldCreateClaim: false, claimType: 'other', priority: 'normal' }
 }
 
+// Map Sendcloud status to return status
+function mapReturnStatus(statusMessage: string): 'announced' | 'ready' | 'in_transit' | 'delivered' | 'cancelled' {
+  const msg = statusMessage.toLowerCase()
+  if (msg.includes('delivered') || msg.includes('livré')) return 'delivered'
+  if (msg.includes('transit') || msg.includes('en route')) return 'in_transit'
+  if (msg.includes('ready') || msg.includes('prêt')) return 'ready'
+  if (msg.includes('cancelled') || msg.includes('annulé')) return 'cancelled'
+  return 'announced'
+}
+
+// Sync a return parcel to the returns table
+async function syncReturn(
+  adminClient: ReturnType<typeof getAdminDb>,
+  tenantId: string,
+  parcel: ParsedShipment
+): Promise<boolean> {
+  try {
+    // Try to find original outbound shipment by order_ref
+    let originalShipmentId: string | null = null
+    if (parcel.order_ref) {
+      const { data: originalShipment } = await adminClient
+        .from('shipments')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('order_ref', parcel.order_ref)
+        .eq('is_return', false)
+        .order('shipped_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (originalShipment) {
+        originalShipmentId = originalShipment.id
+      }
+    }
+
+    // Upsert to returns table
+    const { error } = await adminClient
+      .from('returns')
+      .upsert({
+        tenant_id: tenantId,
+        sendcloud_id: parcel.sendcloud_id,
+        order_ref: parcel.order_ref,
+        original_shipment_id: originalShipmentId,
+        tracking_number: parcel.tracking,
+        tracking_url: parcel.tracking_url,
+        carrier: parcel.carrier,
+        service: parcel.service,
+        status: mapReturnStatus(parcel.status_message || ''),
+        status_message: parcel.status_message,
+        sender_name: parcel.recipient_name,
+        sender_email: parcel.recipient_email,
+        sender_phone: parcel.recipient_phone,
+        sender_company: parcel.recipient_company,
+        sender_address: parcel.address_line1,
+        sender_city: parcel.city,
+        sender_postal_code: parcel.postal_code,
+        sender_country_code: parcel.country_code,
+        announced_at: parcel.date_announced || parcel.date_created,
+        raw_json: parcel.raw_json,
+      }, { onConflict: 'tenant_id,sendcloud_id' })
+
+    if (error) {
+      console.error('[Webhook] Error syncing return:', error.message)
+      return false
+    }
+
+    console.log('[Webhook] Synced return:', parcel.sendcloud_id)
+    return true
+  } catch (err) {
+    console.error('[Webhook] Exception syncing return:', err)
+    return false
+  }
+}
+
 // Create a claim from a problematic shipment
 async function createClaimFromShipment(
   adminClient: ReturnType<typeof getAdminDb>,
@@ -350,10 +424,16 @@ export async function POST(request: NextRequest) {
         results.processed++
         console.log('[Webhook] Processed parcel:', parcel.sendcloud_id, '- Status:', parcel.status_message, isNewShipment ? '(NEW)' : '(UPDATE)')
 
-        // Check if status indicates a problem that should create a claim
-        // NOTE: Auto-creation of claims is disabled by default (out of scope for V1 Pilot)
-        // Devis specifies: "indemnisation manuelle (montant saisi au cas par cas)"
+        // Get feature flags once
         const serverFeatures = getServerFeatures()
+
+        // Sync returns to dedicated returns table
+        if (serverFeatures.returnsSync && parcel.is_return) {
+          await syncReturn(adminClient, tenantId, parcel)
+        }
+
+        // Check if status indicates a problem that should create a claim
+        // Auto-creation is now ENABLED BY DEFAULT for full automation
         if (serverFeatures.autoCreateClaims && parcel.status_id && shipment) {
           const { shouldCreateClaim, claimType, priority } = getClaimTypeFromStatus(
             parcel.status_id,
