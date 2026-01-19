@@ -367,6 +367,22 @@ export function EmplacementsClient() {
             setSelectedLocation(location)
             setQuickEditOpen(true)
           }}
+          onCreateLocation={async (code) => {
+            try {
+              const newLocation = await createMutation.mutateAsync({
+                code,
+                active: true,
+              })
+              // Open edit dialog for the new location
+              if (newLocation) {
+                setSelectedLocation(newLocation as Location)
+                setQuickEditOpen(true)
+              }
+              toast.success(`Emplacement ${code} créé`)
+            } catch {
+              // Error handled by mutation
+            }
+          }}
         />
       ) : (
       <Card className="shadow-sm border-border">

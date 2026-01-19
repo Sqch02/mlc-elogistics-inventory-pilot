@@ -11,6 +11,7 @@ import { LayoutGrid } from 'lucide-react'
 
 interface WarehouseVisualMapProps {
   onLocationClick: (location: Location) => void
+  onCreateLocation?: (code: string) => void
 }
 
 // Configuration des allées avec leurs racks
@@ -24,7 +25,7 @@ const AISLES = [
 // Niveaux d'étage (0 = sol, 1 = milieu, 2 = haut)
 const LEVELS = ['2', '1', '0']
 
-export function WarehouseVisualMap({ onLocationClick }: WarehouseVisualMapProps) {
+export function WarehouseVisualMap({ onLocationClick, onCreateLocation }: WarehouseVisualMapProps) {
   const { data: zones, isLoading } = useLocationsByZone()
   const [activeAisle, setActiveAisle] = useState<string>('ALLEE1')
 
@@ -157,6 +158,7 @@ export function WarehouseVisualMap({ onLocationClick }: WarehouseVisualMapProps)
           locationsByRack={locationsByRack}
           maxColsByRack={maxColsByRack}
           onLocationClick={onLocationClick}
+          onCreateLocation={onCreateLocation}
         />
       )}
     </div>
@@ -168,9 +170,10 @@ interface AisleViewProps {
   locationsByRack: Map<string, Map<string, Map<number, Location>>>
   maxColsByRack: Map<string, number>
   onLocationClick: (location: Location) => void
+  onCreateLocation?: (code: string) => void
 }
 
-function AisleView({ aisle, locationsByRack, maxColsByRack, onLocationClick }: AisleViewProps) {
+function AisleView({ aisle, locationsByRack, maxColsByRack, onLocationClick, onCreateLocation }: AisleViewProps) {
   const topRackData = locationsByRack.get(aisle.topRack)
   const bottomRackData = aisle.bottomRack ? locationsByRack.get(aisle.bottomRack) : null
   const topMaxCols = maxColsByRack.get(aisle.topRack) || 0
@@ -186,6 +189,7 @@ function AisleView({ aisle, locationsByRack, maxColsByRack, onLocationClick }: A
           rackData={topRackData}
           maxCols={maxCols}
           onLocationClick={onLocationClick}
+          onCreateLocation={onCreateLocation}
           isReversed={true} // Colonnes de droite à gauche pour le rack du haut
         />
 
@@ -209,6 +213,7 @@ function AisleView({ aisle, locationsByRack, maxColsByRack, onLocationClick }: A
             rackData={bottomRackData ?? undefined}
             maxCols={Math.max(bottomMaxCols, maxCols)}
             onLocationClick={onLocationClick}
+            onCreateLocation={onCreateLocation}
             isReversed={false}
           />
         )}
@@ -222,10 +227,11 @@ interface RackViewProps {
   rackData: Map<string, Map<number, Location>> | undefined
   maxCols: number
   onLocationClick: (location: Location) => void
+  onCreateLocation?: (code: string) => void
   isReversed: boolean
 }
 
-function RackView({ rackLetter, rackData, maxCols, onLocationClick, isReversed }: RackViewProps) {
+function RackView({ rackLetter, rackData, maxCols, onLocationClick, onCreateLocation, isReversed }: RackViewProps) {
   return (
     <div className="space-y-0">
       {LEVELS.map((level, levelIdx) => {
@@ -268,13 +274,20 @@ function RackView({ rackLetter, rackData, maxCols, onLocationClick, isReversed }
                   )
                 }
 
-                // Cellule vide/placeholder
+                // Cellule vide/placeholder - cliquable pour créer
                 return (
                   <div
                     key={col}
-                    className="w-24 h-20 bg-white border border-gray-200 rounded flex flex-col items-center justify-center text-gray-300"
+                    onClick={() => onCreateLocation?.(code)}
+                    className={cn(
+                      "w-24 h-20 bg-white border border-gray-200 rounded flex flex-col items-center justify-center text-gray-300",
+                      onCreateLocation && "cursor-pointer hover:bg-gray-50 hover:border-primary/30 hover:text-gray-400 transition-colors"
+                    )}
                   >
                     <span className="text-[10px] font-mono">{code}</span>
+                    {onCreateLocation && (
+                      <span className="text-[8px] mt-1 opacity-0 group-hover:opacity-100">+ Créer</span>
+                    )}
                   </div>
                 )
               })}
