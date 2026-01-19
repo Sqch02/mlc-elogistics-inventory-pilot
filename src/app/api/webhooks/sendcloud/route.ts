@@ -174,6 +174,9 @@ async function createClaimFromShipment(
         claim_type: claimType,
         priority: priority,
         resolution_deadline: deadline.toISOString(),
+        auto_created: true,
+        sendcloud_status_id: parcel.status_id,
+        sendcloud_status_message: parcel.status_message,
       })
       .select('id')
       .single()
