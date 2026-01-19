@@ -194,6 +194,64 @@ async function closeClaimIfExists(
   }
 }
 
+// Close claim when a re-shipment is detected (new shipment with same order_ref)
+async function closeClaimOnReshipment(
+  adminClient: ReturnType<typeof getAdminDb>,
+  tenantId: string,
+  orderRef: string,
+  newSendcloudId: string
+): Promise<boolean> {
+  try {
+    if (!orderRef) return false
+
+    // Find open claim for this order_ref (from a different/older shipment)
+    const { data: existingClaim } = await adminClient
+      .from('claims')
+      .select('id, status, shipment_id, shipments!inner(sendcloud_id)')
+      .eq('tenant_id', tenantId)
+      .or(`order_ref.eq.${orderRef},order_ref.eq.#${orderRef}`)
+      .in('status', ['ouverte', 'en_analyse'])
+      .neq('shipments.sendcloud_id', newSendcloudId)
+      .limit(1)
+      .single()
+
+    if (!existingClaim) {
+      return false // No open claim to close
+    }
+
+    // Close the claim - order was re-shipped
+    const { error } = await adminClient
+      .from('claims')
+      .update({
+        status: 'cloturee',
+        decided_at: new Date().toISOString(),
+        decision_note: `Clôturé automatiquement - Commande réexpédiée (${newSendcloudId})`,
+      })
+      .eq('id', existingClaim.id)
+
+    if (error) {
+      console.error('[Webhook] Error closing claim on reshipment:', error.message)
+      return false
+    }
+
+    // Log in claim history
+    await adminClient.from('claim_history').insert({
+      claim_id: existingClaim.id,
+      tenant_id: tenantId,
+      action: 'status_changed',
+      old_value: { status: existingClaim.status },
+      new_value: { status: 'cloturee' },
+      note: `Clôturé automatiquement - Nouvelle expédition détectée: ${newSendcloudId}`,
+    })
+
+    console.log('[Webhook] Closed claim:', existingClaim.id, 'due to reshipment:', newSendcloudId)
+    return true
+  } catch (err) {
+    console.error('[Webhook] Exception closing claim on reshipment:', err)
+    return false
+  }
+}
+
 // Create a claim from a problematic shipment
 async function createClaimFromShipment(
   adminClient: ReturnType<typeof getAdminDb>,
@@ -485,6 +543,19 @@ export async function POST(request: NextRequest) {
 
         results.processed++
         console.log('[Webhook] Processed parcel:', parcel.sendcloud_id, '- Status:', parcel.status_message, isNewShipment ? '(NEW)' : '(UPDATE)')
+
+        // If this is a NEW shipment, check if it's a re-shipment that should close an existing claim
+        if (isNewShipment && parcel.order_ref) {
+          const claimClosed = await closeClaimOnReshipment(
+            adminClient,
+            tenantId,
+            parcel.order_ref,
+            parcel.sendcloud_id
+          )
+          if (claimClosed) {
+            console.log('[Webhook] Closed claim due to reshipment for order:', parcel.order_ref)
+          }
+        }
 
         // Get feature flags once
         const serverFeatures = getServerFeatures()
