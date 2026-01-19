@@ -2,25 +2,26 @@
 
 import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Package, Boxes, TrendingUp, ArrowRight, Calendar, BarChart3 } from 'lucide-react'
+import { Package, Boxes, TrendingUp, ArrowRight, Calendar, BarChart3, CalendarDays } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
 import { useProductsMetrics, type ProductMetric } from '@/hooks/useProductsMetrics'
 import { Skeleton } from '@/components/ui/skeleton'
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts'
+import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
 interface ProductsAnalyticsProps {
   delay?: number
 }
 
-type PeriodKey = '1m' | '3m' | '6m' | '12m'
+type PeriodKey = '1m' | '3m' | '6m' | '12m' | 'custom'
 type TabKey = 'products' | 'bundles'
 
-const PERIODS: { key: PeriodKey; label: string; months: number }[] = [
+const PERIODS: { key: PeriodKey; label: string; months?: number }[] = [
   { key: '1m', label: '1 mois', months: 1 },
   { key: '3m', label: '3 mois', months: 3 },
   { key: '6m', label: '6 mois', months: 6 },
   { key: '12m', label: '12 mois', months: 12 },
+  { key: 'custom', label: 'Personnalise' },
 ]
 
 function formatNumber(num: number): string {
@@ -41,6 +42,11 @@ function getDateRange(months: number) {
     from: from.toISOString().split('T')[0],
     to: to.toISOString().split('T')[0],
   }
+}
+
+function formatDateDisplay(dateStr: string): string {
+  const date = new Date(dateStr)
+  return date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 function ProductRow({
@@ -119,8 +125,21 @@ export function ProductsAnalytics({ delay = 0 }: ProductsAnalyticsProps) {
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodKey>('3m')
   const [activeTab, setActiveTab] = useState<TabKey>('products')
 
+  // Custom date range state
+  const now = new Date()
+  const defaultFrom = new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString().split('T')[0]
+  const defaultTo = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]
+  const [customFrom, setCustomFrom] = useState(defaultFrom)
+  const [customTo, setCustomTo] = useState(defaultTo)
+
   const periodConfig = PERIODS.find(p => p.key === selectedPeriod)!
-  const dateRange = useMemo(() => getDateRange(periodConfig.months), [periodConfig.months])
+
+  const dateRange = useMemo(() => {
+    if (selectedPeriod === 'custom') {
+      return { from: customFrom, to: customTo }
+    }
+    return getDateRange(periodConfig.months || 3)
+  }, [selectedPeriod, periodConfig.months, customFrom, customTo])
 
   const { data, isLoading } = useProductsMetrics({
     from: dateRange.from,
@@ -167,7 +186,7 @@ export function ProductsAnalytics({ delay = 0 }: ProductsAnalyticsProps) {
     >
       {/* Header with period selector */}
       <div className="p-5 pb-3 border-b border-border/40">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <div className="p-2 rounded-lg bg-primary/10">
               <BarChart3 className="h-4 w-4 text-primary" />
@@ -175,7 +194,9 @@ export function ProductsAnalytics({ delay = 0 }: ProductsAnalyticsProps) {
             <div>
               <h3 className="text-sm font-semibold text-foreground">Analyse des Ventes</h3>
               <p className="text-[10px] text-muted-foreground">
-                Produits et bundles expedies
+                {selectedPeriod === 'custom'
+                  ? `${formatDateDisplay(customFrom)} - ${formatDateDisplay(customTo)}`
+                  : 'Produits et bundles expedies'}
               </p>
             </div>
           </div>
@@ -187,17 +208,62 @@ export function ProductsAnalytics({ delay = 0 }: ProductsAnalyticsProps) {
                 key={period.key}
                 onClick={() => setSelectedPeriod(period.key)}
                 className={cn(
-                  "px-2.5 py-1 text-xs font-medium rounded-md transition-all",
+                  "px-2.5 py-1 text-xs font-medium rounded-md transition-all flex items-center gap-1",
                   selectedPeriod === period.key
                     ? "bg-white text-primary shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
+                {period.key === 'custom' && <CalendarDays className="h-3 w-3" />}
                 {period.label}
               </button>
             ))}
           </div>
         </div>
+
+        {/* Custom date range inputs */}
+        <AnimatePresence>
+          {selectedPeriod === 'custom' && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              <div className="flex items-center gap-3 mb-3 p-3 bg-muted/30 rounded-lg">
+                <div className="flex items-center gap-2 flex-1">
+                  <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Du</label>
+                  <input
+                    type="date"
+                    value={customFrom}
+                    onChange={(e) => setCustomFrom(e.target.value)}
+                    max={customTo}
+                    className={cn(
+                      "flex-1 px-3 py-1.5 text-sm rounded-md border border-border/60",
+                      "bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary",
+                      "text-foreground"
+                    )}
+                  />
+                </div>
+                <div className="flex items-center gap-2 flex-1">
+                  <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Au</label>
+                  <input
+                    type="date"
+                    value={customTo}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                    min={customFrom}
+                    className={cn(
+                      "flex-1 px-3 py-1.5 text-sm rounded-md border border-border/60",
+                      "bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary",
+                      "text-foreground"
+                    )}
+                  />
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Stats row */}
         <div className="grid grid-cols-3 gap-3">
