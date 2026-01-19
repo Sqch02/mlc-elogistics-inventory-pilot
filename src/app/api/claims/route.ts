@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
 import { z } from 'zod'
 
@@ -12,12 +13,46 @@ const createClaimSchema = z.object({
   priority: z.enum(['low', 'normal', 'high', 'urgent']).optional().default('normal'),
 })
 
+// Fetch all claims with pagination to bypass 1000 row limit
+async function fetchAllClaims(tenantId: string) {
+  const adminClient = createAdminClient()
+  const allClaims: unknown[] = []
+  const pageSize = 1000
+  let offset = 0
+  let hasMore = true
+
+  while (hasMore) {
+    const { data, error } = await adminClient
+      .from('claims')
+      .select(`
+        *,
+        shipments:shipment_id (
+          sendcloud_id,
+          order_ref,
+          carrier
+        )
+      `)
+      .eq('tenant_id', tenantId)
+      .order('opened_at', { ascending: false })
+      .range(offset, offset + pageSize - 1)
+
+    if (error) throw error
+
+    if (data && data.length > 0) {
+      allClaims.push(...data)
+      offset += pageSize
+      hasMore = data.length === pageSize
+    } else {
+      hasMore = false
+    }
+  }
+
+  return allClaims
+}
+
 export async function GET(request: NextRequest) {
   try {
     const tenantId = await requireTenant()
-    const supabase = await createClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const db = supabase as any
 
     const searchParams = request.nextUrl.searchParams
     const status = searchParams.get('status')
@@ -27,25 +62,11 @@ export async function GET(request: NextRequest) {
     const from = searchParams.get('from')
     const to = searchParams.get('to')
 
-    // Use RPC function to bypass 1000 row limit
-    const { data: rawClaims, error } = await db.rpc('get_all_claims', {
-      p_tenant_id: tenantId
-    })
+    // Fetch all claims using pagination
+    const rawClaims = await fetchAllClaims(tenantId)
 
-    if (error) {
-      throw error
-    }
-
-    // Transform RPC result to match expected format
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let claims = (rawClaims || []).map((c: any) => ({
-      ...c,
-      shipments: c.shipment_sendcloud_id ? {
-        sendcloud_id: c.shipment_sendcloud_id,
-        order_ref: c.shipment_order_ref,
-        carrier: c.shipment_carrier,
-      } : null,
-    }))
+    let claims = rawClaims as any[]
 
     // Apply filters
     if (status) {
