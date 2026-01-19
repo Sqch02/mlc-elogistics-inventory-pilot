@@ -25,6 +25,12 @@ interface SendcloudWebhookPayload {
 // - 80: Failed delivery
 const PROBLEMATIC_STATUS_IDS = [80, 1000, 1001, 1002, 1003, 1999, 2000]
 
+// Sendcloud resolved status IDs that should close claims
+// - 11: Delivered
+// - 12: Delivered to service point
+// - 6: Picked up (for returns)
+const RESOLVED_STATUS_IDS = [11, 12, 6]
+
 // Map status to claim type
 function getClaimTypeFromStatus(statusId: number, statusMessage: string): {
   shouldCreateClaim: boolean
@@ -131,6 +137,59 @@ async function syncReturn(
     return true
   } catch (err) {
     console.error('[Webhook] Exception syncing return:', err)
+    return false
+  }
+}
+
+// Close a claim when shipment is resolved (delivered)
+async function closeClaimIfExists(
+  adminClient: ReturnType<typeof getAdminDb>,
+  tenantId: string,
+  shipmentId: string,
+  statusMessage: string
+): Promise<boolean> {
+  try {
+    // Find open claim for this shipment
+    const { data: existingClaim } = await adminClient
+      .from('claims')
+      .select('id, status')
+      .eq('shipment_id', shipmentId)
+      .in('status', ['ouverte', 'en_analyse'])
+      .single()
+
+    if (!existingClaim) {
+      return false // No open claim to close
+    }
+
+    // Close the claim
+    const { error } = await adminClient
+      .from('claims')
+      .update({
+        status: 'cloturee',
+        decided_at: new Date().toISOString(),
+        decision_note: `Clôturé automatiquement - ${statusMessage}`,
+      })
+      .eq('id', existingClaim.id)
+
+    if (error) {
+      console.error('[Webhook] Error closing claim:', error.message)
+      return false
+    }
+
+    // Log in claim history
+    await adminClient.from('claim_history').insert({
+      claim_id: existingClaim.id,
+      tenant_id: tenantId,
+      action: 'status_changed',
+      old_value: { status: existingClaim.status },
+      new_value: { status: 'cloturee' },
+      note: `Clôturé automatiquement depuis webhook Sendcloud. Statut: ${statusMessage}`,
+    })
+
+    console.log('[Webhook] Closed claim:', existingClaim.id, 'for shipment:', shipmentId)
+    return true
+  } catch (err) {
+    console.error('[Webhook] Exception closing claim:', err)
     return false
   }
 }
@@ -454,6 +513,19 @@ export async function POST(request: NextRequest) {
             )
             if (claimCreated) {
               console.log('[Webhook] Auto-created claim for problematic status:', parcel.status_message)
+            }
+          }
+
+          // Check if status indicates resolution (delivered) - close any open claim
+          if (RESOLVED_STATUS_IDS.includes(parcel.status_id)) {
+            const claimClosed = await closeClaimIfExists(
+              adminClient,
+              tenantId,
+              shipment.id,
+              parcel.status_message || 'Livré'
+            )
+            if (claimClosed) {
+              console.log('[Webhook] Auto-closed claim for resolved status:', parcel.status_message)
             }
           }
         }
