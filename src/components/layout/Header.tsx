@@ -1,7 +1,8 @@
 'use client'
 
-import { Bell, User, Shield, Building2, ChevronDown } from 'lucide-react'
+import { User, Shield, Building2, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { GlobalSearch } from './GlobalSearch'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -90,12 +91,12 @@ export function Header({ user }: HeaderProps) {
         {!isSuperAdmin && <div className="w-10 lg:w-0" />}
       </div>
 
-      <div className="flex items-center gap-2 sm:gap-4">
-        {/* Notifications */}
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" />
-        </Button>
+      {/* Global Search */}
+      <div className="hidden md:block flex-1 max-w-md mx-4">
+        <GlobalSearch />
+      </div>
 
+      <div className="flex items-center gap-2 sm:gap-4">
         {/* User menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

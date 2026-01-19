@@ -16,6 +16,7 @@ import { ProductsAnalytics } from './ProductsAnalytics'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CostTrendChart } from '@/components/dashboard/CostTrendChart'
 import { CarrierPerformance } from '@/components/dashboard/CarrierPerformance'
+import { TodaySummary } from './TodaySummary'
 
 // Loading skeleton for the dashboard
 function DashboardSkeleton() {
@@ -158,8 +159,13 @@ export function DashboardV2() {
         />
       </div>
 
-      {/* Section 2: Shipments Chart - Full Width */}
-      <AreaShipmentsChart data={data.chartData} delay={0.3} />
+      {/* Section 2: Today Summary + Shipments Chart */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <TodaySummary />
+        <div className="lg:col-span-2">
+          <AreaShipmentsChart data={data.chartData} delay={0.3} />
+        </div>
+      </div>
 
       {/* Section 3: Cost Trend Chart */}
       {analyticsLoading ? (

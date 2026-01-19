@@ -11,8 +11,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   AlertTriangle, Search, X, Download, Loader2, Plus, Eye, Edit2, Clock,
-  CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, Euro, Upload
+  CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, Euro, Upload, Filter
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import {
   useClaims, useUpdateClaim, useCreateClaim, useClaimHistory,
   ClaimFilters, Claim, ClaimStatus, ClaimType, ClaimPriority,
@@ -282,18 +283,30 @@ export function ReclamationsClient() {
   const handleExport = async () => {
     setIsExporting(true)
     try {
-      const exportData = claims.map((c) => ({
-        date_ouverture: c.opened_at ? formatDate(c.opened_at) : '',
-        reference: c.order_ref || c.shipments?.order_ref || '',
-        type: CLAIM_TYPE_LABELS[c.claim_type],
-        statut: CLAIM_STATUS_LABELS[c.status],
-        priorite: CLAIM_PRIORITY_LABELS[c.priority],
-        transporteur: c.shipments?.carrier || '',
-        description: c.description || '',
-        indemnite: c.indemnity_eur || '',
-        date_decision: c.decided_at ? formatDate(c.decided_at) : '',
-        note_decision: c.decision_note || '',
-      }))
+      const exportData = claims.map((c) => {
+        const isOverdue = c.resolution_deadline &&
+          new Date(c.resolution_deadline) < new Date() &&
+          !['indemnisee', 'refusee', 'cloturee'].includes(c.status)
+
+        return {
+          date_ouverture: c.opened_at ? formatDate(c.opened_at) : '',
+          reference: c.order_ref || c.shipments?.order_ref || '',
+          sendcloud_id: c.shipments?.sendcloud_id || '',
+          type: CLAIM_TYPE_LABELS[c.claim_type],
+          statut: CLAIM_STATUS_LABELS[c.status],
+          priorite: CLAIM_PRIORITY_LABELS[c.priority],
+          en_retard: isOverdue ? 'OUI' : 'NON',
+          transporteur: c.shipments?.carrier || '',
+          description: c.description || '',
+          indemnite_eur: c.indemnity_eur ? Number(c.indemnity_eur).toFixed(2) : '',
+          date_limite: c.resolution_deadline ? formatDate(c.resolution_deadline) : '',
+          date_decision: c.decided_at ? formatDate(c.decided_at) : '',
+          note_decision: c.decision_note || '',
+          jours_ouverts: c.opened_at
+            ? Math.floor((Date.now() - new Date(c.opened_at).getTime()) / (1000 * 60 * 60 * 24))
+            : '',
+        }
+      })
       const csv = generateCSV(exportData, { delimiter: ';' })
       downloadCSV(csv, `reclamations_${new Date().toISOString().split('T')[0]}.csv`)
     } finally {
@@ -452,6 +465,57 @@ export function ReclamationsClient() {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Quick Filters */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <Filter className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm text-muted-foreground mr-2">Filtre rapide :</span>
+        <Button
+          variant={filters.status === 'ouverte' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => {
+            if (filters.status === 'ouverte') {
+              updateFilter('status', undefined)
+            } else {
+              setFilters({ status: 'ouverte' })
+            }
+          }}
+          className={cn('h-8', filters.status === 'ouverte' && 'bg-amber-500 hover:bg-amber-600')}
+        >
+          <AlertTriangle className="h-3.5 w-3.5 mr-1.5" />
+          À traiter ({stats.open})
+        </Button>
+        <Button
+          variant={filters.status === 'en_analyse' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => {
+            if (filters.status === 'en_analyse') {
+              updateFilter('status', undefined)
+            } else {
+              setFilters({ status: 'en_analyse' })
+            }
+          }}
+          className={cn('h-8', filters.status === 'en_analyse' && 'bg-blue-500 hover:bg-blue-600')}
+        >
+          <Clock className="h-3.5 w-3.5 mr-1.5" />
+          En analyse ({stats.inProgress})
+        </Button>
+        <Button
+          variant={filters.status === 'indemnisee' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => {
+            if (filters.status === 'indemnisee') {
+              updateFilter('status', undefined)
+            } else {
+              setFilters({ status: 'indemnisee' })
+            }
+          }}
+          className={cn('h-8', filters.status === 'indemnisee' && 'bg-green-500 hover:bg-green-600')}
+        >
+          <CheckCircle className="h-3.5 w-3.5 mr-1.5" />
+          Indemnisées
+        </Button>
       </div>
 
       {/* Filters */}
