@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getServerDb } from '@/lib/supabase/untyped'
 import { getFastUser } from '@/lib/supabase/fast-auth'
 import { calculateSKUMetrics } from '@/lib/utils/stock'
 
@@ -14,6 +15,7 @@ export async function GET(request: NextRequest) {
 
     const tenantId = user.tenant_id
     const supabase = await createClient()
+    const supabaseUntyped = await getServerDb()
 
     // Get month from query param or default to current month
     const searchParams = request.nextUrl.searchParams
@@ -79,13 +81,12 @@ export async function GET(request: NextRequest) {
         .eq('tenant_id', tenantId)
         .eq('pricing_status', 'missing'),
 
-      supabase
-        .from('claims')
-        .select('indemnity_eur')
-        .eq('tenant_id', tenantId)
-        .eq('status', 'indemnisee')
-        .gte('decided_at', startOfMonth.toISOString())
-        .lte('decided_at', endOfMonth.toISOString()),
+      // Use untyped client to call RPC for indemnities (uses COALESCE for decided_at/created_at)
+      supabaseUntyped.rpc('get_monthly_indemnities', {
+        p_tenant_id: tenantId,
+        p_start_date: startOfMonth.toISOString(),
+        p_end_date: endOfMonth.toISOString()
+      }),
 
       supabase
         .from('stock_snapshots')
@@ -108,7 +109,7 @@ export async function GET(request: NextRequest) {
     const totalCost = shipmentsCost?.reduce((sum, s) => sum + (Number(s.computed_cost_eur) || 0), 0) || 0
 
     const claimsData = claimsResult.data as { indemnity_eur: number | null }[] | null
-    const totalIndemnity = claimsData?.reduce((sum, c) => sum + (Number(c.indemnity_eur) || 0), 0) || 0
+    const totalIndemnity = claimsData?.reduce((sum, c) => sum + (Number(c.indemnity_eur) || 0), 0) ?? 0
 
     const shipmentsCount = shipmentsResult.count || 0
     const missingPricingMonthCount = missingPricingMonthResult.count || 0
