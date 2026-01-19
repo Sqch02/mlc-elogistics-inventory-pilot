@@ -18,12 +18,15 @@ interface SendcloudWebhookPayload {
 
 // Sendcloud problematic status IDs that should trigger claims
 // Based on Sendcloud documentation:
-// - 1000+: Exception statuses
-// - 1001: Exception/Problem
-// - 1002: Lost
+// - 62: Delivery attempt failed
+// - 80: Shipment on hold / Exception
+// - 91: Exception - being returned
+// - 92: Exception - lost
+// - 93: Shipment picked up by sender
 // - 1999: Cancelled by carrier
-// - 80: Failed delivery
-const PROBLEMATIC_STATUS_IDS = [80, 1000, 1001, 1002, 1003, 1999, 2000]
+// - 2000: Cancelled
+// NOTE: 1000-1003 are NORMAL statuses (Ready to send, Being announced, etc.) - NOT problems!
+const PROBLEMATIC_STATUS_IDS = [62, 80, 91, 92, 93, 1999, 2000]
 
 // Sendcloud resolved status IDs that should close claims
 // - 11: Delivered
