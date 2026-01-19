@@ -38,12 +38,12 @@ export async function GET(
       // Get shipment items for this month
       const { data: items } = await supabase
         .from('shipment_items')
-        .select('quantity, shipments!inner(shipped_at)')
+        .select('qty, shipments!inner(shipped_at)')
         .eq('sku_id', id)
         .gte('shipments.shipped_at', startOfMonth.toISOString())
         .lte('shipments.shipped_at', endOfMonth.toISOString())
 
-      const volume = items?.reduce((sum: number, item: { quantity: number | null }) => sum + (item.quantity || 0), 0) || 0
+      const volume = items?.reduce((sum: number, item: { qty: number | null }) => sum + (item.qty || 0), 0) || 0
 
       months.push({
         month: monthKey,

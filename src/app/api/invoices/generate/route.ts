@@ -63,19 +63,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get billing config
+    // Get billing config (may not exist, use defaults)
     const { data: billingConfig } = await supabase
       .from('tenant_billing_config')
       .select('*')
       .eq('tenant_id', tenantId)
-      .single()
+      .maybeSingle()
 
-    // Get tenant settings for invoice numbering
+    // Get tenant settings for invoice numbering (may not exist, use defaults)
     const { data: tenantSettings } = await supabase
       .from('tenant_settings')
       .select('invoice_prefix, invoice_next_number, default_vat_rate')
       .eq('tenant_id', tenantId)
-      .single()
+      .maybeSingle()
 
     const invoiceSettings: TenantSettings = tenantSettings || {
       invoice_prefix: 'FAC',

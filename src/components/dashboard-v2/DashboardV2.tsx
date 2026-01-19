@@ -18,6 +18,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { CostTrendChart } from '@/components/dashboard/CostTrendChart'
 import { CarrierPerformance } from '@/components/dashboard/CarrierPerformance'
 import { StockForecast } from '@/components/dashboard/StockForecast'
+import { ProductsMetricsPanel } from './ProductsMetricsPanel'
 import { Button } from '@/components/ui/button'
 
 // Loading skeleton for the dashboard
@@ -248,6 +249,9 @@ export function DashboardV2() {
                 criticalCount={analyticsData.stockForecast.criticalCount}
                 totalTracked={analyticsData.stockForecast.totalTracked}
               />
+
+              {/* Products & Bundles Metrics */}
+              <ProductsMetricsPanel delay={0.2} />
             </>
           ) : (
             <div className="text-center text-muted-foreground py-8">
