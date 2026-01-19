@@ -158,23 +158,19 @@ export function DashboardV2() {
         />
       </div>
 
-      {/* Section 2: Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <AreaShipmentsChart data={data.chartData} delay={0.3} />
-        {analyticsLoading ? (
-          <Skeleton className="h-[350px] rounded-2xl" />
-        ) : analyticsData ? (
-          <CostTrendChart
-            data={analyticsData.costTrend.data}
-            percentChange={analyticsData.costTrend.percentChange}
-            shipmentsPercentChange={analyticsData.costTrend.shipmentsPercentChange}
-          />
-        ) : (
-          <div className="bg-card rounded-2xl border border-border/60 p-6 flex items-center justify-center text-muted-foreground">
-            Donnees non disponibles
-          </div>
-        )}
-      </div>
+      {/* Section 2: Shipments Chart - Full Width */}
+      <AreaShipmentsChart data={data.chartData} delay={0.3} />
+
+      {/* Section 3: Cost Trend Chart */}
+      {analyticsLoading ? (
+        <Skeleton className="h-[350px] rounded-2xl" />
+      ) : analyticsData ? (
+        <CostTrendChart
+          data={analyticsData.costTrend.data}
+          percentChange={analyticsData.costTrend.percentChange}
+          shipmentsPercentChange={analyticsData.costTrend.shipmentsPercentChange}
+        />
+      ) : null}
 
       {/* Section 3: Operations */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
