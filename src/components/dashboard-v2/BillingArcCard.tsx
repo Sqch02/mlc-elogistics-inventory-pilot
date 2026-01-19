@@ -123,39 +123,12 @@ export function BillingArcCard({
         </motion.div>
       </div>
 
-      {/* Stats grid */}
-      <div className="grid grid-cols-2 gap-3 mt-4">
-        <motion.div
-          initial={{ opacity: 0, x: -10 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: delay + 0.3 }}
-          className="p-3 rounded-lg bg-primary/5 border border-primary/10"
-        >
-          <p className="text-xs text-muted-foreground mb-1">Transport</p>
-          <p className="text-lg font-semibold text-primary">
-            {billing.totalCost.toFixed(2)} €
-          </p>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, x: 10 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: delay + 0.4 }}
-          className="p-3 rounded-lg bg-warning/5 border border-warning/10"
-        >
-          <p className="text-xs text-muted-foreground mb-1">Indemnités</p>
-          <p className="text-lg font-semibold text-warning">
-            {billing.totalIndemnity.toFixed(2)} €
-          </p>
-        </motion.div>
-      </div>
-
       {/* Warning banner if missing pricing */}
       {billing.missingPricingCount > 0 && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: delay + 0.5 }}
+          transition={{ delay: delay + 0.3 }}
           className={cn(
             "mt-4 p-3 rounded-lg",
             "bg-warning/5 border border-warning/20",
@@ -178,7 +151,7 @@ export function BillingArcCard({
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: delay + 0.6 }}
+        transition={{ delay: delay + 0.4 }}
         className="mt-4 pt-4 border-t border-border/40 flex gap-2"
       >
         {billing.status === 'pending' ? (
