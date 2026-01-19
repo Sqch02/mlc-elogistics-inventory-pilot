@@ -34,6 +34,7 @@ interface ShipmentData {
   address_line1: string | null
   postal_code: string | null
   country_code: string | null
+  date_announced: string | null
 }
 
 export async function GET(request: NextRequest) {
@@ -98,7 +99,7 @@ export async function GET(request: NextRequest) {
       const db = adminClient as any
       const { data: shipments } = await db
         .from('shipments')
-        .select('sendcloud_id, carrier, service, city, address_line1, postal_code, country_code')
+        .select('sendcloud_id, carrier, service, city, address_line1, postal_code, country_code, date_announced')
         .eq('tenant_id', tenantId)
         .eq('is_return', true)
         .in('sendcloud_id', sendcloudIds) as { data: (ShipmentData & { sendcloud_id: string })[] | null }
@@ -123,6 +124,7 @@ export async function GET(request: NextRequest) {
             sender_address: r.sender_address || shipmentData.address_line1,
             sender_postal_code: r.sender_postal_code || shipmentData.postal_code,
             sender_country_code: r.sender_country_code || shipmentData.country_code,
+            announced_at: r.announced_at || shipmentData.date_announced,
           }
         }
         return r
