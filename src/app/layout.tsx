@@ -3,7 +3,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
-  title: "MLC Inventory",
+  title: "HME Logistics",
   description: "Premium Logistics Management System",
 };
 

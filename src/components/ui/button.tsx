@@ -26,7 +26,7 @@ const buttonVariants = cva(
         warning:
           "bg-warning text-white shadow-sm hover:bg-warning/90",
         gold:
-          "bg-[#B8860B] text-white shadow-sm hover:bg-[#9A7209]",
+          "bg-[#C9A227] text-white shadow-sm hover:bg-[#B08D1F]",
       },
       size: {
         default: "h-9 px-4 py-2 has-[>svg]:px-3",

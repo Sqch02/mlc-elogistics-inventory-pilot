@@ -299,8 +299,8 @@ export function ProductsAnalytics({ delay = 0 }: ProductsAnalyticsProps) {
               <AreaChart data={monthlyVolumes} margin={{ top: 5, right: 5, left: 5, bottom: 0 }}>
                 <defs>
                   <linearGradient id="productsGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#1F7A5A" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#1F7A5A" stopOpacity={0}/>
+                    <stop offset="5%" stopColor="#1E3A5F" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#1E3A5F" stopOpacity={0}/>
                   </linearGradient>
                   <linearGradient id="bundlesGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#0D9488" stopOpacity={0.3}/>
@@ -330,7 +330,7 @@ export function ProductsAnalytics({ delay = 0 }: ProductsAnalyticsProps) {
                 <Area
                   type="monotone"
                   dataKey="products"
-                  stroke="#1F7A5A"
+                  stroke="#1E3A5F"
                   strokeWidth={2}
                   fill="url(#productsGradient)"
                 />

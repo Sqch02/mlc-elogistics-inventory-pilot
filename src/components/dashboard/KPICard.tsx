@@ -51,14 +51,14 @@ export function KpiCard({ title, icon: Icon, data }: KpiCardProps) {
               <AreaChart data={data.sparklineData}>
                 <defs>
                   <linearGradient id={`gradient-${title}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#1F7A5A" stopOpacity={0.1}/>
-                    <stop offset="100%" stopColor="#1F7A5A" stopOpacity={0}/>
+                    <stop offset="0%" stopColor="#1E3A5F" stopOpacity={0.1}/>
+                    <stop offset="100%" stopColor="#1E3A5F" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
                 <Area
                   type="monotone"
                   dataKey="value"
-                  stroke="#1F7A5A"
+                  stroke="#1E3A5F"
                   strokeWidth={2}
                   fill={`url(#gradient-${title})`}
                 />

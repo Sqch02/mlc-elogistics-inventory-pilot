@@ -63,8 +63,8 @@ function SidebarContent({ pathname, onClose, onLogout }: SidebarContentProps) {
             <Package className="h-5 w-5" />
           </div>
           <div className="flex flex-col">
-            <span className="font-semibold text-base tracking-tight text-foreground">MLC Inventory</span>
-            <span className="text-[10px] text-muted-foreground font-medium tracking-wide uppercase">Logistics ERP</span>
+            <span className="font-semibold text-base tracking-tight text-foreground">HME Logistics</span>
+            <span className="text-[10px] text-muted-foreground font-medium tracking-wide uppercase">Inventory ERP</span>
           </div>
         </div>
         {/* Close button on mobile */}

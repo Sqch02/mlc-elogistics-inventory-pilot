@@ -57,7 +57,7 @@ export function CarrierPerformance({ data, totalCarriers }: CarrierPerformancePr
   }
 
   const getCarrierColor = (carrier: string) => {
-    return CARRIER_COLORS[carrier] || '#1F7A5A'
+    return CARRIER_COLORS[carrier] || '#1E3A5F'
   }
 
   // Prepare chart data

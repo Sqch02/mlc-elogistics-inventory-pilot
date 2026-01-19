@@ -54,7 +54,7 @@ function LoginForm() {
             <Package className="h-8 w-8 text-primary" />
           </div>
         </div>
-        <CardTitle className="text-2xl">MLC Inventory</CardTitle>
+        <CardTitle className="text-2xl">HME Logistics</CardTitle>
         <CardDescription>
           Connectez-vous pour acceder au tableau de bord
         </CardDescription>
@@ -111,7 +111,7 @@ function LoginFormFallback() {
             <Package className="h-8 w-8 text-primary" />
           </div>
         </div>
-        <CardTitle className="text-2xl">MLC Inventory</CardTitle>
+        <CardTitle className="text-2xl">HME Logistics</CardTitle>
         <CardDescription>
           Chargement...
         </CardDescription>

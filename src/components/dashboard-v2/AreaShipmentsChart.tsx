@@ -121,14 +121,14 @@ export function AreaShipmentsChart({ data, delay = 0 }: AreaShipmentsChartProps)
             <AreaChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="shipmentsGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#1B4D3E" stopOpacity={0.3} />
-                  <stop offset="50%" stopColor="#1B4D3E" stopOpacity={0.1} />
-                  <stop offset="100%" stopColor="#1B4D3E" stopOpacity={0} />
+                  <stop offset="0%" stopColor="#1E3A5F" stopOpacity={0.3} />
+                  <stop offset="50%" stopColor="#1E3A5F" stopOpacity={0.1} />
+                  <stop offset="100%" stopColor="#1E3A5F" stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="costGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#B8860B" stopOpacity={0.3} />
-                  <stop offset="50%" stopColor="#B8860B" stopOpacity={0.1} />
-                  <stop offset="100%" stopColor="#B8860B" stopOpacity={0} />
+                  <stop offset="0%" stopColor="#C9A227" stopOpacity={0.3} />
+                  <stop offset="50%" stopColor="#C9A227" stopOpacity={0.1} />
+                  <stop offset="100%" stopColor="#C9A227" stopOpacity={0} />
                 </linearGradient>
               </defs>
 
@@ -161,13 +161,13 @@ export function AreaShipmentsChart({ data, delay = 0 }: AreaShipmentsChartProps)
               <Area
                 type="monotone"
                 dataKey="shipments"
-                stroke="#1B4D3E"
+                stroke="#1E3A5F"
                 strokeWidth={2.5}
                 fill="url(#shipmentsGradient)"
                 dot={false}
                 activeDot={{
                   r: 6,
-                  stroke: '#1B4D3E',
+                  stroke: '#1E3A5F',
                   strokeWidth: 2,
                   fill: '#FFFFFF'
                 }}
@@ -177,13 +177,13 @@ export function AreaShipmentsChart({ data, delay = 0 }: AreaShipmentsChartProps)
                 <Area
                   type="monotone"
                   dataKey="cost"
-                  stroke="#B8860B"
+                  stroke="#C9A227"
                   strokeWidth={2}
                   fill="url(#costGradient)"
                   dot={false}
                   activeDot={{
                     r: 5,
-                    stroke: '#B8860B',
+                    stroke: '#C9A227',
                     strokeWidth: 2,
                     fill: '#FFFFFF'
                   }}

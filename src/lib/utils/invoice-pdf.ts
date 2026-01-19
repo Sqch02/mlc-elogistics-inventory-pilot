@@ -47,7 +47,7 @@ export function generateInvoicePDF(data: InvoicePDFData): jsPDF {
   let yPos = margin
 
   // Colors
-  const primaryColor: [number, number, number] = [31, 122, 90] // #1F7A5A
+  const primaryColor: [number, number, number] = [30, 58, 95] // #1E3A5F (HME Navy)
   const darkGray: [number, number, number] = [51, 51, 51]
   const lightGray: [number, number, number] = [128, 128, 128]
 
@@ -55,7 +55,7 @@ export function generateInvoicePDF(data: InvoicePDFData): jsPDF {
   doc.setFontSize(20)
   doc.setTextColor(...primaryColor)
   doc.setFont('helvetica', 'bold')
-  doc.text(data.company.name || 'MLC PROJECT', margin, yPos)
+  doc.text(data.company.name || 'HME LOGISTICS', margin, yPos)
 
   yPos += 8
   doc.setFontSize(9)

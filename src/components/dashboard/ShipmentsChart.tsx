@@ -83,7 +83,7 @@ export function ShipmentsChart({ data }: ShipmentsChartProps) {
               />
               <Bar
                 dataKey="shipments"
-                fill="#1B4D3E"
+                fill="#1E3A5F"
                 radius={[4, 4, 0, 0]}
                 barSize={20}
               />

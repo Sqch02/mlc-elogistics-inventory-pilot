@@ -100,7 +100,7 @@ export function BillingArcCard({
           <path
             d="M 10 80 A 70 70 0 0 1 150 80"
             fill="none"
-            stroke="#1B4D3E"
+            stroke="#1E3A5F"
             strokeWidth="10"
             strokeLinecap="round"
             strokeDasharray={arcCircumference}

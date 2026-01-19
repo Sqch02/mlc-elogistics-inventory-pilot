@@ -145,14 +145,14 @@ export function HeroMetricCard({
                 <AreaChart data={sparklineData}>
                   <defs>
                     <linearGradient id="heroSparkline" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#1B4D3E" stopOpacity={0.3} />
-                      <stop offset="100%" stopColor="#1B4D3E" stopOpacity={0} />
+                      <stop offset="0%" stopColor="#1E3A5F" stopOpacity={0.3} />
+                      <stop offset="100%" stopColor="#1E3A5F" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <Area
                     type="monotone"
                     dataKey="value"
-                    stroke="#1B4D3E"
+                    stroke="#1E3A5F"
                     strokeWidth={2}
                     fill="url(#heroSparkline)"
                   />

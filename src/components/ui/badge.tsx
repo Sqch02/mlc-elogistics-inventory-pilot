@@ -28,7 +28,7 @@ const badgeVariants = cva(
         info:
           "border-transparent bg-primary/10 text-primary",
         gold:
-          "border-transparent bg-[#B8860B]/10 text-[#B8860B]",
+          "border-transparent bg-[#C9A227]/10 text-[#C9A227]",
         // Shipping status colors
         blue:
           "border-transparent bg-blue-500/15 text-blue-600",

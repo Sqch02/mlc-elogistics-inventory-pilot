@@ -31,9 +31,9 @@ interface ProductsMetricsPanelProps {
 }
 
 const COLORS = {
-  products: '#1F7A5A',
+  products: '#1E3A5F',
   bundles: '#008080',
-  gradient: ['#1F7A5A', '#22c55e', '#34d399', '#6ee7b7', '#a7f3d0'],
+  gradient: ['#1E3A5F', '#22c55e', '#34d399', '#6ee7b7', '#a7f3d0'],
 }
 
 // Period presets

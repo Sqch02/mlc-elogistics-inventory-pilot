@@ -112,10 +112,10 @@ export function CostTrendChart({ data, percentChange, shipmentsPercentChange }: 
                 type="monotone"
                 dataKey="costK"
                 name="Coût"
-                stroke="#1F7A5A"
+                stroke="#1E3A5F"
                 strokeWidth={2}
-                dot={{ fill: '#1F7A5A', strokeWidth: 2 }}
-                activeDot={{ r: 6, fill: '#1F7A5A' }}
+                dot={{ fill: '#1E3A5F', strokeWidth: 2 }}
+                activeDot={{ r: 6, fill: '#1E3A5F' }}
               />
               <Line
                 yAxisId="shipments"

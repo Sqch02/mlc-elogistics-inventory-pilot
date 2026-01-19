@@ -395,7 +395,7 @@ export function ParametresClient({ profile }: ParametresClientProps) {
                         <Input
                           value={companySettings.company_name}
                           onChange={(e) => updateCompanyField('company_name', e.target.value)}
-                          placeholder="MLC PROJECT"
+                          placeholder="HME LOGISTICS"
                         />
                       </div>
                       <div className="space-y-2">
