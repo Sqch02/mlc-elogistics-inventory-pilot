@@ -1,6 +1,80 @@
 import { NextResponse } from 'next/server'
-import { getServerDb } from '@/lib/supabase/untyped'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { requireTenant } from '@/lib/supabase/auth'
+
+// Fetch shipments for a date range with pagination (bypasses 1000 row limit)
+async function fetchShipmentsInRange(
+  tenantId: string,
+  startDate: Date,
+  endDate: Date
+): Promise<{ id: string; computed_cost_eur: number | null }[]> {
+  const adminClient = createAdminClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = adminClient as any
+  const allRows: { id: string; computed_cost_eur: number | null }[] = []
+  const pageSize = 1000
+  let offset = 0
+  let hasMore = true
+
+  while (hasMore) {
+    const { data, error } = await db
+      .from('shipments')
+      .select('id, computed_cost_eur')
+      .eq('tenant_id', tenantId)
+      .eq('is_return', false)
+      .gte('shipped_at', startDate.toISOString())
+      .lte('shipped_at', endDate.toISOString())
+      .range(offset, offset + pageSize - 1)
+
+    if (error) throw error
+
+    if (data && data.length > 0) {
+      allRows.push(...data)
+      offset += pageSize
+      hasMore = data.length === pageSize
+    } else {
+      hasMore = false
+    }
+  }
+
+  return allRows
+}
+
+// Fetch all shipments for carrier stats with pagination
+async function fetchRecentShipments(
+  tenantId: string,
+  sinceDate: Date
+): Promise<{ id: string; carrier: string; computed_cost_eur: number | null }[]> {
+  const adminClient = createAdminClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = adminClient as any
+  const allRows: { id: string; carrier: string; computed_cost_eur: number | null }[] = []
+  const pageSize = 1000
+  let offset = 0
+  let hasMore = true
+
+  while (hasMore) {
+    const { data, error } = await db
+      .from('shipments')
+      .select('id, carrier, computed_cost_eur')
+      .eq('tenant_id', tenantId)
+      .eq('is_return', false)
+      .gte('shipped_at', sinceDate.toISOString())
+      .range(offset, offset + pageSize - 1)
+
+    if (error) throw error
+
+    if (data && data.length > 0) {
+      allRows.push(...data)
+      offset += pageSize
+      hasMore = data.length === pageSize
+    } else {
+      hasMore = false
+    }
+  }
+
+  return allRows
+}
 
 interface MonthlyData {
   month: string
@@ -40,7 +114,9 @@ interface SkuRow {
 export async function GET() {
   try {
     const tenantId = await requireTenant()
-    const supabase = await getServerDb()
+    const adminClient = createAdminClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const supabase = adminClient as any
 
     const now = new Date()
 
@@ -55,14 +131,8 @@ export async function GET() {
       const startOfMonth = new Date(date.getFullYear(), date.getMonth(), 1)
       const endOfMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999)
 
-      // Get shipments for this month
-      const { data: shipments } = await supabase
-        .from('shipments')
-        .select('id, computed_cost_eur')
-        .eq('tenant_id', tenantId)
-        .eq('is_return', false)
-        .gte('shipped_at', startOfMonth.toISOString())
-        .lte('shipped_at', endOfMonth.toISOString())
+      // Get shipments for this month (with pagination to bypass 1000 limit)
+      const shipments = await fetchShipmentsInRange(tenantId, startOfMonth, endOfMonth)
 
       // Get claims decided this month
       const { data: claims } = await supabase
@@ -90,15 +160,10 @@ export async function GET() {
     // ===========================================
     // 2. CARRIER PERFORMANCE
     // ===========================================
-    // Get all shipments from the last 90 days for carrier stats
+    // Get all shipments from the last 90 days for carrier stats (with pagination)
     const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
 
-    const { data: recentShipments } = await supabase
-      .from('shipments')
-      .select('id, carrier, computed_cost_eur')
-      .eq('tenant_id', tenantId)
-      .eq('is_return', false)
-      .gte('shipped_at', ninetyDaysAgo.toISOString())
+    const recentShipments = await fetchRecentShipments(tenantId, ninetyDaysAgo)
 
     const { data: recentClaims } = await supabase
       .from('claims')
