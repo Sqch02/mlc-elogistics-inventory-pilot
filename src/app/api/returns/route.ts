@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getFastUser } from '@/lib/supabase/fast-auth'
+import { sanitizeSearchInput } from '@/lib/utils/sanitize'
 
 interface ReturnRow {
   id: string
@@ -84,7 +85,11 @@ export async function GET(request: NextRequest) {
     }
 
     if (search) {
-      query = query.or(`order_ref.ilike.%${search}%,tracking_number.ilike.%${search}%,sender_name.ilike.%${search}%`)
+      // Sanitize search input to prevent SQL injection
+      const sanitizedSearch = sanitizeSearchInput(search)
+      if (sanitizedSearch) {
+        query = query.or(`order_ref.ilike.%${sanitizedSearch}%,tracking_number.ilike.%${sanitizedSearch}%,sender_name.ilike.%${sanitizedSearch}%`)
+      }
     }
 
     const { data: returnsData, error, count } = await query

@@ -6,6 +6,7 @@ import type { SendcloudParcel, ParsedShipment } from '@/lib/sendcloud/types'
 import { consumeStock } from '@/lib/stock/consume'
 import { getDestination } from '@/lib/utils/pricing'
 import { getServerFeatures } from '@/lib/config/features'
+import { sanitizeExactMatch } from '@/lib/utils/sanitize'
 
 // Sendcloud webhook payload structure
 interface SendcloudWebhookPayload {
@@ -208,11 +209,15 @@ async function closeClaimOnReshipment(
     if (!orderRef) return false
 
     // Find open claim for this order_ref (from a different/older shipment)
+    // Sanitize orderRef to prevent SQL injection (defense in depth)
+    const sanitizedRef = sanitizeExactMatch(orderRef)
+    if (!sanitizedRef) return false
+
     const { data: existingClaim } = await adminClient
       .from('claims')
       .select('id, status, shipment_id, shipments!inner(sendcloud_id)')
       .eq('tenant_id', tenantId)
-      .or(`order_ref.eq.${orderRef},order_ref.eq.#${orderRef}`)
+      .or(`order_ref.eq.${sanitizedRef},order_ref.eq.#${sanitizedRef}`)
       .in('status', ['ouverte', 'en_analyse'])
       .neq('shipments.sendcloud_id', newSendcloudId)
       .limit(1)

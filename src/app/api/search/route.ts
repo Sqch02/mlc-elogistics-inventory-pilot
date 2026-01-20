@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireTenant } from '@/lib/supabase/auth'
+import { sanitizeSearchInput } from '@/lib/utils/sanitize'
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,9 +11,15 @@ export async function GET(request: NextRequest) {
     const db = adminClient as any
 
     const searchParams = request.nextUrl.searchParams
-    const query = searchParams.get('q')?.trim()
+    const rawQuery = searchParams.get('q')?.trim()
 
-    if (!query || query.length < 2) {
+    if (!rawQuery || rawQuery.length < 2) {
+      return NextResponse.json({ results: [] })
+    }
+
+    // Sanitize search input to prevent SQL injection
+    const query = sanitizeSearchInput(rawQuery)
+    if (!query) {
       return NextResponse.json({ results: [] })
     }
 

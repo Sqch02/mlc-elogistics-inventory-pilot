@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getFastUser } from '@/lib/supabase/fast-auth'
 import { calculateSKUMetrics, getCriticalStockThreshold } from '@/lib/utils/stock'
+import { sanitizeSearchInput } from '@/lib/utils/sanitize'
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,7 +32,11 @@ export async function GET(request: NextRequest) {
       .order('sku_code')
 
     if (search) {
-      query = query.or(`sku_code.ilike.%${search}%,name.ilike.%${search}%`)
+      // Sanitize search input to prevent SQL injection
+      const sanitizedSearch = sanitizeSearchInput(search)
+      if (sanitizedSearch) {
+        query = query.or(`sku_code.ilike.%${sanitizedSearch}%,name.ilike.%${sanitizedSearch}%`)
+      }
     }
 
     const { data: skusData, error } = await query
