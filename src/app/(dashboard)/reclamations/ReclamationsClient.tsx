@@ -894,7 +894,7 @@ function HistoryDialog({ open, onOpenChange, claimId }: { open: boolean; onOpenC
                     </p>
                   )}
                   {entry.note && (
-                    <p className="text-sm mt-1 italic text-muted-foreground">"{entry.note}"</p>
+                    <p className="text-sm mt-1 italic text-muted-foreground">&quot;{entry.note}&quot;</p>
                   )}
                 </div>
               ))}

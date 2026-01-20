@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import type { Location } from '@/hooks/useLocations'
 
@@ -16,11 +17,18 @@ export function LocationCell({ location, onClick }: LocationCellProps) {
     location.label?.toLowerCase().includes('impossible')
   const isOccupied = location.status === 'occupied' || hasContent
 
-  // Vérifier si date de péremption proche (< 30 jours) ou dépassée
-  const isExpired = location.expiry_date && new Date(location.expiry_date) < new Date()
-  const isExpiringSoon = location.expiry_date &&
-    !isExpired &&
-    new Date(location.expiry_date) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+  // Vérifier si date de péremption proche (< 30 jours) ou dépassée - use useMemo for purity
+  const { isExpired, isExpiringSoon } = useMemo(() => {
+    if (!location.expiry_date) return { isExpired: false, isExpiringSoon: false }
+    const now = new Date()
+    const expiryDate = new Date(location.expiry_date)
+    const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
+    const expired = expiryDate < now
+    return {
+      isExpired: expired,
+      isExpiringSoon: !expired && expiryDate < thirtyDaysFromNow,
+    }
+  }, [location.expiry_date])
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr)

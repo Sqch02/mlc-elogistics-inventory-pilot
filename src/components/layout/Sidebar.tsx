@@ -142,11 +142,10 @@ export function Sidebar({ onMobileToggle }: SidebarProps) {
   useEffect(() => {
     if (prevPathnameRef.current !== pathname) {
       prevPathnameRef.current = pathname
-      if (mobileOpen) {
-        setMobileOpen(false)
-      }
+      // Use setTimeout to avoid setState during render cycle
+      setTimeout(() => setMobileOpen(false), 0)
     }
-  }, [pathname, mobileOpen])
+  }, [pathname])
 
   // Notify parent of mobile state
   useEffect(() => {

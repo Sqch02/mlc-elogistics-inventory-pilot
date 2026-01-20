@@ -180,7 +180,7 @@ export function ImportPreviewDialog({
           </div>
           {type === 'update' && row.matchedRecord && (
             <p className="text-muted-foreground text-xs">
-              Va mettre à jour l'enregistrement existant
+              Va mettre à jour l&apos;enregistrement existant
             </p>
           )}
           {type === 'create' && (

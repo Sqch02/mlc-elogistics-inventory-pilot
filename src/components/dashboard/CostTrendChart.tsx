@@ -18,6 +18,22 @@ interface CostTrendChartProps {
   shipmentsPercentChange: number
 }
 
+// Moved outside component to avoid recreation on each render
+function TrendIcon({ value }: { value: number }) {
+  if (value > 0) return <TrendingUp className="h-4 w-4 text-red-500" />
+  if (value < 0) return <TrendingDown className="h-4 w-4 text-emerald-500" />
+  return <Minus className="h-4 w-4 text-gray-400" />
+}
+
+function formatEuro(value: number) {
+  return new Intl.NumberFormat('fr-FR', {
+    style: 'currency',
+    currency: 'EUR',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value)
+}
+
 export function CostTrendChart({ data, percentChange, shipmentsPercentChange }: CostTrendChartProps) {
   // Format month labels (YYYY-MM -> Jan, Feb, etc.)
   const chartData = data.map(d => {
@@ -30,21 +46,6 @@ export function CostTrendChart({ data, percentChange, shipmentsPercentChange }: 
       costK: Math.round(d.cost / 100) / 10, // Convert to K€ for better readability
     }
   })
-
-  const TrendIcon = ({ value }: { value: number }) => {
-    if (value > 0) return <TrendingUp className="h-4 w-4 text-red-500" />
-    if (value < 0) return <TrendingDown className="h-4 w-4 text-emerald-500" />
-    return <Minus className="h-4 w-4 text-gray-400" />
-  }
-
-  const formatEuro = (value: number) => {
-    return new Intl.NumberFormat('fr-FR', {
-      style: 'currency',
-      currency: 'EUR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(value)
-  }
 
   const currentMonth = data[data.length - 1]
 

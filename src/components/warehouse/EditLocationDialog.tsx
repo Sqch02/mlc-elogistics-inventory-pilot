@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,12 +28,16 @@ export function EditLocationDialog({ location, open, onOpenChange }: EditLocatio
   const skus = skusData?.skus || []
 
   // Sync form with location when it changes
+  // Use setTimeout to defer state updates and avoid cascading renders
   useEffect(() => {
     if (location) {
-      setStatus(location.status || 'empty')
-      setContent(location.content || '')
-      setExpiryDate(location.expiry_date || '')
-      setSkuCode(location.assignment?.sku?.sku_code || '')
+      const timer = setTimeout(() => {
+        setStatus(location.status || 'empty')
+        setContent(location.content || '')
+        setExpiryDate(location.expiry_date || '')
+        setSkuCode(location.assignment?.sku?.sku_code || '')
+      }, 0)
+      return () => clearTimeout(timer)
     }
   }, [location])
 
@@ -85,12 +89,17 @@ export function EditLocationDialog({ location, open, onOpenChange }: EditLocatio
     { value: 'blocked', label: 'Bloqué', color: 'bg-orange-100 text-orange-700' },
   ] as const
 
-  // Check expiry status
-  const isExpiringSoon = expiryDate &&
-    new Date(expiryDate) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) &&
-    new Date(expiryDate) >= new Date()
-
-  const isExpired = expiryDate && new Date(expiryDate) < new Date()
+  // Check expiry status - use useMemo to avoid impure Date.now() during render
+  const { isExpiringSoon, isExpired } = useMemo(() => {
+    if (!expiryDate) return { isExpiringSoon: false, isExpired: false }
+    const now = new Date()
+    const expiryDateObj = new Date(expiryDate)
+    const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
+    return {
+      isExpiringSoon: expiryDateObj < thirtyDaysFromNow && expiryDateObj >= now,
+      isExpired: expiryDateObj < now,
+    }
+  }, [expiryDate])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
