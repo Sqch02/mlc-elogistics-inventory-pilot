@@ -31,18 +31,18 @@ export function createMockRequest(
     fullUrl += `?${params.toString()}`
   }
 
-  const requestInit: RequestInit = {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  }
-
   if (body && method !== 'GET') {
-    requestInit.body = JSON.stringify(body)
+    return new NextRequest(fullUrl, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
   }
 
-  return new NextRequest(fullUrl, requestInit)
+  return new NextRequest(fullUrl, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+  })
 }
 
 // Parse JSON response from NextResponse
