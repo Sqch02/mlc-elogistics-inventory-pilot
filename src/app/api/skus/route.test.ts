@@ -19,7 +19,6 @@ const mockGetServerDb = getServerDb as ReturnType<typeof vi.fn>
 
 // Create mock Supabase client for GET operations
 function createMockGetClient(skusData: unknown[] = [], bundlesData: unknown[] = []) {
-  let callCount = 0
   return {
     from: vi.fn((table: string) => {
       if (table === 'skus') {
