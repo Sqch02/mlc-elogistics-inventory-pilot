@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { fetchAllParcels, fetchAllReturns } from '@/lib/sendcloud/client'
-import type { SendcloudCredentials } from '@/lib/sendcloud/types'
+import type { SendcloudCredentials, ParsedShipment } from '@/lib/sendcloud/types'
 import { consumeStock } from '@/lib/stock/consume'
 import { getDestination } from '@/lib/utils/pricing'
 
@@ -100,30 +100,40 @@ export async function GET(request: NextRequest) {
 
       const since = lastSync?.cursor || lastSync?.ended_at || undefined
 
-      // DEBUG: Log sync parameters
-      console.log(`[Cron] ========== SYNC DEBUG ==========`)
-      console.log(`[Cron] Tenant: ${tenant.id}`)
-      console.log(`[Cron] Last sync cursor: ${lastSync?.cursor || 'NULL'}`)
-      console.log(`[Cron] Last sync ended_at: ${lastSync?.ended_at || 'NULL'}`)
-      console.log(`[Cron] Using since: ${since || 'UNDEFINED (full sync)'}`)
+      console.log(`[Cron] Tenant: ${tenant.id}, last sync cursor: ${since || 'none'}`)
 
-      // Fetch parcels - use higher limit for full sync, lower for incremental
-      // If no previous sync (since is undefined), fetch up to 50 pages (5000 parcels) for initial sync
-      // Otherwise fetch 10 pages (1000) for incremental updates
-      const maxPages = since ? 10 : 50
-      console.log(`[Cron] Max pages: ${maxPages}`)
+      // STRATEGY: Two fetches to capture both updates AND new parcels
+      // 1. Fetch recently UPDATED parcels (status changes) - uses updated_after
+      // 2. Fetch recent parcels WITHOUT filter (new creations) - first 3 pages
+      // This is needed because Sendcloud's updated_after filters by date_updated,
+      // not date_created, so newly created parcels may not appear if they haven't been updated.
 
-      const parcels = await fetchAllParcels(credentials, since, maxPages)
-      console.log(`[Cron] Fetched ${parcels.length} parcels for tenant ${tenant.id}`)
+      let allParcels: ParsedShipment[] = []
 
-      // DEBUG: Log first and last parcel IDs to see what range we got
-      if (parcels.length > 0) {
-        const sortedByDate = [...parcels].sort((a, b) =>
-          new Date(b.date_created || '').getTime() - new Date(a.date_created || '').getTime()
-        )
-        console.log(`[Cron] Newest parcel: ID=${sortedByDate[0]?.sendcloud_id}, date=${sortedByDate[0]?.date_created}, ref=${sortedByDate[0]?.order_ref}`)
-        console.log(`[Cron] Oldest parcel: ID=${sortedByDate[sortedByDate.length-1]?.sendcloud_id}, date=${sortedByDate[sortedByDate.length-1]?.date_created}`)
+      // Fetch 1: Get parcels updated since last sync (for status tracking)
+      if (since) {
+        const updatedParcels = await fetchAllParcels(credentials, since, 10)
+        console.log(`[Cron] Fetched ${updatedParcels.length} updated parcels (since ${since})`)
+        allParcels.push(...updatedParcels)
       }
+
+      // Fetch 2: Get recent parcels WITHOUT date filter (to catch new creations)
+      // Limit to 3 pages (300 parcels) to avoid excessive API calls
+      const recentParcels = await fetchAllParcels(credentials, undefined, 3)
+      console.log(`[Cron] Fetched ${recentParcels.length} recent parcels (no date filter)`)
+
+      // Merge and deduplicate by sendcloud_id
+      const parcelMap = new Map<string, ParsedShipment>()
+      for (const p of allParcels) {
+        parcelMap.set(p.sendcloud_id, p)
+      }
+      for (const p of recentParcels) {
+        // Recent parcels take precedence (more up-to-date)
+        parcelMap.set(p.sendcloud_id, p)
+      }
+      const parcels = Array.from(parcelMap.values())
+
+      console.log(`[Cron] Total unique parcels to process: ${parcels.length}`)
 
       let created = 0
       const errors: string[] = []
