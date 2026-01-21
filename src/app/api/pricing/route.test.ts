@@ -4,6 +4,11 @@ import { NextRequest } from 'next/server'
 // Mock dependencies
 vi.mock('@/lib/supabase/auth', () => ({
   requireTenant: vi.fn().mockResolvedValue('test-tenant-id'),
+  getCurrentUser: vi.fn().mockResolvedValue({ id: 'test-user-id' }),
+}))
+
+vi.mock('@/lib/audit', () => ({
+  auditCreate: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('@/lib/supabase/untyped', () => ({

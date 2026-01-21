@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
+import { auditUpdate, auditDelete } from '@/lib/audit'
 import { z } from 'zod'
 
 const updateClaimSchema = z.object({
@@ -170,6 +171,17 @@ export async function PATCH(
         new_value: Object.fromEntries(changes.map(c => [c.field, c.new])),
         changed_by: user?.id,
       })
+
+      // Audit log
+      await auditUpdate(
+        tenantId,
+        user?.id || null,
+        'claim',
+        id,
+        currentClaim,
+        claim,
+        request.headers
+      )
     }
 
     return NextResponse.json({ success: true, claim })
@@ -191,10 +203,22 @@ export async function DELETE(
 ) {
   try {
     const tenantId = await requireTenant()
+    const user = await getCurrentUser()
     const supabase = await createClient()
     const { id } = await params
 
-    const { error } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+
+    // Get current claim for audit log
+    const { data: currentClaim } = await db
+      .from('claims')
+      .select('*')
+      .eq('id', id)
+      .eq('tenant_id', tenantId)
+      .single()
+
+    const { error } = await db
       .from('claims')
       .delete()
       .eq('id', id)
@@ -202,6 +226,18 @@ export async function DELETE(
 
     if (error) {
       throw error
+    }
+
+    // Audit log
+    if (currentClaim) {
+      await auditDelete(
+        tenantId,
+        user?.id || null,
+        'claim',
+        id,
+        currentClaim,
+        request.headers
+      )
     }
 
     return NextResponse.json({ success: true })

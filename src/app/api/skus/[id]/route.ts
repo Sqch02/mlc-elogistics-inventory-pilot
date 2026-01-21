@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
+import { auditUpdate, auditDelete } from '@/lib/audit'
 
 // GET /api/skus/[id] - Get a single SKU
 export async function GET(
@@ -55,16 +56,17 @@ export async function PATCH(
 ) {
   try {
     const tenantId = await requireTenant()
+    const user = await getCurrentUser()
     const supabase = await getServerDb()
     const { id } = await params
     const body = await request.json()
 
     const { sku_code, name, description, weight_grams, alert_threshold } = body
 
-    // Verify SKU belongs to tenant
+    // Get current SKU for audit log
     const { data: existing } = await supabase
       .from('skus')
-      .select('id')
+      .select('*')
       .eq('tenant_id', tenantId)
       .eq('id', id)
       .single()
@@ -107,6 +109,17 @@ export async function PATCH(
 
     if (error) throw error
 
+    // Audit log
+    await auditUpdate(
+      tenantId,
+      user?.id || null,
+      'sku',
+      id,
+      existing,
+      sku,
+      request.headers
+    )
+
     return NextResponse.json({
       success: true,
       message: 'SKU mis à jour',
@@ -128,8 +141,17 @@ export async function DELETE(
 ) {
   try {
     const tenantId = await requireTenant()
+    const user = await getCurrentUser()
     const supabase = await getServerDb()
     const { id } = await params
+
+    // Get current SKU for audit log
+    const { data: currentSku } = await supabase
+      .from('skus')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('id', id)
+      .single()
 
     // Check if SKU has shipment_items (can't delete if used)
     const { count: itemCount } = await supabase
@@ -157,6 +179,18 @@ export async function DELETE(
       .eq('id', id)
 
     if (error) throw error
+
+    // Audit log
+    if (currentSku) {
+      await auditDelete(
+        tenantId,
+        user?.id || null,
+        'sku',
+        id,
+        currentSku,
+        request.headers
+      )
+    }
 
     return NextResponse.json({
       success: true,

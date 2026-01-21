@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
+import { auditUpdate, auditDelete } from '@/lib/audit'
 
 // PATCH /api/pricing/[id] - Update a pricing rule
 export async function PATCH(
@@ -9,14 +10,15 @@ export async function PATCH(
 ) {
   try {
     const tenantId = await requireTenant()
+    const user = await getCurrentUser()
     const supabase = await getServerDb()
     const { id } = await params
     const body = await request.json()
 
-    // Verify rule belongs to tenant
+    // Get current rule for audit log
     const { data: existing } = await supabase
       .from('pricing_rules')
-      .select('id')
+      .select('*')
       .eq('tenant_id', tenantId)
       .eq('id', id)
       .single()
@@ -27,6 +29,7 @@ export async function PATCH(
 
     const updateData: Record<string, unknown> = {}
     if (body.carrier !== undefined) updateData.carrier = body.carrier
+    if (body.destination !== undefined) updateData.destination = body.destination
     if (body.weight_min_grams !== undefined) updateData.weight_min_grams = body.weight_min_grams
     if (body.weight_max_grams !== undefined) updateData.weight_max_grams = body.weight_max_grams
     if (body.price_eur !== undefined) updateData.price_eur = body.price_eur
@@ -39,6 +42,17 @@ export async function PATCH(
       .single()
 
     if (error) throw error
+
+    // Audit log
+    await auditUpdate(
+      tenantId,
+      user?.id || null,
+      'pricing_rule',
+      id,
+      existing,
+      rule,
+      request.headers
+    )
 
     return NextResponse.json({
       success: true,
@@ -61,13 +75,14 @@ export async function DELETE(
 ) {
   try {
     const tenantId = await requireTenant()
+    const user = await getCurrentUser()
     const supabase = await getServerDb()
     const { id } = await params
 
-    // Verify rule belongs to tenant
+    // Get current rule for audit log
     const { data: existing } = await supabase
       .from('pricing_rules')
-      .select('id')
+      .select('*')
       .eq('tenant_id', tenantId)
       .eq('id', id)
       .single()
@@ -80,8 +95,19 @@ export async function DELETE(
       .from('pricing_rules')
       .delete()
       .eq('id', id)
+      .eq('tenant_id', tenantId)
 
     if (error) throw error
+
+    // Audit log
+    await auditDelete(
+      tenantId,
+      user?.id || null,
+      'pricing_rule',
+      id,
+      existing,
+      request.headers
+    )
 
     return NextResponse.json({
       success: true,

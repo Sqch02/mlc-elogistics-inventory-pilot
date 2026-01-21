@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
+import { auditCreate } from '@/lib/audit'
 
 interface SKUWithStock {
   id: string
@@ -78,6 +79,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const tenantId = await requireTenant()
+    const user = await getCurrentUser()
     const supabase = await getServerDb()
     const body = await request.json()
 
@@ -132,6 +134,16 @@ export async function POST(request: NextRequest) {
     if (stockError) {
       console.error('Error creating stock snapshot:', stockError)
     }
+
+    // Audit log
+    await auditCreate(
+      tenantId,
+      user?.id || null,
+      'sku',
+      sku.id,
+      sku,
+      request.headers
+    )
 
     return NextResponse.json({
       success: true,

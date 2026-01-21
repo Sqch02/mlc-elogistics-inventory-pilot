@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
+import { auditCreate } from '@/lib/audit'
 
 export async function GET() {
   try {
@@ -29,9 +30,10 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     const tenantId = await requireTenant()
+    const user = await getCurrentUser()
     const supabase = await getServerDb()
     const body = await request.json()
 
@@ -51,6 +53,16 @@ export async function POST(request: Request) {
     if (error) {
       throw error
     }
+
+    // Audit log
+    await auditCreate(
+      tenantId,
+      user?.id || null,
+      'pricing_rule',
+      rule.id,
+      rule,
+      request.headers
+    )
 
     return NextResponse.json({ success: true, rule })
   } catch (error) {
