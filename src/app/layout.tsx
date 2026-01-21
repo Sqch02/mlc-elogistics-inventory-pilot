@@ -15,6 +15,9 @@ export default function RootLayout({
   return (
     <html lang="fr">
       <head>
+        {/* Preconnect to font CDN for faster font loading */}
+        <link rel="preconnect" href="https://api.fontshare.com" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="https://api.fontshare.com" />
         {/* Satoshi Font from Fontshare - Premium geometric sans-serif */}
         <link
           href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,600,700&display=swap"

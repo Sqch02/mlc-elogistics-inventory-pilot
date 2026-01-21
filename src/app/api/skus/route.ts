@@ -65,7 +65,11 @@ export async function GET() {
         stock_updated_at: sku.stock_snapshots?.[0]?.updated_at || null,
       }))
 
-    return NextResponse.json({ skus })
+    return NextResponse.json({ skus }, {
+      headers: {
+        'Cache-Control': 'private, max-age=120, stale-while-revalidate=600'
+      }
+    })
   } catch (error) {
     console.error('Error fetching SKUs:', error)
     return NextResponse.json(

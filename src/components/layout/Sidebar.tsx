@@ -20,9 +20,10 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { features } from '@/lib/config/features'
+import { usePrefetch } from '@/hooks/usePrefetch'
 
 // Base navigation items
 const baseNavigation = [
@@ -42,9 +43,10 @@ interface SidebarContentProps {
   pathname: string
   onClose: () => void
   onLogout: () => void
+  onPrefetch: (href: string) => void
 }
 
-function SidebarContent({ pathname, onClose, onLogout }: SidebarContentProps) {
+function SidebarContent({ pathname, onClose, onLogout, onPrefetch }: SidebarContentProps) {
   // Filter navigation based on feature flags
   const navigation = useMemo(() => {
     return baseNavigation.filter((item) => {
@@ -91,6 +93,7 @@ function SidebarContent({ pathname, onClose, onLogout }: SidebarContentProps) {
             <Link
               key={item.name}
               href={item.href}
+              onMouseEnter={() => onPrefetch(item.href)}
               className={cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 font-medium group relative',
                 isActive
@@ -137,6 +140,15 @@ export function Sidebar({ onMobileToggle }: SidebarProps) {
   const router = useRouter()
   const [mobileOpen, setMobileOpen] = useState(false)
   const prevPathnameRef = useRef(pathname)
+  const { prefetchRoute } = usePrefetch()
+
+  // Debounced prefetch to avoid too many requests
+  const handlePrefetch = useCallback((href: string) => {
+    // Only prefetch if not already on that route
+    if (pathname !== href) {
+      prefetchRoute(href)
+    }
+  }, [pathname, prefetchRoute])
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -201,7 +213,7 @@ export function Sidebar({ onMobileToggle }: SidebarProps) {
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <SidebarContent pathname={pathname} onClose={handleClose} onLogout={handleLogout} />
+        <SidebarContent pathname={pathname} onClose={handleClose} onLogout={handleLogout} onPrefetch={handlePrefetch} />
       </aside>
 
       {/* Desktop sidebar */}
@@ -209,7 +221,7 @@ export function Sidebar({ onMobileToggle }: SidebarProps) {
         className="hidden lg:flex flex-col h-screen bg-white border-r border-border/50 shrink-0 fixed top-0 left-0 bottom-0 w-[260px] z-40"
         style={{ boxShadow: '1px 0 3px rgba(0, 0, 0, 0.02)' }}
       >
-        <SidebarContent pathname={pathname} onClose={handleClose} onLogout={handleLogout} />
+        <SidebarContent pathname={pathname} onClose={handleClose} onLogout={handleLogout} onPrefetch={handlePrefetch} />
       </aside>
     </>
   )
