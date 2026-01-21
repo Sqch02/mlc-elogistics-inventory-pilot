@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   Truck, Package, DollarSign, AlertTriangle, ExternalLink, Search, X, Download, Loader2,
   ChevronDown, ChevronUp, MapPin, Phone, Mail, User, Calendar, Globe, Tag, FileText, Eye,
-  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, AlertCircle, RefreshCw, XCircle
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, AlertCircle, RefreshCw, XCircle,
+  Clock, CheckCircle2
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useCreateClaim } from '@/hooks/useClaims'
@@ -433,13 +434,15 @@ export function ExpeditionsClient() {
   const totalValue = stats.totalValue
   const missingPricing = stats.missingPricing
 
-  const updateFilter = (key: 'from' | 'to' | 'carrier' | 'pricing_status' | 'search', value: string | undefined) => {
+  const updateFilter = (key: 'from' | 'to' | 'carrier' | 'pricing_status' | 'search' | 'shipment_status', value: string | undefined) => {
     setFilters(prev => {
       const next = { ...prev, page: 1 } // Reset to page 1 on filter change
       if (value) {
-        next[key] = value
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (next as any)[key] = value
       } else {
-        delete next[key]
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        delete (next as any)[key]
       }
       return next
     })
@@ -590,6 +593,37 @@ export function ExpeditionsClient() {
         </Card>
       </div>
 
+      {/* Quick Status Filter Tabs */}
+      <div className="flex gap-2">
+        <Button
+          variant={!filters.shipment_status ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => updateFilter('shipment_status', undefined)}
+          className="gap-2"
+        >
+          <Package className="h-4 w-4" />
+          Toutes
+        </Button>
+        <Button
+          variant={filters.shipment_status === 'pending' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => updateFilter('shipment_status', 'pending')}
+          className={`gap-2 ${filters.shipment_status === 'pending' ? 'bg-cyan-600 hover:bg-cyan-700' : 'text-cyan-600 border-cyan-300 hover:bg-cyan-50'}`}
+        >
+          <Clock className="h-4 w-4" />
+          En attente
+        </Button>
+        <Button
+          variant={filters.shipment_status === 'shipped' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => updateFilter('shipment_status', 'shipped')}
+          className={`gap-2 ${filters.shipment_status === 'shipped' ? 'bg-green-600 hover:bg-green-700' : 'text-green-600 border-green-300 hover:bg-green-50'}`}
+        >
+          <CheckCircle2 className="h-4 w-4" />
+          Expediees
+        </Button>
+      </div>
+
       {/* Filters */}
       <div className="flex flex-col gap-3 bg-white p-3 lg:p-4 rounded-2xl border border-border shadow-sm">
         <div className="flex flex-col sm:flex-row gap-3">
@@ -624,7 +658,7 @@ export function ExpeditionsClient() {
               onValueChange={(v) => updateFilter('pricing_status', v === 'all' ? undefined : v)}
             >
               <SelectTrigger className="w-full sm:w-[140px]">
-                <SelectValue placeholder="Statut" />
+                <SelectValue placeholder="Tarif" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Tous</SelectItem>

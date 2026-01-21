@@ -8,6 +8,7 @@ export interface ShipmentFilters {
   to?: string
   carrier?: string
   pricing_status?: string
+  shipment_status?: 'pending' | 'shipped' // pending = On Hold, shipped = has tracking
   search?: string
   page?: number
   pageSize?: number
@@ -72,6 +73,7 @@ async function fetchShipments(filters: ShipmentFilters): Promise<{ shipments: Sh
   if (filters.to) params.set('to', filters.to)
   if (filters.carrier) params.set('carrier', filters.carrier)
   if (filters.pricing_status) params.set('pricing_status', filters.pricing_status)
+  if (filters.shipment_status) params.set('shipment_status', filters.shipment_status)
   if (filters.search) params.set('search', filters.search)
   params.set('page', String(filters.page || 1))
   params.set('pageSize', String(filters.pageSize || 100))

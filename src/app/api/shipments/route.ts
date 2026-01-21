@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
     const to = searchParams.get('to')
     const carrier = searchParams.get('carrier')
     const pricingStatus = searchParams.get('pricing_status')
+    const shipmentStatus = searchParams.get('shipment_status') // 'pending' | 'shipped' | null
 
     // Get pagination params
     const page = parseInt(searchParams.get('page') || '1')
@@ -52,6 +53,13 @@ export async function GET(request: NextRequest) {
       query = query.eq('pricing_status', pricingStatus)
     }
 
+    // Filter by shipment status (pending = On Hold, shipped = has tracking)
+    if (shipmentStatus === 'pending') {
+      query = query.is('status_id', null)
+    } else if (shipmentStatus === 'shipped') {
+      query = query.not('status_id', 'is', null)
+    }
+
     const { data: shipments, error, count } = await query
 
     if (error) {
@@ -75,6 +83,11 @@ export async function GET(request: NextRequest) {
     }
     if (pricingStatus) {
       statsQuery = statsQuery.eq('pricing_status', pricingStatus)
+    }
+    if (shipmentStatus === 'pending') {
+      statsQuery = statsQuery.is('status_id', null)
+    } else if (shipmentStatus === 'shipped') {
+      statsQuery = statsQuery.not('status_id', 'is', null)
     }
 
     const { data: allShipments } = await statsQuery
