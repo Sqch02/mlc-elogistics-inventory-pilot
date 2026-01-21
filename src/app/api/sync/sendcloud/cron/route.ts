@@ -378,10 +378,19 @@ export async function GET(request: NextRequest) {
 
         const returnsSince = lastReturnsSync?.cursor || lastReturnsSync?.ended_at || undefined
 
-        // Fetch returns
-        const maxReturnsPages = returnsSince ? 10 : 50
-        const returns = await fetchAllReturns(credentials, returnsSince, maxReturnsPages)
-        console.log(`[Cron] Fetched ${returns.length} returns for tenant ${tenant.id}`)
+        // Fetch returns - BOTH updated returns AND recent returns (like we do for parcels)
+        // This ensures we don't miss new returns that might not be caught by updated_after
+        console.log(`[Cron] Fetching returns...`)
+        const returnsUpdated = returnsSince ? await fetchAllReturns(credentials, returnsSince, 10) : []
+        const returnsRecent = await fetchAllReturns(credentials, undefined, 5) // Always fetch recent without date filter
+
+        // Merge and deduplicate by sendcloud_return_id
+        const returnsMap = new Map<string, typeof returnsUpdated[0]>()
+        for (const r of [...returnsUpdated, ...returnsRecent]) {
+          returnsMap.set(r.sendcloud_return_id, r)
+        }
+        const returns = Array.from(returnsMap.values())
+        console.log(`[Cron] Fetched ${returnsUpdated.length} updated + ${returnsRecent.length} recent = ${returns.length} unique returns for tenant ${tenant.id}`)
 
         // Process each return
         for (const ret of returns) {
