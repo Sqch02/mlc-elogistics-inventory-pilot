@@ -2,8 +2,6 @@ import { NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
 import { getFastTenantId } from '@/lib/supabase/fast-auth'
 
-export const revalidate = 600 // Cache for 10 minutes
-
 /**
  * GET /api/carriers - Get distinct carriers from shipments
  * Much more efficient than fetching all shipments
