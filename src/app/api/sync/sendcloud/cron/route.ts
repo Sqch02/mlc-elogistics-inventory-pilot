@@ -135,8 +135,10 @@ export async function GET(request: NextRequest) {
       }
 
       // Fetch 2: Get recent parcels WITHOUT date filter (to catch new creations)
-      console.log(`\n[Cron] --- FETCH 2: Recent parcels (NO date filter, 5 pages) ---`)
-      const recentParcels = await fetchAllParcels(credentials, undefined, 5)
+      // Increased to 20 pages (2000 parcels) to ensure we capture recent creations
+      // since Sendcloud API doesn't sort by creation date desc
+      console.log(`\n[Cron] --- FETCH 2: Recent parcels (NO date filter, 20 pages) ---`)
+      const recentParcels = await fetchAllParcels(credentials, undefined, 20)
       console.log(`[Cron] Fetch 2 returned: ${recentParcels.length} parcels`)
       if (recentParcels.length > 0) {
         // Sort by date_created to see newest
