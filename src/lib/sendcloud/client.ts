@@ -583,6 +583,13 @@ export async function cancelParcel(
 }
 
 /**
+ * Check if a string is a UUID (integration shipment) vs numeric ID (parcel)
+ */
+function isUUID(id: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+}
+
+/**
  * Get a single parcel from Sendcloud
  */
 export async function getParcel(
@@ -627,6 +634,72 @@ export async function getParcel(
       error: error instanceof Error ? error.message : 'Unknown error',
     }
   }
+}
+
+/**
+ * Get a single integration shipment by UUID
+ * Searches across all integrations to find the shipment
+ */
+export async function getIntegrationShipment(
+  credentials: SendcloudCredentials,
+  shipmentUuid: string
+): Promise<{ success: boolean; parcel?: ParsedShipment; error?: string }> {
+  if (process.env.SENDCLOUD_USE_MOCK === 'true') {
+    return { success: false, error: 'Cannot get shipment in mock mode' }
+  }
+
+  const auth = Buffer.from(`${credentials.apiKey}:${credentials.secret}`).toString('base64')
+
+  try {
+    // Get all integrations
+    const integrations = await fetchIntegrations(credentials)
+
+    for (const integration of integrations) {
+      if (integration.system === 'api') continue
+
+      // Try to fetch the specific shipment from this integration
+      const response = await fetch(
+        `${SENDCLOUD_API_URL}/integrations/${integration.id}/shipments/${shipmentUuid}`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Basic ${auth}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      )
+
+      if (response.ok) {
+        const data: SendcloudIntegrationShipment = await response.json()
+        return {
+          success: true,
+          parcel: parseIntegrationShipment(data),
+        }
+      }
+    }
+
+    return { success: false, error: 'Integration shipment not found' }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }
+  }
+}
+
+/**
+ * Get a shipment from Sendcloud (handles both parcels and integration shipments)
+ */
+export async function getShipment(
+  credentials: SendcloudCredentials,
+  sendcloudId: string
+): Promise<{ success: boolean; parcel?: ParsedShipment; error?: string }> {
+  // If it's a UUID, it's an integration shipment
+  if (isUUID(sendcloudId)) {
+    return getIntegrationShipment(credentials, sendcloudId)
+  }
+  // Otherwise it's a parcel
+  return getParcel(credentials, sendcloudId)
 }
 
 // ============================================

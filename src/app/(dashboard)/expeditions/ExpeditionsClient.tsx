@@ -50,6 +50,17 @@ function formatWeight(grams: number) {
 
 // Status badge colors based on Sendcloud status IDs
 function getStatusBadge(statusId: number | null, statusMessage: string | null) {
+  // Special handling for integration shipments (On Hold) - they have no status_id
+  if (!statusId && statusMessage) {
+    const messageStatuses: Record<string, { variant: 'success' | 'warning' | 'error' | 'info' | 'muted' | 'blue' | 'cyan' | 'purple' | 'indigo', label: string }> = {
+      'On Hold': { variant: 'cyan', label: 'En attente' },
+      'Ready to send': { variant: 'blue', label: 'Prêt' },
+      'Cancelled': { variant: 'error', label: 'Annulé' },
+    }
+    const msgStatus = messageStatuses[statusMessage] || { variant: 'muted' as const, label: statusMessage }
+    return <Badge variant={msgStatus.variant}>{msgStatus.label}</Badge>
+  }
+
   if (!statusId) return <Badge variant="muted">Inconnu</Badge>
 
   // Sendcloud status IDs: https://support.sendcloud.com/hc/en-us/articles/360024799612-Parcel-statuses

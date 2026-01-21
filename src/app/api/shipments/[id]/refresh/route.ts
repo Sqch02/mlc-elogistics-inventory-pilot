@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireTenant } from '@/lib/supabase/auth'
-import { getParcel } from '@/lib/sendcloud/client'
+import { getShipment } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
 import { getAdminDb } from '@/lib/supabase/untyped'
 
@@ -57,8 +57,8 @@ export async function POST(
       }
     }
 
-    // Get fresh data from Sendcloud
-    const result = await getParcel(credentials, sendcloudId)
+    // Get fresh data from Sendcloud (handles both parcels and integration shipments)
+    const result = await getShipment(credentials, sendcloudId)
 
     if (!result.success || !result.parcel) {
       return NextResponse.json(
