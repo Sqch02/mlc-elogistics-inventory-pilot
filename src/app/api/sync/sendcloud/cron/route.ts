@@ -15,6 +15,11 @@ interface PricingRule {
 
 // This endpoint is called by Vercel Cron every 15 minutes
 export async function GET(request: NextRequest) {
+  console.log('========================================')
+  console.log('[Cron] *** SYNC STARTED ***')
+  console.log(`[Cron] Timestamp: ${new Date().toISOString()}`)
+  console.log('========================================')
+
   // Verify cron secret (Vercel adds this header)
   const authHeader = request.headers.get('authorization')
   const cronSecret = process.env.CRON_SECRET
@@ -42,11 +47,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to get tenants' }, { status: 500 })
   }
 
-  const results: Array<{ tenantId: string; success: boolean; count?: number; returnsCount?: number; error?: string }> = []
+  console.log(`[Cron] Found ${tenants.length} tenants`)
+
+  const results: Array<{ tenantId: string; success: boolean; count?: number; returnsCount?: number; error?: string; debug?: unknown }> = []
 
   for (const tenant of tenants) {
     try {
-      console.log(`[Cron] Syncing tenant: ${tenant.id}`)
+      console.log(`\n[Cron] ======= TENANT: ${tenant.id} =======`)
 
       // Create sync_run record
       const { data: syncRun, error: syncRunError } = await adminClient
@@ -71,17 +78,23 @@ export async function GET(request: NextRequest) {
         .single()
 
       let credentials: SendcloudCredentials
+      let credSource = 'env'
       if (tenantSettings?.sendcloud_api_key && tenantSettings?.sendcloud_secret) {
         credentials = {
           apiKey: tenantSettings.sendcloud_api_key,
           secret: tenantSettings.sendcloud_secret,
         }
+        credSource = 'tenant_settings'
       } else {
         credentials = {
           apiKey: process.env.SENDCLOUD_API_KEY || '',
           secret: process.env.SENDCLOUD_SECRET || '',
         }
       }
+
+      console.log(`[Cron] Credentials source: ${credSource}`)
+      console.log(`[Cron] API Key present: ${!!credentials.apiKey}`)
+      console.log(`[Cron] Secret present: ${!!credentials.secret}`)
 
       if (!credentials.apiKey || !credentials.secret) {
         throw new Error('No Sendcloud credentials configured')
@@ -100,27 +113,47 @@ export async function GET(request: NextRequest) {
 
       const since = lastSync?.cursor || lastSync?.ended_at || undefined
 
-      console.log(`[Cron] Tenant: ${tenant.id}, last sync cursor: ${since || 'none'}`)
+      console.log(`[Cron] Last sync cursor: ${lastSync?.cursor || 'NULL'}`)
+      console.log(`[Cron] Last sync ended_at: ${lastSync?.ended_at || 'NULL'}`)
+      console.log(`[Cron] Using 'since' value: ${since || 'NONE (full fetch)'}`)
 
       // STRATEGY: Two fetches to capture both updates AND new parcels
-      // 1. Fetch recently UPDATED parcels (status changes) - uses updated_after
-      // 2. Fetch recent parcels WITHOUT filter (new creations) - first 3 pages
-      // This is needed because Sendcloud's updated_after filters by date_updated,
-      // not date_created, so newly created parcels may not appear if they haven't been updated.
-
       let allParcels: ParsedShipment[] = []
 
       // Fetch 1: Get parcels updated since last sync (for status tracking)
+      console.log(`\n[Cron] --- FETCH 1: Updated parcels (since: ${since || 'N/A'}) ---`)
       if (since) {
         const updatedParcels = await fetchAllParcels(credentials, since, 10)
-        console.log(`[Cron] Fetched ${updatedParcels.length} updated parcels (since ${since})`)
+        console.log(`[Cron] Fetch 1 returned: ${updatedParcels.length} parcels`)
+        if (updatedParcels.length > 0) {
+          console.log(`[Cron] Fetch 1 first parcel: ID=${updatedParcels[0].sendcloud_id}, ref=${updatedParcels[0].order_ref}, created=${updatedParcels[0].date_created}`)
+          console.log(`[Cron] Fetch 1 last parcel: ID=${updatedParcels[updatedParcels.length-1].sendcloud_id}, ref=${updatedParcels[updatedParcels.length-1].order_ref}`)
+        }
         allParcels.push(...updatedParcels)
+      } else {
+        console.log(`[Cron] Fetch 1 SKIPPED (no previous sync cursor)`)
       }
 
       // Fetch 2: Get recent parcels WITHOUT date filter (to catch new creations)
-      // Limit to 3 pages (300 parcels) to avoid excessive API calls
-      const recentParcels = await fetchAllParcels(credentials, undefined, 3)
-      console.log(`[Cron] Fetched ${recentParcels.length} recent parcels (no date filter)`)
+      console.log(`\n[Cron] --- FETCH 2: Recent parcels (NO date filter, 5 pages) ---`)
+      const recentParcels = await fetchAllParcels(credentials, undefined, 5)
+      console.log(`[Cron] Fetch 2 returned: ${recentParcels.length} parcels`)
+      if (recentParcels.length > 0) {
+        // Sort by date_created to see newest
+        const sorted = [...recentParcels].sort((a, b) =>
+          new Date(b.date_created || '').getTime() - new Date(a.date_created || '').getTime()
+        )
+        console.log(`[Cron] Fetch 2 NEWEST parcel: ID=${sorted[0].sendcloud_id}, ref=${sorted[0].order_ref}, created=${sorted[0].date_created}`)
+        console.log(`[Cron] Fetch 2 OLDEST parcel: ID=${sorted[sorted.length-1].sendcloud_id}, ref=${sorted[sorted.length-1].order_ref}, created=${sorted[sorted.length-1].date_created}`)
+
+        // Log all parcels created today
+        const today = new Date().toISOString().split('T')[0]
+        const todayParcels = sorted.filter(p => p.date_created?.startsWith(today))
+        console.log(`[Cron] Parcels created TODAY (${today}): ${todayParcels.length}`)
+        todayParcels.slice(0, 10).forEach(p => {
+          console.log(`[Cron]   - ID=${p.sendcloud_id}, ref=${p.order_ref}, created=${p.date_created}`)
+        })
+      }
 
       // Merge and deduplicate by sendcloud_id
       const parcelMap = new Map<string, ParsedShipment>()
@@ -128,14 +161,15 @@ export async function GET(request: NextRequest) {
         parcelMap.set(p.sendcloud_id, p)
       }
       for (const p of recentParcels) {
-        // Recent parcels take precedence (more up-to-date)
         parcelMap.set(p.sendcloud_id, p)
       }
       const parcels = Array.from(parcelMap.values())
 
-      console.log(`[Cron] Total unique parcels to process: ${parcels.length}`)
+      console.log(`\n[Cron] After deduplication: ${parcels.length} unique parcels to process`)
 
       let created = 0
+      let newShipments = 0
+      let updatedShipments = 0
       const errors: string[] = []
 
       // Get SKUs for item matching
@@ -155,6 +189,7 @@ export async function GET(request: NextRequest) {
         .eq('tenant_id', tenant.id)
 
       // Process each parcel
+      console.log(`\n[Cron] --- PROCESSING ${parcels.length} PARCELS ---`)
       for (const parcel of parcels) {
         try {
           // Check if shipment already exists (to know if we should consume stock)
@@ -233,11 +268,18 @@ export async function GET(request: NextRequest) {
             .single()
 
           if (shipmentError) {
+            console.error(`[Cron] ERROR upserting ${parcel.sendcloud_id}: ${shipmentError.message}`)
             errors.push(`${parcel.sendcloud_id}: ${shipmentError.message}`)
             continue
           }
 
           created++
+          if (isNewShipment) {
+            newShipments++
+            console.log(`[Cron] NEW shipment: ID=${parcel.sendcloud_id}, ref=${parcel.order_ref}, created=${parcel.date_created}`)
+          } else {
+            updatedShipments++
+          }
 
           // Process items
           if (parcel.items && parcel.items.length > 0 && shipment) {
@@ -276,13 +318,25 @@ export async function GET(request: NextRequest) {
         }
       }
 
+      console.log(`\n[Cron] --- PROCESSING COMPLETE ---`)
+      console.log(`[Cron] Total processed: ${created}`)
+      console.log(`[Cron] NEW shipments: ${newShipments}`)
+      console.log(`[Cron] UPDATED shipments: ${updatedShipments}`)
+      console.log(`[Cron] Errors: ${errors.length}`)
+
       // Update sync_run
       await adminClient
         .from('sync_runs')
         .update({
           ended_at: new Date().toISOString(),
           status: errors.length > 0 ? 'partial' : 'success',
-          stats_json: { fetched: parcels.length, created, errors },
+          stats_json: {
+            fetched: parcels.length,
+            created,
+            newShipments,
+            updatedShipments,
+            errors
+          },
           cursor: new Date().toISOString(),
         })
         .eq('id', syncRun.id)
@@ -364,13 +418,24 @@ export async function GET(request: NextRequest) {
             cursor: new Date().toISOString(),
           })
 
-        console.log(`[Cron] Tenant ${tenant.id}: ${returnsCreated} returns synced`)
+        console.log(`[Cron] Returns synced: ${returnsCreated}`)
       } catch (returnsSyncError) {
         console.error(`[Cron] Error syncing returns for tenant ${tenant.id}:`, returnsSyncError)
       }
 
-      results.push({ tenantId: tenant.id, success: true, count: created, returnsCount: returnsCreated })
-      console.log(`[Cron] Tenant ${tenant.id}: ${created} shipments + ${returnsCreated} returns synced`)
+      results.push({
+        tenantId: tenant.id,
+        success: true,
+        count: created,
+        returnsCount: returnsCreated,
+        debug: {
+          newShipments,
+          updatedShipments,
+          totalFetched: parcels.length
+        }
+      })
+      console.log(`\n[Cron] ======= TENANT ${tenant.id} COMPLETE =======`)
+      console.log(`[Cron] Shipments: ${newShipments} new, ${updatedShipments} updated`)
     } catch (error) {
       console.error(`[Cron] Error syncing tenant ${tenant.id}:`, error)
       results.push({
@@ -380,6 +445,11 @@ export async function GET(request: NextRequest) {
       })
     }
   }
+
+  console.log('\n========================================')
+  console.log('[Cron] *** SYNC COMPLETE ***')
+  console.log(`[Cron] Results: ${JSON.stringify(results)}`)
+  console.log('========================================')
 
   return NextResponse.json({
     success: true,

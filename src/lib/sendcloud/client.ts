@@ -184,6 +184,9 @@ export async function fetchParcels(
 
   const url = `${SENDCLOUD_API_URL}/parcels?${params.toString()}`
 
+  console.log(`[Sendcloud API] Calling: ${url.replace(/\/\/.*:.*@/, '//<redacted>@')}`)
+  console.log(`[Sendcloud API] Params: since=${options?.since || 'NONE'}, limit=${options?.limit || 'default'}, cursor=${options?.cursor || 'NONE'}`)
+
   const response = await fetch(url, {
     headers: {
       Authorization: `Basic ${auth}`,
@@ -193,10 +196,13 @@ export async function fetchParcels(
 
   if (!response.ok) {
     const error = await response.text()
+    console.error(`[Sendcloud API] ERROR ${response.status}: ${error}`)
     throw new Error(`Sendcloud API error: ${response.status} - ${error}`)
   }
 
   const data: SendcloudResponse = await response.json()
+
+  console.log(`[Sendcloud API] Response: ${data.parcels.length} parcels, next=${data.next ? 'YES' : 'NO'}`)
 
   const parcels = data.parcels.map(parseParcel)
 
@@ -215,11 +221,14 @@ export async function fetchAllParcels(
   since?: string,
   maxPages: number = 100  // Up to 10,000 parcels (100 pages x 100 per page)
 ): Promise<ParsedShipment[]> {
+  console.log(`[Sendcloud fetchAll] Starting fetch: since=${since || 'NONE'}, maxPages=${maxPages}`)
+
   const allParcels: ParsedShipment[] = []
   let cursor: string | undefined
   let page = 0
 
   while (page < maxPages) {
+    console.log(`[Sendcloud fetchAll] Fetching page ${page + 1}/${maxPages}...`)
     const { parcels, nextCursor } = await fetchParcels(credentials, {
       since,
       cursor,
@@ -227,8 +236,10 @@ export async function fetchAllParcels(
     })
 
     allParcels.push(...parcels)
+    console.log(`[Sendcloud fetchAll] Page ${page + 1}: got ${parcels.length} parcels, total so far: ${allParcels.length}`)
 
     if (!nextCursor || parcels.length === 0) {
+      console.log(`[Sendcloud fetchAll] Stopping: ${!nextCursor ? 'no more pages' : 'empty page'}`)
       break
     }
 
@@ -236,6 +247,7 @@ export async function fetchAllParcels(
     page++
   }
 
+  console.log(`[Sendcloud fetchAll] Complete: ${allParcels.length} total parcels from ${page + 1} pages`)
   return allParcels
 }
 
