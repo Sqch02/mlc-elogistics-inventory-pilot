@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
-import { fetchAllParcels, fetchAllReturns } from '@/lib/sendcloud/client'
+import { fetchAllParcels, fetchAllReturns, fetchAllIntegrationShipments } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials, ParsedShipment } from '@/lib/sendcloud/types'
 import { consumeStock } from '@/lib/stock/consume'
 import { getDestination } from '@/lib/utils/pricing'
@@ -117,57 +117,42 @@ export async function GET(request: NextRequest) {
       console.log(`[Cron] Last sync ended_at: ${lastSync?.ended_at || 'NULL'}`)
       console.log(`[Cron] Using 'since' value: ${since || 'NONE (full fetch)'}`)
 
-      // STRATEGY: Two fetches to capture both updates AND new parcels
-      let allParcels: ParsedShipment[] = []
+      // STRATEGY: Fetch BOTH parcels (shipped) AND integration shipments (pending/on hold)
 
-      // Fetch 1: Get parcels updated since last sync (for status tracking)
-      console.log(`\n[Cron] --- FETCH 1: Updated parcels (since: ${since || 'N/A'}) ---`)
-      if (since) {
-        const updatedParcels = await fetchAllParcels(credentials, since, 10)
-        console.log(`[Cron] Fetch 1 returned: ${updatedParcels.length} parcels`)
-        if (updatedParcels.length > 0) {
-          console.log(`[Cron] Fetch 1 first parcel: ID=${updatedParcels[0].sendcloud_id}, ref=${updatedParcels[0].order_ref}, created=${updatedParcels[0].date_created}`)
-          console.log(`[Cron] Fetch 1 last parcel: ID=${updatedParcels[updatedParcels.length-1].sendcloud_id}, ref=${updatedParcels[updatedParcels.length-1].order_ref}`)
+      // 1. Fetch parcels (orders with labels generated)
+      console.log(`[Cron] Fetching parcels...`)
+      const parcelsUpdated = since ? await fetchAllParcels(credentials, since, 10) : []
+      const parcelsRecent = await fetchAllParcels(credentials, undefined, 5)
+      console.log(`[Cron] Parcels: ${parcelsUpdated.length} updated + ${parcelsRecent.length} recent`)
+
+      // 2. Fetch integration shipments (pending orders "On Hold")
+      console.log(`[Cron] Fetching integration shipments (pending orders)...`)
+      const pendingOrders = await fetchAllIntegrationShipments(credentials, 5)
+      console.log(`[Cron] Pending orders from integrations: ${pendingOrders.length}`)
+
+      // Merge all: parcels take priority over pending orders (same order_ref)
+      // Use order_ref as key to avoid duplicates when order becomes parcel
+      const shipmentMap = new Map<string, ParsedShipment>()
+
+      // First add pending orders (lower priority)
+      for (const p of pendingOrders) {
+        if (p.order_ref) {
+          shipmentMap.set(p.order_ref, p)
         }
-        allParcels.push(...updatedParcels)
-      } else {
-        console.log(`[Cron] Fetch 1 SKIPPED (no previous sync cursor)`)
       }
 
-      // Fetch 2: Get recent parcels WITHOUT date filter (to catch new creations)
-      // Increased to 20 pages (2000 parcels) to ensure we capture recent creations
-      // since Sendcloud API doesn't sort by creation date desc
-      console.log(`\n[Cron] --- FETCH 2: Recent parcels (NO date filter, 20 pages) ---`)
-      const recentParcels = await fetchAllParcels(credentials, undefined, 20)
-      console.log(`[Cron] Fetch 2 returned: ${recentParcels.length} parcels`)
-      if (recentParcels.length > 0) {
-        // Sort by date_created to see newest
-        const sorted = [...recentParcels].sort((a, b) =>
-          new Date(b.date_created || '').getTime() - new Date(a.date_created || '').getTime()
-        )
-        console.log(`[Cron] Fetch 2 NEWEST parcel: ID=${sorted[0].sendcloud_id}, ref=${sorted[0].order_ref}, created=${sorted[0].date_created}`)
-        console.log(`[Cron] Fetch 2 OLDEST parcel: ID=${sorted[sorted.length-1].sendcloud_id}, ref=${sorted[sorted.length-1].order_ref}, created=${sorted[sorted.length-1].date_created}`)
-
-        // Log all parcels created today
-        const today = new Date().toISOString().split('T')[0]
-        const todayParcels = sorted.filter(p => p.date_created?.startsWith(today))
-        console.log(`[Cron] Parcels created TODAY (${today}): ${todayParcels.length}`)
-        todayParcels.slice(0, 10).forEach(p => {
-          console.log(`[Cron]   - ID=${p.sendcloud_id}, ref=${p.order_ref}, created=${p.date_created}`)
-        })
+      // Then add parcels (higher priority - overwrites pending if same order_ref)
+      for (const p of [...parcelsUpdated, ...parcelsRecent]) {
+        if (p.order_ref) {
+          shipmentMap.set(p.order_ref, p)
+        } else {
+          // Parcels without order_ref use sendcloud_id
+          shipmentMap.set(p.sendcloud_id, p)
+        }
       }
 
-      // Merge and deduplicate by sendcloud_id
-      const parcelMap = new Map<string, ParsedShipment>()
-      for (const p of allParcels) {
-        parcelMap.set(p.sendcloud_id, p)
-      }
-      for (const p of recentParcels) {
-        parcelMap.set(p.sendcloud_id, p)
-      }
-      const parcels = Array.from(parcelMap.values())
-
-      console.log(`\n[Cron] After deduplication: ${parcels.length} unique parcels to process`)
+      const parcels = Array.from(shipmentMap.values())
+      console.log(`[Cron] Total unique shipments to process: ${parcels.length}`)
 
       let created = 0
       let newShipments = 0
@@ -194,14 +179,44 @@ export async function GET(request: NextRequest) {
       console.log(`\n[Cron] --- PROCESSING ${parcels.length} PARCELS ---`)
       for (const parcel of parcels) {
         try {
-          // Check if shipment already exists (to know if we should consume stock)
-          const { data: existingShipment } = await adminClient
+          // Check if shipment already exists by sendcloud_id OR order_ref
+          // This handles the case where an "On Hold" order becomes a parcel (ID changes)
+          let existingShipment = null
+          let existingByOrderRef = null
+
+          // First check by sendcloud_id
+          const { data: bySendcloudId } = await adminClient
             .from('shipments')
-            .select('id')
+            .select('id, sendcloud_id')
             .eq('sendcloud_id', parcel.sendcloud_id)
             .single()
 
-          const isNewShipment = !existingShipment
+          existingShipment = bySendcloudId
+
+          // If not found and we have order_ref, check by order_ref
+          if (!existingShipment && parcel.order_ref) {
+            const { data: byOrderRef } = await adminClient
+              .from('shipments')
+              .select('id, sendcloud_id')
+              .eq('order_ref', parcel.order_ref)
+              .eq('tenant_id', tenant.id)
+              .single()
+
+            existingByOrderRef = byOrderRef
+
+            // If found by order_ref with different sendcloud_id, delete the old one
+            // This happens when "On Hold" order (UUID) becomes parcel (numeric ID)
+            if (existingByOrderRef && existingByOrderRef.sendcloud_id !== parcel.sendcloud_id) {
+              console.log(`[Cron] Upgrading order ${parcel.order_ref}: ${existingByOrderRef.sendcloud_id} -> ${parcel.sendcloud_id}`)
+              await adminClient
+                .from('shipments')
+                .delete()
+                .eq('id', existingByOrderRef.id)
+              existingByOrderRef = null // Treat as new since we deleted the old one
+            }
+          }
+
+          const isNewShipment = !existingShipment && !existingByOrderRef
 
           let pricingStatus: 'ok' | 'missing' = 'missing'
           let computedCost: number | null = null

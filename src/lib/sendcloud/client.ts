@@ -252,6 +252,208 @@ export async function fetchAllParcels(
 }
 
 // ============================================
+// INTEGRATION SHIPMENTS (Orders "On Hold")
+// ============================================
+
+interface SendcloudIntegration {
+  id: number
+  shop_name: string
+  system: string
+}
+
+interface SendcloudIntegrationShipment {
+  shipment_uuid: string
+  order_number: string
+  external_order_id?: string
+  name: string
+  email?: string
+  telephone?: string
+  company_name?: string
+  address: string
+  address_2?: string
+  house_number?: string
+  city: string
+  postal_code: string
+  country: string
+  order_status: { id: string; message: string }
+  payment_status?: { id: string; message: string }
+  shipping_method?: number
+  shipping_method_checkout_name?: string
+  to_service_point?: number
+  total_order_value?: string
+  currency?: string
+  created_at: string
+  updated_at?: string
+  parcel_items?: Array<{
+    sku?: string
+    description: string
+    quantity: number
+    weight?: string
+    value?: string
+  }>
+}
+
+interface SendcloudIntegrationShipmentsResponse {
+  next: string | null
+  previous: string | null
+  results: SendcloudIntegrationShipment[]
+}
+
+/**
+ * Get all integrations for the account
+ */
+export async function fetchIntegrations(
+  credentials: SendcloudCredentials
+): Promise<SendcloudIntegration[]> {
+  if (process.env.SENDCLOUD_USE_MOCK === 'true') {
+    return []
+  }
+
+  const auth = Buffer.from(`${credentials.apiKey}:${credentials.secret}`).toString('base64')
+
+  const response = await fetch(`${SENDCLOUD_API_URL}/integrations`, {
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/json',
+    },
+  })
+
+  if (!response.ok) {
+    console.error(`[Sendcloud] Failed to fetch integrations: ${response.status}`)
+    return []
+  }
+
+  return response.json()
+}
+
+/**
+ * Parse an integration shipment to our ParsedShipment format
+ */
+function parseIntegrationShipment(shipment: SendcloudIntegrationShipment): ParsedShipment {
+  const weightGrams = shipment.parcel_items?.reduce((sum, item) => {
+    const w = parseFloat(item.weight || '0') * 1000
+    return sum + (w * item.quantity)
+  }, 0) || 0
+
+  const items = shipment.parcel_items?.map(item => ({
+    sku_code: item.sku || item.description,
+    qty: item.quantity,
+    description: item.description,
+    value: item.value ? parseFloat(item.value) : undefined,
+  })).filter(item => item.sku_code)
+
+  return {
+    sendcloud_id: shipment.shipment_uuid, // Use UUID as unique ID for pending orders
+    shipped_at: shipment.created_at,
+    carrier: shipment.shipping_method_checkout_name || 'pending',
+    service: shipment.shipping_method_checkout_name || null,
+    weight_grams: Math.round(weightGrams),
+    order_ref: shipment.order_number,
+    tracking: null, // No tracking yet for pending orders
+    raw_json: shipment as unknown as Record<string, unknown>,
+    recipient_name: shipment.name,
+    recipient_email: shipment.email || null,
+    recipient_phone: shipment.telephone || null,
+    recipient_company: shipment.company_name || null,
+    address_line1: shipment.address,
+    address_line2: shipment.address_2 || null,
+    city: shipment.city,
+    postal_code: shipment.postal_code,
+    country_code: shipment.country,
+    country_name: null,
+    status_id: null,
+    status_message: shipment.order_status.message, // "On Hold", "Ready to process", etc.
+    tracking_url: null,
+    label_url: null,
+    total_value: shipment.total_order_value ? parseFloat(shipment.total_order_value) : null,
+    currency: shipment.currency || 'EUR',
+    service_point_id: shipment.to_service_point ? String(shipment.to_service_point) : null,
+    is_return: false,
+    collo_count: 1,
+    length_cm: null,
+    width_cm: null,
+    height_cm: null,
+    external_order_id: shipment.external_order_id || null,
+    date_created: shipment.created_at,
+    date_updated: shipment.updated_at || null,
+    date_announced: null,
+    items: items?.length ? items : undefined,
+  }
+}
+
+/**
+ * Fetch shipments from a specific integration (pending orders)
+ */
+export async function fetchIntegrationShipments(
+  credentials: SendcloudCredentials,
+  integrationId: number,
+  maxPages: number = 10
+): Promise<ParsedShipment[]> {
+  if (process.env.SENDCLOUD_USE_MOCK === 'true') {
+    return []
+  }
+
+  const auth = Buffer.from(`${credentials.apiKey}:${credentials.secret}`).toString('base64')
+  const allShipments: ParsedShipment[] = []
+  let nextUrl: string | null = `${SENDCLOUD_API_URL}/integrations/${integrationId}/shipments?limit=100`
+  let page = 0
+
+  console.log(`[Sendcloud] Fetching shipments from integration ${integrationId}`)
+
+  while (nextUrl && page < maxPages) {
+    const response = await fetch(nextUrl, {
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/json',
+      },
+    })
+
+    if (!response.ok) {
+      console.error(`[Sendcloud] Failed to fetch integration shipments: ${response.status}`)
+      break
+    }
+
+    const data: SendcloudIntegrationShipmentsResponse = await response.json()
+    const parsed = data.results.map(parseIntegrationShipment)
+    allShipments.push(...parsed)
+
+    console.log(`[Sendcloud] Integration ${integrationId} page ${page + 1}: ${data.results.length} shipments`)
+
+    nextUrl = data.next
+    page++
+  }
+
+  console.log(`[Sendcloud] Integration ${integrationId}: ${allShipments.length} total shipments`)
+  return allShipments
+}
+
+/**
+ * Fetch all pending orders from all integrations
+ */
+export async function fetchAllIntegrationShipments(
+  credentials: SendcloudCredentials,
+  maxPagesPerIntegration: number = 5
+): Promise<ParsedShipment[]> {
+  const integrations = await fetchIntegrations(credentials)
+  console.log(`[Sendcloud] Found ${integrations.length} integrations`)
+
+  const allShipments: ParsedShipment[] = []
+
+  for (const integration of integrations) {
+    // Skip API integrations (like our own MLC Inventory)
+    if (integration.system === 'api') {
+      console.log(`[Sendcloud] Skipping API integration: ${integration.shop_name}`)
+      continue
+    }
+
+    const shipments = await fetchIntegrationShipments(credentials, integration.id, maxPagesPerIntegration)
+    allShipments.push(...shipments)
+  }
+
+  return allShipments
+}
+
+// ============================================
 // WRITE OPERATIONS (App → Sendcloud)
 // ============================================
 
