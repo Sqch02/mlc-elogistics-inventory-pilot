@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   AlertTriangle, Search, X, Download, Loader2, Plus, Eye, Edit2, Clock,
-  CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, Euro, Upload, Filter
+  CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, Euro, Upload, Filter, RefreshCw
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -233,6 +233,7 @@ export function ReclamationsClient() {
   const [searchInput, setSearchInput] = useState('')
   const [isExporting, setIsExporting] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
 
   // Dialogs
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -278,6 +279,21 @@ export function ReclamationsClient() {
   const clearFilters = () => {
     setFilters({})
     setSearchInput('')
+  }
+
+  const handleSync = async () => {
+    setIsSyncing(true)
+    try {
+      const response = await fetch('/api/sync/sendcloud/run', { method: 'POST' })
+      const data = await response.json()
+      if (data.success) {
+        refetch()
+      }
+    } catch (error) {
+      console.error('Sync error:', error)
+    } finally {
+      setIsSyncing(false)
+    }
   }
 
   const handleExport = async () => {
@@ -395,6 +411,14 @@ export function ReclamationsClient() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={handleSync} disabled={isSyncing}>
+            {isSyncing ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            Synchroniser
+          </Button>
           <Button variant="outline" onClick={() => setImportOpen(true)}>
             <Upload className="h-4 w-4 mr-2" />
             Import
