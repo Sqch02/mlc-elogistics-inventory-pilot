@@ -2,11 +2,7 @@ import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
-  // Disable X-Powered-By header for security
-  poweredByHeader: false,
-
-  // Enable compression
-  compress: true,
+  /* config options here */
 };
 
 // Sentry configuration options

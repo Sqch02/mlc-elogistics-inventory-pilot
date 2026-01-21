@@ -25,19 +25,19 @@ export default async function DashboardLayout({
   }
 
   return (
-    <QueryProvider>
-      <div className="flex h-screen overflow-hidden bg-background">
-        <Sidebar />
-        <div className="flex-1 flex flex-col overflow-hidden lg:ml-[260px]">
-          <DashboardShell user={user}>
-            <main className="flex-1 overflow-y-auto bg-background p-4 lg:p-6">
-              <div className="max-w-[1280px] mx-auto w-full">
+    <div className="flex h-screen overflow-hidden bg-background">
+      <Sidebar />
+      <div className="flex-1 flex flex-col overflow-hidden lg:ml-[260px]">
+        <DashboardShell user={user}>
+          <main className="flex-1 overflow-y-auto bg-background p-4 lg:p-6">
+            <div className="max-w-[1280px] mx-auto w-full">
+              <QueryProvider>
                 {children}
-              </div>
-            </main>
-          </DashboardShell>
-        </div>
+              </QueryProvider>
+            </div>
+          </main>
+        </DashboardShell>
       </div>
-    </QueryProvider>
+    </div>
   )
 }

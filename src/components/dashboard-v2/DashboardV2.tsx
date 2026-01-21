@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import dynamic from 'next/dynamic'
 import { motion } from 'framer-motion'
 import { Package, Banknote, Award, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
@@ -9,32 +8,15 @@ import { useDashboard } from '@/hooks/useDashboard'
 import { useAnalytics } from '@/hooks/useAnalytics'
 import { DashboardHeader } from './DashboardHeader'
 import { SecondaryKpiCard } from './SecondaryKpiCard'
+import { AreaShipmentsChart } from './AreaShipmentsChart'
 import { BillingArcCard } from './BillingArcCard'
 import { AlertsTimeline } from './AlertsTimeline'
 import { StockHealthPanel } from './StockHealthPanel'
+import { ProductsAnalytics } from './ProductsAnalytics'
 import { Skeleton } from '@/components/ui/skeleton'
+import { CostTrendChart } from '@/components/dashboard/CostTrendChart'
+import { CarrierPerformance } from '@/components/dashboard/CarrierPerformance'
 import { TodaySummary } from './TodaySummary'
-
-// Lazy load heavy chart components (reduces initial bundle by ~100KB)
-const AreaShipmentsChart = dynamic(() => import('./AreaShipmentsChart').then(mod => ({ default: mod.AreaShipmentsChart })), {
-  loading: () => <Skeleton className="h-[300px] rounded-2xl" />,
-  ssr: false
-})
-
-const CostTrendChart = dynamic(() => import('@/components/dashboard/CostTrendChart').then(mod => ({ default: mod.CostTrendChart })), {
-  loading: () => <Skeleton className="h-[350px] rounded-2xl" />,
-  ssr: false
-})
-
-const CarrierPerformance = dynamic(() => import('@/components/dashboard/CarrierPerformance').then(mod => ({ default: mod.CarrierPerformance })), {
-  loading: () => <Skeleton className="h-[350px] rounded-2xl" />,
-  ssr: false
-})
-
-const ProductsAnalytics = dynamic(() => import('./ProductsAnalytics').then(mod => ({ default: mod.ProductsAnalytics })), {
-  loading: () => <Skeleton className="h-[400px] rounded-2xl" />,
-  ssr: false
-})
 
 // Loading skeleton for the dashboard
 function DashboardSkeleton() {

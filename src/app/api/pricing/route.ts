@@ -20,11 +20,7 @@ export async function GET() {
       throw error
     }
 
-    return NextResponse.json({ rules }, {
-      headers: {
-        'Cache-Control': 'private, max-age=300, stale-while-revalidate=1800'
-      }
-    })
+    return NextResponse.json({ rules })
   } catch (error) {
     console.error('Get pricing rules error:', error)
     return NextResponse.json(
