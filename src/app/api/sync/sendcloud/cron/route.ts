@@ -118,17 +118,17 @@ export async function GET(request: NextRequest) {
       console.log(`[Cron] Using 'since' value: ${since || 'NONE (full fetch)'}`)
 
       // STRATEGY: Fetch BOTH parcels (shipped) AND integration shipments (pending/on hold)
-      // OPTIMIZED: Reduced pages to fit within 30s cron timeout
+      // OPTIMIZED: Minimal pages to fit within 30s cron timeout (Render limit)
 
-      // 1. Fetch parcels (orders with labels generated)
+      // 1. Fetch parcels (orders with labels generated) - just 1 page each = 200 max
       console.log(`[Cron] Fetching parcels...`)
-      const parcelsUpdated = since ? await fetchAllParcels(credentials, since, 3) : []
-      const parcelsRecent = await fetchAllParcels(credentials, undefined, 2)
+      const parcelsUpdated = since ? await fetchAllParcels(credentials, since, 1) : []
+      const parcelsRecent = await fetchAllParcels(credentials, undefined, 1)
       console.log(`[Cron] Parcels: ${parcelsUpdated.length} updated + ${parcelsRecent.length} recent`)
 
-      // 2. Fetch integration shipments (pending orders "On Hold")
+      // 2. Fetch integration shipments (pending orders "On Hold") - 1 page per integration
       console.log(`[Cron] Fetching integration shipments (pending orders)...`)
-      const pendingOrders = await fetchAllIntegrationShipments(credentials, 2)
+      const pendingOrders = await fetchAllIntegrationShipments(credentials, 1)
       console.log(`[Cron] Pending orders from integrations: ${pendingOrders.length}`)
 
       // Merge all: parcels take priority over pending orders (same order_ref)
@@ -380,10 +380,10 @@ export async function GET(request: NextRequest) {
         const returnsSince = lastReturnsSync?.cursor || lastReturnsSync?.ended_at || undefined
 
         // Fetch returns - BOTH updated returns AND recent returns (like we do for parcels)
-        // OPTIMIZED: Reduced pages to fit within 30s cron timeout
+        // OPTIMIZED: 1 page each to fit within 30s cron timeout
         console.log(`[Cron] Fetching returns...`)
-        const returnsUpdated = returnsSince ? await fetchAllReturns(credentials, returnsSince, 3) : []
-        const returnsRecent = await fetchAllReturns(credentials, undefined, 2) // Always fetch recent without date filter
+        const returnsUpdated = returnsSince ? await fetchAllReturns(credentials, returnsSince, 1) : []
+        const returnsRecent = await fetchAllReturns(credentials, undefined, 1) // Always fetch recent without date filter
 
         // Merge and deduplicate by sendcloud_return_id
         const returnsMap = new Map<string, typeof returnsUpdated[0]>()
