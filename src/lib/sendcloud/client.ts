@@ -184,6 +184,11 @@ export async function fetchParcels(
 
   const url = `${SENDCLOUD_API_URL}/parcels?${params.toString()}`
 
+  // DEBUG: Log the exact API call
+  console.log(`[Sendcloud Client] ========== API CALL ==========`)
+  console.log(`[Sendcloud Client] URL: ${url}`)
+  console.log(`[Sendcloud Client] updated_after param: ${options?.since || 'NOT SET'}`)
+
   const response = await fetch(url, {
     headers: {
       Authorization: `Basic ${auth}`,
@@ -193,10 +198,19 @@ export async function fetchParcels(
 
   if (!response.ok) {
     const error = await response.text()
+    console.error(`[Sendcloud Client] API ERROR: ${response.status} - ${error}`)
     throw new Error(`Sendcloud API error: ${response.status} - ${error}`)
   }
 
   const data: SendcloudResponse = await response.json()
+
+  // DEBUG: Log what Sendcloud returned
+  console.log(`[Sendcloud Client] Parcels returned: ${data.parcels.length}`)
+  console.log(`[Sendcloud Client] Has next page: ${!!data.next}`)
+  if (data.parcels.length > 0) {
+    console.log(`[Sendcloud Client] First parcel ID: ${data.parcels[0]?.id}`)
+    console.log(`[Sendcloud Client] Last parcel ID: ${data.parcels[data.parcels.length - 1]?.id}`)
+  }
 
   const parcels = data.parcels.map(parseParcel)
 

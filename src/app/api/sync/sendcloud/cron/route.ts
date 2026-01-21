@@ -100,12 +100,30 @@ export async function GET(request: NextRequest) {
 
       const since = lastSync?.cursor || lastSync?.ended_at || undefined
 
+      // DEBUG: Log sync parameters
+      console.log(`[Cron] ========== SYNC DEBUG ==========`)
+      console.log(`[Cron] Tenant: ${tenant.id}`)
+      console.log(`[Cron] Last sync cursor: ${lastSync?.cursor || 'NULL'}`)
+      console.log(`[Cron] Last sync ended_at: ${lastSync?.ended_at || 'NULL'}`)
+      console.log(`[Cron] Using since: ${since || 'UNDEFINED (full sync)'}`)
+
       // Fetch parcels - use higher limit for full sync, lower for incremental
       // If no previous sync (since is undefined), fetch up to 50 pages (5000 parcels) for initial sync
       // Otherwise fetch 10 pages (1000) for incremental updates
       const maxPages = since ? 10 : 50
+      console.log(`[Cron] Max pages: ${maxPages}`)
+
       const parcels = await fetchAllParcels(credentials, since, maxPages)
-      console.log(`[Cron] Fetched ${parcels.length} new parcels for tenant ${tenant.id}`)
+      console.log(`[Cron] Fetched ${parcels.length} parcels for tenant ${tenant.id}`)
+
+      // DEBUG: Log first and last parcel IDs to see what range we got
+      if (parcels.length > 0) {
+        const sortedByDate = [...parcels].sort((a, b) =>
+          new Date(b.date_created || '').getTime() - new Date(a.date_created || '').getTime()
+        )
+        console.log(`[Cron] Newest parcel: ID=${sortedByDate[0]?.sendcloud_id}, date=${sortedByDate[0]?.date_created}, ref=${sortedByDate[0]?.order_ref}`)
+        console.log(`[Cron] Oldest parcel: ID=${sortedByDate[sortedByDate.length-1]?.sendcloud_id}, date=${sortedByDate[sortedByDate.length-1]?.date_created}`)
+      }
 
       let created = 0
       const errors: string[] = []
