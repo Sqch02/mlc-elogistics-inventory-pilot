@@ -25,19 +25,19 @@ export async function GET(request: NextRequest) {
 
     const searchPattern = `%${query}%`
 
-    // Search shipments by order_ref, tracking_number, or sendcloud_id
+    // Search shipments by order_ref, tracking, or sendcloud_id
     const { data: shipments } = await db
       .from('shipments')
-      .select('id, order_ref, tracking_number, carrier, status_message, shipped_at, sendcloud_id')
+      .select('id, order_ref, tracking, carrier, status_message, shipped_at, sendcloud_id')
       .eq('tenant_id', tenantId)
-      .or(`order_ref.ilike.${searchPattern},tracking_number.ilike.${searchPattern},sendcloud_id.ilike.${searchPattern}`)
+      .or(`order_ref.ilike.${searchPattern},tracking.ilike.${searchPattern},sendcloud_id.ilike.${searchPattern}`)
       .order('shipped_at', { ascending: false })
       .limit(10)
 
-    // Search claims by order_ref or tracking_number via shipment relation
+    // Search claims by order_ref or tracking via shipment relation
     const { data: claims } = await db
       .from('claims')
-      .select('id, order_ref, status, claim_type, opened_at, shipments!inner(tracking_number)')
+      .select('id, order_ref, status, claim_type, opened_at, shipments!inner(tracking)')
       .eq('tenant_id', tenantId)
       .or(`order_ref.ilike.${searchPattern}`)
       .order('opened_at', { ascending: false })
@@ -47,17 +47,17 @@ export async function GET(request: NextRequest) {
       ...(shipments || []).map((s: {
         id: string
         order_ref: string
-        tracking_number: string
+        tracking: string
         carrier: string
         status_message: string
         shipped_at: string
       }) => ({
         type: 'shipment' as const,
         id: s.id,
-        title: s.order_ref || s.tracking_number,
+        title: s.order_ref || s.tracking,
         subtitle: `${s.carrier || 'N/A'} - ${s.status_message || 'En cours'}`,
         date: s.shipped_at,
-        url: `/expeditions?search=${encodeURIComponent(s.order_ref || s.tracking_number)}`,
+        url: `/expeditions?search=${encodeURIComponent(s.order_ref || s.tracking)}`,
       })),
       ...(claims || []).map((c: {
         id: string
