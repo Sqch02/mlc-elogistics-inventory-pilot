@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 export type ClaimStatus = 'ouverte' | 'en_analyse' | 'indemnisee' | 'refusee' | 'cloturee'
 export type ClaimType = 'lost' | 'damaged' | 'delay' | 'wrong_content' | 'missing_items' | 'other'
 export type ClaimPriority = 'low' | 'normal' | 'high' | 'urgent'
+export type IndemnitySource = 'hme' | 'transporteur'
 
 export interface Claim {
   id: string
@@ -15,6 +16,7 @@ export interface Claim {
   claim_type: ClaimType
   priority: ClaimPriority
   indemnity_eur: number | null
+  indemnity_source: IndemnitySource | null
   decision_note: string | null
   opened_at: string
   resolution_deadline: string | null
@@ -23,6 +25,8 @@ export interface Claim {
     sendcloud_id: string
     order_ref: string | null
     carrier: string | null
+    tracking: string | null
+    country_code: string | null
   } | null
 }
 
@@ -52,7 +56,7 @@ export interface ClaimStats {
 
 export interface ClaimFilters {
   search?: string
-  status?: ClaimStatus
+  status?: ClaimStatus | ClaimStatus[]
   claim_type?: ClaimType
   priority?: ClaimPriority
   from?: string
@@ -62,7 +66,11 @@ export interface ClaimFilters {
 async function fetchClaims(filters?: ClaimFilters): Promise<{ claims: Claim[]; stats: ClaimStats }> {
   const params = new URLSearchParams()
   if (filters?.search) params.set('search', filters.search)
-  if (filters?.status) params.set('status', filters.status)
+  if (filters?.status) {
+    // Support single status or array of statuses
+    const statusValue = Array.isArray(filters.status) ? filters.status.join(',') : filters.status
+    params.set('status', statusValue)
+  }
   if (filters?.claim_type) params.set('claim_type', filters.claim_type)
   if (filters?.priority) params.set('priority', filters.priority)
   if (filters?.from) params.set('from', filters.from)
@@ -170,6 +178,7 @@ export function useUpdateClaim() {
       status?: ClaimStatus
       description?: string | null
       indemnity_eur?: number | null
+      indemnity_source?: IndemnitySource | null
       decision_note?: string | null
       claim_type?: ClaimType
       priority?: ClaimPriority
@@ -285,4 +294,9 @@ export const CLAIM_PRIORITY_LABELS: Record<ClaimPriority, string> = {
   normal: 'Normale',
   high: 'Haute',
   urgent: 'Urgente',
+}
+
+export const INDEMNITY_SOURCE_LABELS: Record<IndemnitySource, string> = {
+  hme: 'Indemnisé par HME',
+  transporteur: 'Indemnisé par transporteur',
 }

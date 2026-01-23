@@ -8,6 +8,7 @@ const updateClaimSchema = z.object({
   status: z.enum(['ouverte', 'en_analyse', 'indemnisee', 'refusee', 'cloturee']).optional(),
   description: z.string().optional().nullable(),
   indemnity_eur: z.number().min(0).optional().nullable(),
+  indemnity_source: z.enum(['hme', 'transporteur']).optional().nullable(),
   decision_note: z.string().optional().nullable(),
   claim_type: z.enum(['lost', 'damaged', 'delay', 'wrong_content', 'missing_items', 'other']).optional(),
   priority: z.enum(['low', 'normal', 'high', 'urgent']).optional(),
@@ -110,6 +111,11 @@ export async function PATCH(
     if (validatedData.indemnity_eur !== undefined && validatedData.indemnity_eur !== currentClaim.indemnity_eur) {
       updateData.indemnity_eur = validatedData.indemnity_eur
       changes.push({ field: 'indemnity_eur', old: currentClaim.indemnity_eur, new: validatedData.indemnity_eur })
+    }
+
+    if (validatedData.indemnity_source !== undefined && validatedData.indemnity_source !== currentClaim.indemnity_source) {
+      updateData.indemnity_source = validatedData.indemnity_source
+      changes.push({ field: 'indemnity_source', old: currentClaim.indemnity_source, new: validatedData.indemnity_source })
     }
 
     if (validatedData.decision_note !== undefined && validatedData.decision_note !== currentClaim.decision_note) {

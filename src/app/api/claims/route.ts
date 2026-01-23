@@ -30,7 +30,9 @@ async function fetchAllClaims(tenantId: string) {
         shipments:shipment_id (
           sendcloud_id,
           order_ref,
-          carrier
+          carrier,
+          tracking,
+          country_code
         )
       `)
       .eq('tenant_id', tenantId)
@@ -71,7 +73,9 @@ export async function GET(request: NextRequest) {
 
     // Apply filters
     if (status) {
-      claims = claims.filter((c: { status: string }) => c.status === status)
+      // Support multiple statuses separated by comma
+      const statuses = status.split(',')
+      claims = claims.filter((c: { status: string }) => statuses.includes(c.status))
     }
 
     if (claim_type) {
@@ -90,14 +94,15 @@ export async function GET(request: NextRequest) {
       claims = claims.filter((c: { opened_at: string }) => c.opened_at <= to)
     }
 
-    // Filter by search text (order_ref or description)
+    // Filter by search text (order_ref, description, tracking)
     if (search) {
       const searchLower = search.toLowerCase()
-      claims = claims.filter((c: { order_ref?: string; description?: string; shipments?: { order_ref?: string; carrier?: string } }) =>
+      claims = claims.filter((c: { order_ref?: string; description?: string; shipments?: { order_ref?: string; carrier?: string; tracking?: string } }) =>
         c.order_ref?.toLowerCase().includes(searchLower) ||
         c.description?.toLowerCase().includes(searchLower) ||
         c.shipments?.order_ref?.toLowerCase().includes(searchLower) ||
-        c.shipments?.carrier?.toLowerCase().includes(searchLower)
+        c.shipments?.carrier?.toLowerCase().includes(searchLower) ||
+        c.shipments?.tracking?.toLowerCase().includes(searchLower)
       )
     }
 

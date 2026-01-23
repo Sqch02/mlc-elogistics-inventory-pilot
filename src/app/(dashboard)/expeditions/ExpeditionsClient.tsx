@@ -143,6 +143,9 @@ function ShipmentRow({ shipment, onCreateClaim, onCancel, onRefresh, isCancellin
         <TableCell>
           <Badge variant="muted" className="text-xs">{shipment.carrier}</Badge>
         </TableCell>
+        <TableCell className="text-xs">
+          {shipment.country_code || '-'}
+        </TableCell>
         <TableCell className="text-right font-mono text-sm">
           {shipment.total_value ? `${shipment.total_value.toFixed(2)} €` : '-'}
         </TableCell>
@@ -166,7 +169,7 @@ function ShipmentRow({ shipment, onCreateClaim, onCancel, onRefresh, isCancellin
       {/* Expanded Details */}
       {isExpanded && (
         <TableRow className="bg-muted/30">
-          <TableCell colSpan={8} className="p-0">
+          <TableCell colSpan={9} className="p-0">
             <div className="p-4 lg:p-6 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {/* Destinataire */}
@@ -719,6 +722,7 @@ export function ExpeditionsClient() {
                   <TableHead className="whitespace-nowrap">Destinataire</TableHead>
                   <TableHead className="whitespace-nowrap">Statut</TableHead>
                   <TableHead className="whitespace-nowrap">Transporteur</TableHead>
+                  <TableHead className="whitespace-nowrap">Pays</TableHead>
                   <TableHead className="text-right whitespace-nowrap">Valeur</TableHead>
                   <TableHead className="text-right pr-4 lg:pr-6 whitespace-nowrap">Tracking</TableHead>
                 </TableRow>

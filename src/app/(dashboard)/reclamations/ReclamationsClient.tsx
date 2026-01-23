@@ -16,8 +16,8 @@ import {
 import { cn } from '@/lib/utils'
 import {
   useClaims, useUpdateClaim, useCreateClaim, useClaimHistory,
-  ClaimFilters, Claim, ClaimStatus, ClaimType, ClaimPriority,
-  CLAIM_STATUS_LABELS, CLAIM_TYPE_LABELS, CLAIM_PRIORITY_LABELS
+  ClaimFilters, Claim, ClaimStatus, ClaimType, ClaimPriority, IndemnitySource,
+  CLAIM_STATUS_LABELS, CLAIM_TYPE_LABELS, CLAIM_PRIORITY_LABELS, INDEMNITY_SOURCE_LABELS
 } from '@/hooks/useClaims'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { ImportPreviewDialog } from '@/components/forms/ImportPreviewDialog'
@@ -104,6 +104,9 @@ function ClaimRow({ claim, onView, onEdit }: ClaimRowProps) {
             <Badge variant="muted" className="text-xs">{claim.shipments.carrier}</Badge>
           ) : '-'}
         </TableCell>
+        <TableCell className="font-mono text-xs">
+          {claim.shipments?.tracking || '-'}
+        </TableCell>
         <TableCell className="text-right font-mono text-sm">
           {claim.indemnity_eur ? `${claim.indemnity_eur.toFixed(2)} €` : '-'}
         </TableCell>
@@ -112,7 +115,7 @@ function ClaimRow({ claim, onView, onEdit }: ClaimRowProps) {
       {/* Expanded Details */}
       {isExpanded && (
         <TableRow className="bg-muted/30">
-          <TableCell colSpan={8} className="p-0">
+          <TableCell colSpan={9} className="p-0">
             <div className="p-4 lg:p-6 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {/* Description */}
@@ -249,6 +252,7 @@ export function ReclamationsClient() {
     priority: 'normal' as ClaimPriority,
     status: 'ouverte' as ClaimStatus,
     indemnity_eur: '',
+    indemnity_source: '' as IndemnitySource | '',
     decision_note: '',
   })
 
@@ -270,6 +274,30 @@ export function ReclamationsClient() {
       }
       return next
     })
+  }
+
+  // Toggle status in multi-select mode
+  const toggleStatus = (status: ClaimStatus) => {
+    setFilters(prev => {
+      const currentStatuses = Array.isArray(prev.status) ? prev.status : prev.status ? [prev.status] : []
+      const isSelected = currentStatuses.includes(status)
+
+      if (isSelected) {
+        // Remove status
+        const newStatuses = currentStatuses.filter(s => s !== status)
+        return { ...prev, status: newStatuses.length > 0 ? newStatuses : undefined }
+      } else {
+        // Add status
+        return { ...prev, status: [...currentStatuses, status] }
+      }
+    })
+  }
+
+  // Check if a status is selected (works with single or array)
+  const isStatusSelected = (status: ClaimStatus) => {
+    if (!filters.status) return false
+    if (Array.isArray(filters.status)) return filters.status.includes(status)
+    return filters.status === status
   }
 
   const handleSearch = () => {
@@ -352,6 +380,7 @@ export function ReclamationsClient() {
       priority: claim.priority,
       status: claim.status,
       indemnity_eur: claim.indemnity_eur?.toString() || '',
+      indemnity_source: claim.indemnity_source || '',
       decision_note: claim.decision_note || '',
     })
     setEditDialogOpen(true)
@@ -386,6 +415,7 @@ export function ReclamationsClient() {
         claim_type: formData.claim_type,
         priority: formData.priority,
         indemnity_eur: formData.indemnity_eur ? parseFloat(formData.indemnity_eur) : null,
+        indemnity_source: formData.indemnity_source || null,
         decision_note: formData.decision_note || null,
       })
       setEditDialogOpen(false)
@@ -491,54 +521,54 @@ export function ReclamationsClient() {
         </Card>
       </div>
 
-      {/* Quick Filters */}
+      {/* Quick Filters - Multi-select */}
       <div className="flex items-center gap-2 flex-wrap">
         <Filter className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm text-muted-foreground mr-2">Filtre rapide :</span>
+        <span className="text-sm text-muted-foreground mr-2">Filtres (cumulables) :</span>
         <Button
-          variant={filters.status === 'ouverte' ? 'default' : 'outline'}
+          variant={isStatusSelected('ouverte') ? 'default' : 'outline'}
           size="sm"
-          onClick={() => {
-            if (filters.status === 'ouverte') {
-              updateFilter('status', undefined)
-            } else {
-              setFilters({ status: 'ouverte' })
-            }
-          }}
-          className={cn('h-8', filters.status === 'ouverte' && 'bg-amber-500 hover:bg-amber-600')}
+          onClick={() => toggleStatus('ouverte')}
+          className={cn('h-8', isStatusSelected('ouverte') && 'bg-amber-500 hover:bg-amber-600')}
         >
           <AlertTriangle className="h-3.5 w-3.5 mr-1.5" />
           À traiter ({stats.open})
         </Button>
         <Button
-          variant={filters.status === 'en_analyse' ? 'default' : 'outline'}
+          variant={isStatusSelected('en_analyse') ? 'default' : 'outline'}
           size="sm"
-          onClick={() => {
-            if (filters.status === 'en_analyse') {
-              updateFilter('status', undefined)
-            } else {
-              setFilters({ status: 'en_analyse' })
-            }
-          }}
-          className={cn('h-8', filters.status === 'en_analyse' && 'bg-blue-500 hover:bg-blue-600')}
+          onClick={() => toggleStatus('en_analyse')}
+          className={cn('h-8', isStatusSelected('en_analyse') && 'bg-blue-500 hover:bg-blue-600')}
         >
           <Clock className="h-3.5 w-3.5 mr-1.5" />
           En analyse ({stats.inProgress})
         </Button>
         <Button
-          variant={filters.status === 'indemnisee' ? 'default' : 'outline'}
+          variant={isStatusSelected('indemnisee') ? 'default' : 'outline'}
           size="sm"
-          onClick={() => {
-            if (filters.status === 'indemnisee') {
-              updateFilter('status', undefined)
-            } else {
-              setFilters({ status: 'indemnisee' })
-            }
-          }}
-          className={cn('h-8', filters.status === 'indemnisee' && 'bg-green-500 hover:bg-green-600')}
+          onClick={() => toggleStatus('indemnisee')}
+          className={cn('h-8', isStatusSelected('indemnisee') && 'bg-green-500 hover:bg-green-600')}
         >
           <CheckCircle className="h-3.5 w-3.5 mr-1.5" />
           Indemnisées
+        </Button>
+        <Button
+          variant={isStatusSelected('refusee') ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => toggleStatus('refusee')}
+          className={cn('h-8', isStatusSelected('refusee') && 'bg-red-500 hover:bg-red-600')}
+        >
+          <XCircle className="h-3.5 w-3.5 mr-1.5" />
+          Refusées
+        </Button>
+        <Button
+          variant={isStatusSelected('cloturee') ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => toggleStatus('cloturee')}
+          className={cn('h-8', isStatusSelected('cloturee') && 'bg-gray-500 hover:bg-gray-600')}
+        >
+          <CheckCircle className="h-3.5 w-3.5 mr-1.5" />
+          Clôturées
         </Button>
       </div>
 
@@ -558,11 +588,19 @@ export function ReclamationsClient() {
           </div>
           <div className="flex gap-2 flex-wrap">
             <Select
-              value={filters.status || 'all'}
-              onValueChange={(v) => updateFilter('status', v === 'all' ? undefined : v)}
+              value={Array.isArray(filters.status) ? 'multiple' : (filters.status || 'all')}
+              onValueChange={(v) => {
+                if (v === 'all') {
+                  setFilters(prev => ({ ...prev, status: undefined }))
+                } else if (v !== 'multiple') {
+                  setFilters(prev => ({ ...prev, status: v as ClaimStatus }))
+                }
+              }}
             >
               <SelectTrigger className="w-[130px]">
-                <SelectValue placeholder="Statut" />
+                <SelectValue placeholder="Statut">
+                  {Array.isArray(filters.status) ? `${filters.status.length} statuts` : undefined}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Tous</SelectItem>
@@ -658,6 +696,7 @@ export function ReclamationsClient() {
                   <TableHead className="whitespace-nowrap">Statut</TableHead>
                   <TableHead className="whitespace-nowrap">Priorité</TableHead>
                   <TableHead className="whitespace-nowrap">Transporteur</TableHead>
+                  <TableHead className="whitespace-nowrap">N° Suivi</TableHead>
                   <TableHead className="text-right whitespace-nowrap">Indemnité</TableHead>
                 </TableRow>
               </TableHeader>
@@ -830,15 +869,33 @@ export function ReclamationsClient() {
             </div>
             {(formData.status === 'indemnisee' || formData.status === 'refusee') && (
               <>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Indemnité (EUR)</label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={formData.indemnity_eur}
-                    onChange={(e) => setFormData(prev => ({ ...prev, indemnity_eur: e.target.value }))}
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Indemnité (EUR)</label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={formData.indemnity_eur}
+                      onChange={(e) => setFormData(prev => ({ ...prev, indemnity_eur: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Payé par</label>
+                    <Select
+                      value={formData.indemnity_source || 'none'}
+                      onValueChange={(v) => setFormData(prev => ({ ...prev, indemnity_source: v === 'none' ? '' : v as IndemnitySource }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Sélectionner..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Non spécifié</SelectItem>
+                        <SelectItem value="hme">HME</SelectItem>
+                        <SelectItem value="transporteur">Transporteur</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Note de décision</label>
