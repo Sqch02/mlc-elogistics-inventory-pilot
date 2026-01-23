@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -411,10 +412,21 @@ function ShipmentRow({ shipment, onCreateClaim, onCancel, onRefresh, isCancellin
 }
 
 export function ExpeditionsClient() {
+  const searchParams = useSearchParams()
+  const urlSearch = searchParams.get('search')
+
   const [filters, setFilters] = useState<ShipmentFilters>({ page: 1, pageSize: 100 })
   const [searchInput, setSearchInput] = useState('')
   const [isExporting, setIsExporting] = useState(false)
   const [createShipmentOpen, setCreateShipmentOpen] = useState(false)
+
+  // Initialize search from URL params
+  useEffect(() => {
+    if (urlSearch) {
+      setSearchInput(urlSearch)
+      setFilters(prev => ({ ...prev, search: urlSearch, page: 1 }))
+    }
+  }, [urlSearch])
 
   // Claim dialog state
   const [claimDialogOpen, setClaimDialogOpen] = useState(false)
