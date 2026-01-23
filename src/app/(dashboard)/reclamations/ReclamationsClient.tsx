@@ -174,6 +174,12 @@ function ClaimRow({ claim, onView, onEdit }: ClaimRowProps) {
                         <span className="font-medium text-green-600">{claim.indemnity_eur.toFixed(2)} €</span>
                       </div>
                     )}
+                    {claim.indemnity_source && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Payé par</span>
+                        <span className="font-medium">{INDEMNITY_SOURCE_LABELS[claim.indemnity_source]}</span>
+                      </div>
+                    )}
                     {claim.decided_at && (
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Date décision</span>
