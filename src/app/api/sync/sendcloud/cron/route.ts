@@ -88,9 +88,9 @@ export async function GET(request: NextRequest) {
       console.log(`[Cron] Fetching data in parallel...`)
 
       const [parcelsRecent, pendingOrders, returnsRecent] = await Promise.all([
-        fetchAllParcels(credentials, undefined, 1),
-        fetchAllIntegrationShipments(credentials, 1),
-        fetchAllReturns(credentials, undefined, 1),
+        fetchAllParcels(credentials, undefined, 3),
+        fetchAllIntegrationShipments(credentials, 3),
+        fetchAllReturns(credentials, undefined, 3),
       ])
 
       console.log(`[Cron] Fetched: ${parcelsRecent.length} parcels, ${pendingOrders.length} pending, ${returnsRecent.length} returns`)
