@@ -415,18 +415,22 @@ export function ExpeditionsClient() {
   const searchParams = useSearchParams()
   const urlSearch = searchParams.get('search')
 
-  const [filters, setFilters] = useState<ShipmentFilters>({ page: 1, pageSize: 100 })
-  const [searchInput, setSearchInput] = useState('')
+  const [filters, setFilters] = useState<ShipmentFilters>(() => ({
+    page: 1,
+    pageSize: 100,
+    ...(urlSearch ? { search: urlSearch } : {})
+  }))
+  const [searchInput, setSearchInput] = useState(urlSearch || '')
   const [isExporting, setIsExporting] = useState(false)
   const [createShipmentOpen, setCreateShipmentOpen] = useState(false)
 
-  // Initialize search from URL params
+  // Update search when URL params change (for navigation within the app)
   useEffect(() => {
-    if (urlSearch) {
+    if (urlSearch && urlSearch !== filters.search) {
       setSearchInput(urlSearch)
       setFilters(prev => ({ ...prev, search: urlSearch, page: 1 }))
     }
-  }, [urlSearch])
+  }, [urlSearch, filters.search])
 
   // Claim dialog state
   const [claimDialogOpen, setClaimDialogOpen] = useState(false)
