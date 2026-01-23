@@ -65,59 +65,62 @@ function ProductRow({
   const barWidth = maxVolume > 0 ? (item.volume / maxVolume) * 100 : 0
 
   return (
-    <motion.div
-      initial={{ opacity: 0, x: -10 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: delay + index * 0.03 }}
-      className="group py-2.5 border-b border-border/30 last:border-0 hover:bg-muted/30 -mx-2 px-2 rounded-lg transition-colors"
-    >
-      <div className="flex items-center gap-3">
-        {/* Rank badge */}
-        <div className={cn(
-          "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0",
-          index === 0 ? "bg-amber-100 text-amber-700" :
-          index === 1 ? "bg-gray-100 text-gray-600" :
-          index === 2 ? "bg-orange-100 text-orange-700" :
-          "bg-muted text-muted-foreground"
-        )}>
-          {index + 1}
-        </div>
-
-        {/* Product info */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2 mb-1">
-            <span className="font-mono text-xs font-semibold text-foreground truncate" title={item.sku_code}>
-              {item.sku_code}
-            </span>
-            <span className="text-sm font-bold text-foreground whitespace-nowrap">
-              {formatNumber(item.volume)}
-            </span>
+    <Link href={`/expeditions?search=${encodeURIComponent(item.sku_code)}`}>
+      <motion.div
+        initial={{ opacity: 0, x: -10 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ delay: delay + index * 0.03 }}
+        className="group py-2.5 border-b border-border/30 last:border-0 hover:bg-primary/5 -mx-2 px-2 rounded-lg transition-colors cursor-pointer"
+      >
+        <div className="flex items-center gap-3">
+          {/* Rank badge */}
+          <div className={cn(
+            "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0",
+            index === 0 ? "bg-amber-100 text-amber-700" :
+            index === 1 ? "bg-gray-100 text-gray-600" :
+            index === 2 ? "bg-orange-100 text-orange-700" :
+            "bg-muted text-muted-foreground"
+          )}>
+            {index + 1}
           </div>
 
-          {/* Progress bar */}
-          <div className="h-2 bg-muted/50 rounded-full overflow-hidden">
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${barWidth}%` }}
-              transition={{ delay: delay + index * 0.03 + 0.1, duration: 0.5, ease: 'easeOut' }}
-              className={cn("h-full rounded-full", color)}
-            />
+          {/* Product info */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <span className="font-mono text-xs font-semibold text-foreground truncate group-hover:text-primary transition-colors" title={item.sku_code}>
+                {item.sku_code}
+              </span>
+              <span className="text-sm font-bold text-foreground whitespace-nowrap">
+                {formatNumber(item.volume)}
+              </span>
+            </div>
+
+            {/* Progress bar */}
+            <div className="h-2 bg-muted/50 rounded-full overflow-hidden">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${barWidth}%` }}
+                transition={{ delay: delay + index * 0.03 + 0.1, duration: 0.5, ease: 'easeOut' }}
+                className={cn("h-full rounded-full", color)}
+              />
+            </div>
+
+            {/* Name (shown on hover or always if space) */}
+            <p className="text-[10px] text-muted-foreground mt-1 truncate" title={item.name}>
+              {item.name}
+            </p>
           </div>
 
-          {/* Name (shown on hover or always if space) */}
-          <p className="text-[10px] text-muted-foreground mt-1 truncate" title={item.name}>
-            {item.name}
-          </p>
+          {/* Percentage + Arrow on hover */}
+          <div className="text-right flex-shrink-0 flex items-center gap-1">
+            <span className="text-xs font-medium text-muted-foreground">
+              {item.percentage.toFixed(1)}%
+            </span>
+            <ArrowRight className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
         </div>
-
-        {/* Percentage */}
-        <div className="text-right flex-shrink-0">
-          <span className="text-xs font-medium text-muted-foreground">
-            {item.percentage.toFixed(1)}%
-          </span>
-        </div>
-      </div>
-    </motion.div>
+      </motion.div>
+    </Link>
   )
 }
 

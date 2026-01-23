@@ -13,6 +13,12 @@ export async function GET() {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
 
+    // Yesterday's date range
+    const yesterdayStart = new Date(todayStart)
+    yesterdayStart.setDate(yesterdayStart.getDate() - 1)
+    const yesterdayEnd = new Date(yesterdayStart)
+    yesterdayEnd.setHours(23, 59, 59, 999)
+
     // Today's shipments
     const { count: shipmentsToday } = await db
       .from('shipments')
@@ -54,6 +60,14 @@ export async function GET() {
       .gte('opened_at', todayStart.toISOString())
       .lte('opened_at', todayEnd.toISOString())
 
+    // Claims opened yesterday
+    const { count: claimsYesterday } = await db
+      .from('claims')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .gte('opened_at', yesterdayStart.toISOString())
+      .lte('opened_at', yesterdayEnd.toISOString())
+
     // Overdue claims
     const { count: overdueClaims } = await db
       .from('claims')
@@ -88,6 +102,7 @@ export async function GET() {
       },
       claims: {
         today: claimsToday || 0,
+        yesterday: claimsYesterday || 0,
         open: openClaims || [],
         overdue: overdueClaims || 0,
       },

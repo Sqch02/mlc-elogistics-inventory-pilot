@@ -52,8 +52,18 @@ const lineTypeConfig: Record<string, { icon: React.ElementType; label: string; c
   returns: { icon: RotateCcw, label: 'Retours', color: 'text-gray-600 bg-gray-100' },
 }
 
+type InvoiceStatus = 'all' | 'draft' | 'sent' | 'paid'
+
+const STATUS_LABELS: Record<InvoiceStatus, string> = {
+  all: 'Toutes',
+  draft: 'Brouillon',
+  sent: 'Envoyée',
+  paid: 'Payée',
+}
+
 export function FacturationClient() {
   const [selectedMonth, setSelectedMonth] = useState('')
+  const [statusFilter, setStatusFilter] = useState<InvoiceStatus>('all')
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null)
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null)
@@ -72,11 +82,15 @@ export function FacturationClient() {
   const updateStatusMutation = useUpdateInvoiceStatus()
   const deleteMutation = useDeleteInvoice()
 
-  const invoices = data?.invoices || []
+  const allInvoices = data?.invoices || []
+  const invoices = statusFilter === 'all'
+    ? allInvoices
+    : allInvoices.filter(inv => inv.status === statusFilter)
   const stats = data?.stats || {
     currentMonth: new Date().toISOString().slice(0, 7),
     currentMonthTotal: 0,
     currentMonthCount: 0,
+    avgCostPerShipment: 0,
     missingPricing: 0,
     totalPaid: 0,
     totalPending: 0,
@@ -275,7 +289,7 @@ export function FacturationClient() {
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Facturation</h1>
           <p className="text-muted-foreground text-sm">
-            {invoices.length} facture(s) {isFetching && '(chargement...)'}
+            {invoices.length} facture(s) {statusFilter !== 'all' && `(${STATUS_LABELS[statusFilter].toLowerCase()})`} {isFetching && '(chargement...)'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -302,13 +316,37 @@ export function FacturationClient() {
         </div>
       </div>
 
+      {/* Status Filter Pills */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-muted-foreground font-medium">Statut:</span>
+        {(Object.keys(STATUS_LABELS) as InvoiceStatus[]).map((status) => {
+          const count = status === 'all'
+            ? allInvoices.length
+            : allInvoices.filter(inv => inv.status === status).length
+          return (
+            <Button
+              key={status}
+              variant={statusFilter === status ? 'default' : 'outline'}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setStatusFilter(status)}
+            >
+              {STATUS_LABELS[status]}
+              <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] ${statusFilter === status ? 'bg-white/20' : 'bg-muted'}`}>
+                {count}
+              </span>
+            </Button>
+          )
+        })}
+      </div>
+
       {/* KPI Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 lg:gap-4">
         <Card className="shadow-sm border-border">
           <CardContent className="p-3 lg:p-4 flex items-center justify-between">
             <div className="space-y-1">
               <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Factures</p>
-              <p className="text-lg lg:text-2xl font-bold">{invoices.length}</p>
+              <p className="text-lg lg:text-2xl font-bold">{allInvoices.length}</p>
             </div>
             <div className="p-1.5 lg:p-2 bg-primary/10 rounded-lg text-primary">
               <Receipt className="h-4 w-4 lg:h-5 lg:w-5" />
@@ -318,8 +356,32 @@ export function FacturationClient() {
         <Card className="shadow-sm border-border">
           <CardContent className="p-3 lg:p-4 flex items-center justify-between">
             <div className="space-y-1">
+              <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Expéditions</p>
+              <p className="text-lg lg:text-2xl font-bold text-blue-600">{stats.currentMonthCount}</p>
+              <p className="text-[9px] text-muted-foreground">ce mois</p>
+            </div>
+            <div className="p-1.5 lg:p-2 bg-blue-100 rounded-lg text-blue-600">
+              <Truck className="h-4 w-4 lg:h-5 lg:w-5" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="shadow-sm border-border">
+          <CardContent className="p-3 lg:p-4 flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Coût moyen</p>
+              <p className="text-lg lg:text-2xl font-bold text-purple-600">{stats.avgCostPerShipment.toFixed(2)} €</p>
+              <p className="text-[9px] text-muted-foreground">par expédition</p>
+            </div>
+            <div className="p-1.5 lg:p-2 bg-purple-100 rounded-lg text-purple-600">
+              <Calculator className="h-4 w-4 lg:h-5 lg:w-5" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="shadow-sm border-border">
+          <CardContent className="p-3 lg:p-4 flex items-center justify-between">
+            <div className="space-y-1">
               <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Total payé</p>
-              <p className="text-lg lg:text-2xl font-bold text-green-600">{stats.totalPaid.toFixed(2)} EUR</p>
+              <p className="text-lg lg:text-2xl font-bold text-green-600">{stats.totalPaid.toFixed(2)} €</p>
             </div>
             <div className="p-1.5 lg:p-2 bg-green-100 rounded-lg text-green-600">
               <CheckCircle className="h-4 w-4 lg:h-5 lg:w-5" />
@@ -330,7 +392,7 @@ export function FacturationClient() {
           <CardContent className="p-3 lg:p-4 flex items-center justify-between">
             <div className="space-y-1">
               <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">En attente</p>
-              <p className="text-lg lg:text-2xl font-bold text-amber-600">{stats.totalPending.toFixed(2)} EUR</p>
+              <p className="text-lg lg:text-2xl font-bold text-amber-600">{stats.totalPending.toFixed(2)} €</p>
             </div>
             <div className="p-1.5 lg:p-2 bg-amber-100 rounded-lg text-amber-600">
               <Euro className="h-4 w-4 lg:h-5 lg:w-5" />

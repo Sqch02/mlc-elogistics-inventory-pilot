@@ -366,6 +366,7 @@ export function ReclamationsClient() {
       priority: 'normal',
       status: 'ouverte',
       indemnity_eur: '',
+      indemnity_source: '',
       decision_note: '',
     })
     setCreateDialogOpen(true)

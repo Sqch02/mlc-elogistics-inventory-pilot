@@ -25,23 +25,23 @@ export async function GET(request: NextRequest) {
 
     const searchPattern = `%${query}%`
 
-    // Search shipments by order_ref or tracking_number
+    // Search shipments by order_ref, tracking_number, or sendcloud_id
     const { data: shipments } = await db
       .from('shipments')
-      .select('id, order_ref, tracking_number, carrier, status_message, shipped_at')
+      .select('id, order_ref, tracking_number, carrier, status_message, shipped_at, sendcloud_id')
       .eq('tenant_id', tenantId)
-      .or(`order_ref.ilike.${searchPattern},tracking_number.ilike.${searchPattern}`)
+      .or(`order_ref.ilike.${searchPattern},tracking_number.ilike.${searchPattern},sendcloud_id.ilike.${searchPattern}`)
       .order('shipped_at', { ascending: false })
-      .limit(5)
+      .limit(10)
 
-    // Search claims by order_ref
+    // Search claims by order_ref or tracking_number via shipment relation
     const { data: claims } = await db
       .from('claims')
-      .select('id, order_ref, status, claim_type, opened_at')
+      .select('id, order_ref, status, claim_type, opened_at, shipments!inner(tracking_number)')
       .eq('tenant_id', tenantId)
-      .ilike('order_ref', searchPattern)
+      .or(`order_ref.ilike.${searchPattern}`)
       .order('opened_at', { ascending: false })
-      .limit(5)
+      .limit(10)
 
     const results = [
       ...(shipments || []).map((s: {

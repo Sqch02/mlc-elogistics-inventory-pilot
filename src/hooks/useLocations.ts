@@ -18,7 +18,12 @@ export interface Location {
   status: 'occupied' | 'empty' | 'blocked'
   max_weight_kg: number | null
   assignment: {
-    sku: { sku_code: string; name: string } | null
+    assigned_at: string
+    sku: {
+      sku_code: string
+      name: string
+      stock_snapshots: { qty_current: number }[]
+    } | null
   } | null
 }
 

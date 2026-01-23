@@ -26,7 +26,8 @@ export async function GET() {
         status,
         max_weight_kg,
         assignment:location_assignments(
-          sku:skus(sku_code, name)
+          assigned_at,
+          sku:skus(sku_code, name, stock_snapshots(qty_current))
         )
       `)
       .eq('tenant_id', tenantId)

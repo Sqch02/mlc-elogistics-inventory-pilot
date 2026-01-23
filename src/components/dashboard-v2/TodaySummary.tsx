@@ -19,6 +19,7 @@ interface TodayData {
   }
   claims: {
     today: number
+    yesterday: number
     open: Array<{
       id: string
       order_ref: string
@@ -97,24 +98,25 @@ export function TodaySummary() {
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Today's Stats */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div className="bg-white/80 rounded-xl p-3 border border-border/50">
               <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
                 <Package className="h-3.5 w-3.5" />
-                Expéditions aujourd&apos;hui
+                Expéditions
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-bold">{data.shipments.today}</span>
-                <span className="text-sm text-muted-foreground flex items-center gap-1">
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
                   <Euro className="h-3 w-3" />
                   {data.shipments.cost.toFixed(0)} €
                 </span>
               </div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">aujourd&apos;hui</div>
             </div>
             <div className="bg-white/80 rounded-xl p-3 border border-border/50">
               <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
                 <AlertTriangle className="h-3.5 w-3.5" />
-                Réclamations aujourd&apos;hui
+                Réclamations
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-bold">{data.claims.today}</span>
@@ -124,6 +126,24 @@ export function TodaySummary() {
                   </Badge>
                 )}
               </div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">aujourd&apos;hui</div>
+            </div>
+            <div className={`rounded-xl p-3 border ${data.claims.yesterday > 0 ? 'bg-amber-50 border-amber-200' : 'bg-white/80 border-border/50'}`}>
+              <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
+                <Clock className="h-3.5 w-3.5" />
+                Réclamations
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className={`text-2xl font-bold ${data.claims.yesterday > 0 ? 'text-amber-600' : ''}`}>
+                  {data.claims.yesterday}
+                </span>
+                {data.claims.yesterday > 0 && (
+                  <Badge variant="warning" className="text-[10px]">
+                    hier
+                  </Badge>
+                )}
+              </div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">hier</div>
             </div>
           </div>
 

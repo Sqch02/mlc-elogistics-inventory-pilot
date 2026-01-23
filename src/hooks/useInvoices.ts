@@ -38,6 +38,7 @@ export interface InvoiceStats {
   currentMonth: string
   currentMonthTotal: number
   currentMonthCount: number
+  avgCostPerShipment: number
   missingPricing: number
   totalPaid: number
   totalPending: number
@@ -69,11 +70,13 @@ async function fetchInvoices(): Promise<{ invoices: Invoice[]; stats: InvoiceSta
     (sum, line) => sum + (line.shipment_count || 0), 0
   ) || 0
   const missingPricing = currentMonthInvoice?.missing_pricing_count || 0
+  const avgCostPerShipment = currentMonthCount > 0 ? Number(currentMonthTotal) / currentMonthCount : 0
 
   const stats: InvoiceStats = {
     currentMonth,
     currentMonthTotal: Number(currentMonthTotal),
     currentMonthCount,
+    avgCostPerShipment,
     missingPricing,
     totalPaid,
     totalPending,

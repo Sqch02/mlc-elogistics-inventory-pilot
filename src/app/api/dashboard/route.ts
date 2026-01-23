@@ -42,6 +42,13 @@ export async function GET(request: NextRequest) {
     const isCurrentMonth = targetYear === now.getFullYear() && targetMonth === now.getMonth()
     const daysInMonth = isCurrentMonth ? now.getDate() : new Date(targetYear, targetMonth + 1, 0).getDate()
 
+    // Calculate yesterday date range
+    const yesterday = new Date(now)
+    yesterday.setDate(yesterday.getDate() - 1)
+    yesterday.setHours(0, 0, 0, 0)
+    const yesterdayEnd = new Date(yesterday)
+    yesterdayEnd.setHours(23, 59, 59, 999)
+
     // Run all queries in parallel
     const [
       shipmentsResult,
@@ -50,7 +57,8 @@ export async function GET(request: NextRequest) {
       missingPricingTotalResult,
       claimsResult,
       stockResult,
-      dailyShipmentsResult
+      dailyShipmentsResult,
+      claimsYesterdayResult
     ] = await Promise.all([
       supabase
         .from('shipments')
@@ -102,7 +110,15 @@ export async function GET(request: NextRequest) {
         .eq('tenant_id', tenantId)
         .gte('shipped_at', startOfMonth.toISOString())
         .lte('shipped_at', endOfMonth.toISOString())
-        .order('shipped_at')
+        .order('shipped_at'),
+
+      // Claims created yesterday
+      supabase
+        .from('claims')
+        .select('*', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .gte('opened_at', yesterday.toISOString())
+        .lte('opened_at', yesterdayEnd.toISOString())
     ])
 
     const shipmentsCost = shipmentsCostResult.data as { computed_cost_eur: number | null }[] | null
@@ -114,6 +130,7 @@ export async function GET(request: NextRequest) {
     const shipmentsCount = shipmentsResult.count || 0
     const missingPricingMonthCount = missingPricingMonthResult.count || 0
     const missingPricingTotalCount = missingPricingTotalResult.count || 0
+    const claimsYesterdayCount = claimsYesterdayResult.count || 0
     // criticalStockCount will be calculated after filtering bundles below
 
     // Group daily shipments (with pagination to get all data)
@@ -218,7 +235,7 @@ export async function GET(request: NextRequest) {
         missingPricing: { label: "Tarifs manquants", value: missingPricingMonthCount, subValue: "ce mois-ci", status: missingPricingStatus },
         indemnity: { label: "Total indemnisé", value: `${totalIndemnity.toFixed(2)} €`, subValue: "ce mois-ci", status: indemnityStatus },
         criticalStock: { label: "SKUs critiques", value: criticalStockCount, subValue: "stock < 20", status: criticalStockStatus },
-        shipmentsWithoutItems: { label: "Sans items", value: 0, status: 'success' },
+        claimsYesterday: { label: "Réclamations", value: claimsYesterdayCount, subValue: "hier", status: claimsYesterdayCount > 0 ? 'warning' : 'success' },
       },
       chartData,
       stockHealth,

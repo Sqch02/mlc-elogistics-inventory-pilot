@@ -98,6 +98,10 @@ export function EmplacementsClient() {
         label: l.label || '-',
         sku_assigne: l.assignment?.sku?.sku_code || '-',
         sku_nom: l.assignment?.sku?.name || '-',
+        quantite: l.assignment?.sku?.stock_snapshots?.[0]?.qty_current ?? '-',
+        date_assignation: l.assignment?.assigned_at
+          ? new Date(l.assignment.assigned_at).toLocaleDateString('fr-FR')
+          : '-',
         actif: l.active ? 'Oui' : 'Non',
         statut: l.assignment ? 'Occupe' : 'Libre',
       }))
@@ -402,13 +406,17 @@ export function EmplacementsClient() {
                   <TableHead className="pl-4 lg:pl-6 whitespace-nowrap">Code</TableHead>
                   <TableHead className="hidden sm:table-cell">Label</TableHead>
                   <TableHead className="whitespace-nowrap">SKU</TableHead>
+                  <TableHead className="text-center whitespace-nowrap hidden md:table-cell">Qte</TableHead>
+                  <TableHead className="whitespace-nowrap hidden lg:table-cell">Assigne le</TableHead>
                   <TableHead className="text-center whitespace-nowrap">Actif</TableHead>
                   <TableHead className="text-right whitespace-nowrap">Statut</TableHead>
                   <TableHead className="w-[60px] pr-4 lg:pr-6"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {locations.map((location) => (
+                {locations.map((location) => {
+                  const stockQty = location.assignment?.sku?.stock_snapshots?.[0]?.qty_current
+                  return (
                   <TableRow key={location.id} className="group">
                     <TableCell className="font-mono font-medium pl-4 lg:pl-6 text-xs lg:text-sm">{location.code}</TableCell>
                     <TableCell className="hidden sm:table-cell">{location.label || '-'}</TableCell>
@@ -423,6 +431,20 @@ export function EmplacementsClient() {
                       ) : (
                         <span className="text-muted-foreground">-</span>
                       )}
+                    </TableCell>
+                    <TableCell className="text-center hidden md:table-cell">
+                      {stockQty !== undefined ? (
+                        <span className={`font-medium ${stockQty < 20 ? 'text-red-600' : stockQty < 50 ? 'text-amber-600' : 'text-green-600'}`}>
+                          {stockQty}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell text-muted-foreground text-xs">
+                      {location.assignment?.assigned_at
+                        ? new Date(location.assignment.assigned_at).toLocaleDateString('fr-FR')
+                        : '-'}
                     </TableCell>
                     <TableCell className="text-center">
                       {location.active ? (
@@ -467,7 +489,8 @@ export function EmplacementsClient() {
                       </DropdownMenu>
                     </TableCell>
                   </TableRow>
-                ))}
+                  )
+                })}
               </TableBody>
             </Table>
           </div>
