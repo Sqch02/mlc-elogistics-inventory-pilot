@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Search, Package, AlertTriangle, X, Loader2 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { cn } from '@/lib/utils'
 
 interface SearchResult {
@@ -22,7 +22,6 @@ export function GlobalSearch() {
   const [isLoading, setIsLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const router = useRouter()
 
   // Debounced search
   useEffect(() => {
@@ -75,10 +74,9 @@ export function GlobalSearch() {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  const handleSelect = (result: SearchResult) => {
+  const handleSelect = () => {
     setIsOpen(false)
     setQuery('')
-    router.push(result.url)
   }
 
   const formatDate = (dateStr: string) => {
@@ -134,10 +132,11 @@ export function GlobalSearch() {
             <ul className="py-1">
               {results.map((result) => (
                 <li key={`${result.type}-${result.id}`}>
-                  <button
-                    onClick={() => handleSelect(result)}
+                  <Link
+                    href={result.url}
+                    onClick={handleSelect}
                     className={cn(
-                      'w-full px-3 py-2 flex items-start gap-3 hover:bg-accent text-left transition-colors',
+                      'w-full px-3 py-2 flex items-start gap-3 hover:bg-accent text-left transition-colors block',
                     )}
                   >
                     <div className={cn(
@@ -157,7 +156,7 @@ export function GlobalSearch() {
                     <div className="text-xs text-muted-foreground whitespace-nowrap">
                       {formatDate(result.date)}
                     </div>
-                  </button>
+                  </Link>
                 </li>
               ))}
             </ul>
