@@ -655,7 +655,7 @@ export function ExpeditionsClient() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Rechercher (ref, nom, ville, tracking)..."
-              className="pl-9"
+              className="pl-9 pr-9"
               value={searchInput}
               onChange={(e) => {
                 const value = e.target.value
@@ -674,6 +674,24 @@ export function ExpeditionsClient() {
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
               onBlur={handleSearch}
             />
+            {searchInput && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchInput('')
+                  setFilters(prev => {
+                    const { search, ...rest } = prev
+                    return { ...rest, page: 1 }
+                  })
+                  if (urlSearch) {
+                    router.push('/expeditions')
+                  }
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
           <div className="flex gap-2">
             <Select
