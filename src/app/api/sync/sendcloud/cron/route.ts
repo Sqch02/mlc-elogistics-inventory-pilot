@@ -215,7 +215,7 @@ export async function GET(request: NextRequest) {
       if (returnsToUpsert.length > 0) {
         const { error: returnsError } = await adminClient
           .from('returns')
-          .upsert(returnsToUpsert, { onConflict: 'sendcloud_return_id' })
+          .upsert(returnsToUpsert, { onConflict: 'tenant_id,sendcloud_id' })
 
         if (returnsError) {
           console.error(`[Cron] Returns batch upsert error:`, returnsError.message)
