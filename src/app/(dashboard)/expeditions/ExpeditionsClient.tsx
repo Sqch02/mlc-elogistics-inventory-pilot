@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -413,6 +413,7 @@ function ShipmentRow({ shipment, onCreateClaim, onCancel, onRefresh, isCancellin
 
 export function ExpeditionsClient() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const urlSearch = searchParams.get('search')
 
   const [filters, setFilters] = useState<ShipmentFilters>(() => ({
@@ -474,6 +475,10 @@ export function ExpeditionsClient() {
   const clearFilters = () => {
     setFilters({ page: 1, pageSize: 100 })
     setSearchInput('')
+    // Clear URL search param if present
+    if (urlSearch) {
+      router.push('/expeditions')
+    }
   }
 
   const goToPage = (page: number) => {
