@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
     const carrier = searchParams.get('carrier')
     const pricingStatus = searchParams.get('pricing_status')
     const shipmentStatus = searchParams.get('shipment_status') // 'pending' | 'shipped' | null
+    const search = searchParams.get('search')
 
     // Get pagination params
     const page = parseInt(searchParams.get('page') || '1')
@@ -60,6 +61,11 @@ export async function GET(request: NextRequest) {
       query = query.not('status_id', 'is', null)
     }
 
+    // Search by order_ref, tracking, or sendcloud_id
+    if (search) {
+      query = query.or(`order_ref.ilike.%${search}%,tracking.ilike.%${search}%,sendcloud_id.ilike.%${search}%`)
+    }
+
     const { data: shipments, error, count } = await query
 
     if (error) {
@@ -88,6 +94,9 @@ export async function GET(request: NextRequest) {
       statsQuery = statsQuery.is('status_id', null)
     } else if (shipmentStatus === 'shipped') {
       statsQuery = statsQuery.not('status_id', 'is', null)
+    }
+    if (search) {
+      statsQuery = statsQuery.or(`order_ref.ilike.%${search}%,tracking.ilike.%${search}%,sendcloud_id.ilike.%${search}%`)
     }
 
     const { data: allShipments } = await statsQuery
