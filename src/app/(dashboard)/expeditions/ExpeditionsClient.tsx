@@ -657,7 +657,20 @@ export function ExpeditionsClient() {
               placeholder="Rechercher (ref, nom, ville, tracking)..."
               className="pl-9"
               value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value
+                setSearchInput(value)
+                // Auto-clear filter when input is emptied
+                if (!value && filters.search) {
+                  setFilters(prev => {
+                    const { search, ...rest } = prev
+                    return { ...rest, page: 1 }
+                  })
+                  if (urlSearch) {
+                    router.push('/expeditions')
+                  }
+                }
+              }}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
               onBlur={handleSearch}
             />
