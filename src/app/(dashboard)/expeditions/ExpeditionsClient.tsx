@@ -1037,9 +1037,22 @@ export function ExpeditionsClient() {
           <DialogHeader>
             <DialogTitle>Modifier l&apos;expedition #{editingShipment?.order_ref}</DialogTitle>
             <DialogDescription>
-              Modifiez les informations. Les changements seront synchronises avec Sendcloud.
+              {editingShipment?.sendcloud_id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(editingShipment.sendcloud_id)
+                ? 'Les modifications seront sauvegardees localement. Pour synchroniser avec Sendcloud, modifiez directement dans le panel Sendcloud.'
+                : 'Modifiez les informations. Les changements seront synchronises avec Sendcloud.'}
             </DialogDescription>
           </DialogHeader>
+
+          {/* Error Alert - show if shipment has error */}
+          {editingShipment?.has_error && (
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-amber-50 border border-amber-200">
+              <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-medium text-amber-800">Erreur detectee par Sendcloud</p>
+                <p className="text-sm text-amber-700">{editingShipment.error_message || 'Verifiez les informations dans Sendcloud'}</p>
+              </div>
+            </div>
+          )}
 
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-2 gap-4">

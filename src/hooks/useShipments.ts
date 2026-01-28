@@ -274,15 +274,23 @@ export interface UpdateShipmentData {
   weight_grams?: number
 }
 
+export interface UpdateShipmentResponse {
+  success: boolean
+  message?: string
+  localOnly?: boolean
+  shipment?: Shipment
+}
+
 /**
  * Update a shipment in Sendcloud (syncs modifications)
  * Only works for shipments that haven't been shipped yet
+ * For integration shipments (UUID), changes are saved locally only
  */
 export function useUpdateShipment() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: UpdateShipmentData }) => {
+    mutationFn: async ({ id, data }: { id: string; data: UpdateShipmentData }): Promise<UpdateShipmentResponse> => {
       const response = await fetch(`/api/shipments/${id}/update`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -297,8 +305,16 @@ export function useUpdateShipment() {
 
       return result
     },
-    onSuccess: () => {
-      toast.success('Expédition mise à jour dans Sendcloud')
+    onSuccess: (data) => {
+      if (data.localOnly) {
+        // Integration shipment - changes saved locally only
+        toast.warning('Donnees sauvegardees localement', {
+          description: 'Cette commande doit etre modifiee directement dans Sendcloud.',
+          duration: 6000,
+        })
+      } else {
+        toast.success('Expedition mise a jour dans Sendcloud')
+      }
       queryClient.invalidateQueries({ queryKey: ['shipments'] })
     },
     onError: (error: Error) => {

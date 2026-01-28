@@ -29,12 +29,45 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const sendcloudId = shipment.sendcloud_id as string | null
     const statusId = shipment.status_id as number | null
+    const statusMessage = shipment.status_message as string | null
 
     if (!sendcloudId) {
       return NextResponse.json(
         { error: 'Cette expédition n\'a pas d\'ID Sendcloud' },
         { status: 400 }
       )
+    }
+
+    // Check if it's an integration shipment (UUID format) - these are "On Hold" orders from Shopify
+    // Integration shipments cannot be modified via the parcels API
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sendcloudId)
+    if (isUUID) {
+      // For integration shipments, we can only update in our local database
+      // The user needs to process/create the label in Sendcloud first, or modify directly in Sendcloud
+
+      // Update local database only
+      await adminClient
+        .from('shipments')
+        .update({
+          recipient_name: body.recipient_name || undefined,
+          recipient_email: body.recipient_email || undefined,
+          recipient_phone: body.recipient_phone || undefined,
+          recipient_company: body.recipient_company || undefined,
+          address_line1: body.address_line1 || undefined,
+          address_line2: body.address_line2 || undefined,
+          city: body.city || undefined,
+          postal_code: body.postal_code || undefined,
+          country_code: body.country_code || undefined,
+          order_ref: body.order_ref || undefined,
+          weight_grams: body.weight_grams || undefined,
+        })
+        .eq('id', id)
+
+      return NextResponse.json({
+        success: true,
+        message: 'Donnees mises a jour localement. Pour modifier dans Sendcloud, va dans le panel Sendcloud et modifie la commande "' + (statusMessage || 'On Hold') + '" directement.',
+        localOnly: true,
+      })
     }
 
     // Check if shipment can be updated (not yet shipped - status < 1000 or null)
