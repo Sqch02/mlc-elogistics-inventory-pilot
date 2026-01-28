@@ -111,22 +111,37 @@ interface SkuRow {
   alert_threshold: number | null
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const tenantId = await requireTenant()
     const adminClient = createAdminClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const supabase = adminClient as any
 
+    const { searchParams } = new URL(request.url)
+    const from = searchParams.get('from')
+    const to = searchParams.get('to')
+
+    // Default to last 12 months if no dates provided
+    const endDate = to ? new Date(to) : new Date()
+    const startDate = from ? new Date(from) : new Date(endDate.getFullYear(), endDate.getMonth() - 11, 1)
+
     const now = new Date()
 
     // ===========================================
-    // 1. COST TREND: Last 12 months
+    // 1. COST TREND: Based on date range
     // ===========================================
     const monthlyData: MonthlyData[] = []
 
-    for (let i = 11; i >= 0; i--) {
-      const date = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    // Calculate months between startDate and endDate
+    const startYear = startDate.getFullYear()
+    const startMonth = startDate.getMonth()
+    const endYear = endDate.getFullYear()
+    const endMonth = endDate.getMonth()
+    const totalMonths = (endYear - startYear) * 12 + (endMonth - startMonth) + 1
+
+    for (let i = 0; i < totalMonths; i++) {
+      const date = new Date(startYear, startMonth + i, 1)
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
       const startOfMonth = new Date(date.getFullYear(), date.getMonth(), 1)
       const endOfMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999)
