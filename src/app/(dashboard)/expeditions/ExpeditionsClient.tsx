@@ -454,7 +454,7 @@ export function ExpeditionsClient() {
   const totalValue = stats.totalValue
   const missingPricing = stats.missingPricing
 
-  const updateFilter = (key: 'from' | 'to' | 'carrier' | 'pricing_status' | 'search' | 'shipment_status', value: string | undefined) => {
+  const updateFilter = (key: 'from' | 'to' | 'carrier' | 'pricing_status' | 'search' | 'shipment_status' | 'delivery_status', value: string | undefined) => {
     setFilters(prev => {
       const next = { ...prev, page: 1 } // Reset to page 1 on filter change
       if (value) {
@@ -719,6 +719,20 @@ export function ExpeditionsClient() {
                 <SelectItem value="all">Tous</SelectItem>
                 <SelectItem value="ok">OK</SelectItem>
                 <SelectItem value="missing">Manquant</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={filters.delivery_status || 'all'}
+              onValueChange={(v) => updateFilter('delivery_status', v === 'all' ? undefined : v)}
+            >
+              <SelectTrigger className="w-full sm:w-[140px]">
+                <SelectValue placeholder="Livraison" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous statuts</SelectItem>
+                <SelectItem value="in_transit">En transit</SelectItem>
+                <SelectItem value="delivered">Livré</SelectItem>
+                <SelectItem value="issue">⚠️ Problèmes</SelectItem>
               </SelectContent>
             </Select>
           </div>

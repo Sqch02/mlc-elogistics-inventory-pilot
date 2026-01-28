@@ -37,6 +37,7 @@ interface ExpeditionsFiltersProps {
     to?: string
     carrier?: string
     pricing_status?: string
+    delivery_status?: string
     search?: string
   }
 }
@@ -117,7 +118,7 @@ export function ExpeditionsFilters({ carriers, currentFilters }: ExpeditionsFilt
     })
   }
 
-  const hasFilters = currentFilters.from || currentFilters.to || currentFilters.carrier || currentFilters.pricing_status || currentFilters.search
+  const hasFilters = currentFilters.from || currentFilters.to || currentFilters.carrier || currentFilters.pricing_status || currentFilters.delivery_status || currentFilters.search
 
   const presets = getDatePresets()
 
@@ -214,6 +215,22 @@ export function ExpeditionsFilters({ carriers, currentFilters }: ExpeditionsFilt
           <SelectItem value="ok">OK</SelectItem>
           <SelectItem value="missing">Tarif manquant</SelectItem>
           <SelectItem value="error">Erreur</SelectItem>
+        </SelectContent>
+      </Select>
+
+      {/* Delivery Status Filter */}
+      <Select
+        value={currentFilters.delivery_status || 'all'}
+        onValueChange={(value) => updateFilters('delivery_status', value === 'all' ? null : value)}
+      >
+        <SelectTrigger className="w-[160px]">
+          <SelectValue placeholder="Statut livraison" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Tous</SelectItem>
+          <SelectItem value="in_transit">En transit</SelectItem>
+          <SelectItem value="delivered">Livré</SelectItem>
+          <SelectItem value="issue">⚠️ Problèmes</SelectItem>
         </SelectContent>
       </Select>
 

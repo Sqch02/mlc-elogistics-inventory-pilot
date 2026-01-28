@@ -9,6 +9,7 @@ export interface ShipmentFilters {
   carrier?: string
   pricing_status?: string
   shipment_status?: 'pending' | 'shipped' // pending = On Hold, shipped = has tracking
+  delivery_status?: 'in_transit' | 'delivered' | 'issue' // issue = problem statuses
   search?: string
   page?: number
   pageSize?: number
@@ -74,6 +75,7 @@ async function fetchShipments(filters: ShipmentFilters): Promise<{ shipments: Sh
   if (filters.carrier) params.set('carrier', filters.carrier)
   if (filters.pricing_status) params.set('pricing_status', filters.pricing_status)
   if (filters.shipment_status) params.set('shipment_status', filters.shipment_status)
+  if (filters.delivery_status) params.set('delivery_status', filters.delivery_status)
   if (filters.search) params.set('search', filters.search)
   params.set('page', String(filters.page || 1))
   params.set('pageSize', String(filters.pageSize || 100))
@@ -248,6 +250,54 @@ export function useCreateShipment() {
       queryClient.invalidateQueries({ queryKey: ['shipments'] })
       queryClient.invalidateQueries({ queryKey: ['skus'] })
       queryClient.invalidateQueries({ queryKey: ['products'] })
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
+  })
+}
+
+// Types for updating a shipment
+export interface UpdateShipmentData {
+  recipient_name?: string
+  recipient_email?: string
+  recipient_phone?: string
+  recipient_company?: string
+  address_line1?: string
+  address_line2?: string
+  city?: string
+  postal_code?: string
+  country_code?: string
+  order_ref?: string
+  weight_grams?: number
+}
+
+/**
+ * Update a shipment in Sendcloud (syncs modifications)
+ * Only works for shipments that haven't been shipped yet
+ */
+export function useUpdateShipment() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: UpdateShipmentData }) => {
+      const response = await fetch(`/api/shipments/${id}/update`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Erreur lors de la mise à jour')
+      }
+
+      return result
+    },
+    onSuccess: () => {
+      toast.success('Expédition mise à jour dans Sendcloud')
+      queryClient.invalidateQueries({ queryKey: ['shipments'] })
     },
     onError: (error: Error) => {
       toast.error(error.message)

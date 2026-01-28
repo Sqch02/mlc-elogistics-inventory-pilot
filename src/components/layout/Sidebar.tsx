@@ -17,6 +17,7 @@ import {
   LogOut,
   Menu,
   X,
+  BarChart3,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -27,6 +28,7 @@ import { features } from '@/lib/config/features'
 // Base navigation items
 const baseNavigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard, feature: null },
+  { name: 'Analytics', href: '/analytics', icon: BarChart3, feature: null },
   { name: 'Expeditions', href: '/expeditions', icon: Truck, feature: null },
   { name: 'Retours', href: '/retours', icon: RotateCcw, feature: 'returnsModule' as const },
   { name: 'Produits & Stock', href: '/produits', icon: Package, feature: null },

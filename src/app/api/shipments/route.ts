@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
     const carrier = searchParams.get('carrier')
     const pricingStatus = searchParams.get('pricing_status')
     const shipmentStatus = searchParams.get('shipment_status') // 'pending' | 'shipped' | null
+    const deliveryStatus = searchParams.get('delivery_status') // 'delivered' | 'in_transit' | 'issue' | null
     const search = searchParams.get('search')
 
     // Get pagination params
@@ -61,6 +62,16 @@ export async function GET(request: NextRequest) {
       query = query.not('status_id', 'is', null)
     }
 
+    // Filter by delivery status (issues = problem statuses)
+    if (deliveryStatus === 'issue') {
+      // Problem statuses: exception, return, not deliverable, cancelled, etc.
+      query = query.in('status_id', [62, 80, 91, 92, 93, 1999, 2000, 2001])
+    } else if (deliveryStatus === 'delivered') {
+      query = query.in('status_id', [3, 4, 11])
+    } else if (deliveryStatus === 'in_transit') {
+      query = query.in('status_id', [12, 22, 31, 32, 13])
+    }
+
     // Search by order_ref, tracking, or sendcloud_id
     if (search) {
       query = query.or(`order_ref.ilike.%${search}%,tracking.ilike.%${search}%,sendcloud_id.ilike.%${search}%`)
@@ -94,6 +105,13 @@ export async function GET(request: NextRequest) {
       statsQuery = statsQuery.is('status_id', null)
     } else if (shipmentStatus === 'shipped') {
       statsQuery = statsQuery.not('status_id', 'is', null)
+    }
+    if (deliveryStatus === 'issue') {
+      statsQuery = statsQuery.in('status_id', [62, 80, 91, 92, 93, 1999, 2000, 2001])
+    } else if (deliveryStatus === 'delivered') {
+      statsQuery = statsQuery.in('status_id', [3, 4, 11])
+    } else if (deliveryStatus === 'in_transit') {
+      statsQuery = statsQuery.in('status_id', [12, 22, 31, 32, 13])
     }
     if (search) {
       statsQuery = statsQuery.or(`order_ref.ilike.%${search}%,tracking.ilike.%${search}%,sendcloud_id.ilike.%${search}%`)
