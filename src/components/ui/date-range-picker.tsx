@@ -82,6 +82,11 @@ export function DateRangePicker({
     from && to ? { from, to } : undefined
   )
 
+  // Sync tempRange when props change
+  React.useEffect(() => {
+    setTempRange(from && to ? { from, to } : undefined)
+  }, [from, to])
+
   const handlePresetClick = (preset: (typeof presets)[0]) => {
     const range = preset.getValue()
     onSelect(range)

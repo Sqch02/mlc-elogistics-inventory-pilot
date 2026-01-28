@@ -175,7 +175,7 @@ export default function AnalyticsPage() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground font-medium uppercase">Expeditions (12 mois)</p>
+                <p className="text-xs text-muted-foreground font-medium uppercase">Expeditions</p>
                 <p className="text-2xl font-bold">{ytdShipments.toLocaleString('fr-FR')}</p>
                 <TrendBadge value={data.costTrend.shipmentsPercentChange} />
               </div>
@@ -190,7 +190,7 @@ export default function AnalyticsPage() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground font-medium uppercase">Cout total (12 mois)</p>
+                <p className="text-xs text-muted-foreground font-medium uppercase">Cout total</p>
                 <p className="text-2xl font-bold">{formatEuro(ytdCost)}</p>
                 <TrendBadge value={data.costTrend.percentChange} inverse />
               </div>
@@ -207,7 +207,7 @@ export default function AnalyticsPage() {
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground font-medium uppercase">Cout moyen / exp.</p>
                 <p className="text-2xl font-bold">{formatEuro(avgCostPerShipment)}</p>
-                <p className="text-xs text-muted-foreground">moyenne sur 12 mois</p>
+                <p className="text-xs text-muted-foreground">sur la periode</p>
               </div>
               <div className="p-2 bg-emerald-100 rounded-lg text-emerald-600">
                 <Package className="h-5 w-5" />
@@ -220,7 +220,7 @@ export default function AnalyticsPage() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground font-medium uppercase">Indemnites (12 mois)</p>
+                <p className="text-xs text-muted-foreground font-medium uppercase">Indemnites</p>
                 <p className="text-2xl font-bold">{formatEuro(ytdIndemnity)}</p>
                 <p className="text-xs text-muted-foreground">
                   {data.costTrend.data.reduce((sum, m) => sum + m.claims, 0)} reclamations

@@ -57,8 +57,10 @@ function formatWeight(grams: number) {
   return `${grams} g`
 }
 
-// Sendcloud error status IDs
-const ERROR_STATUS_IDS = [62, 80, 91, 92, 93, 1999, 2000, 2001]
+// Sendcloud error status IDs (real errors only, not delivery variations)
+// 91=Delivery attempt failed, 92=Parcel lost, 93=Damaged
+// 1999=Cancelled, 2000=Submitting cancellation, 2001=Cancellation requested
+const ERROR_STATUS_IDS = [91, 92, 93, 1999, 2000, 2001]
 
 function isErrorStatus(statusId: number | null): boolean {
   return statusId !== null && ERROR_STATUS_IDS.includes(statusId)
