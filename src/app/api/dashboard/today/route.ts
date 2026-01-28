@@ -1,23 +1,29 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireTenant } from '@/lib/supabase/auth'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const tenantId = await requireTenant()
     const adminClient = createAdminClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = adminClient as any
 
-    const now = new Date()
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
+    // Get date from query params or use today
+    const searchParams = request.nextUrl.searchParams
+    const dateParam = searchParams.get('date')
 
-    // Yesterday's date range
-    const yesterdayStart = new Date(todayStart)
-    yesterdayStart.setDate(yesterdayStart.getDate() - 1)
-    const yesterdayEnd = new Date(yesterdayStart)
-    yesterdayEnd.setHours(23, 59, 59, 999)
+    const now = new Date()
+    const selectedDate = dateParam ? new Date(dateParam) : now
+
+    const dayStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate())
+    const dayEnd = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 23, 59, 59)
+
+    // Previous day's date range
+    const prevDayStart = new Date(dayStart)
+    prevDayStart.setDate(prevDayStart.getDate() - 1)
+    const prevDayEnd = new Date(prevDayStart)
+    prevDayEnd.setHours(23, 59, 59, 999)
 
     // Today's shipments
     const { count: shipmentsToday } = await db
@@ -25,8 +31,8 @@ export async function GET() {
       .select('id', { count: 'exact', head: true })
       .eq('tenant_id', tenantId)
       .eq('is_return', false)
-      .gte('shipped_at', todayStart.toISOString())
-      .lte('shipped_at', todayEnd.toISOString())
+      .gte('shipped_at', dayStart.toISOString())
+      .lte('shipped_at', dayEnd.toISOString())
 
     // Today's shipment cost
     const { data: todayShipments } = await db
@@ -34,8 +40,8 @@ export async function GET() {
       .select('computed_cost_eur')
       .eq('tenant_id', tenantId)
       .eq('is_return', false)
-      .gte('shipped_at', todayStart.toISOString())
-      .lte('shipped_at', todayEnd.toISOString())
+      .gte('shipped_at', dayStart.toISOString())
+      .lte('shipped_at', dayEnd.toISOString())
 
     const todayCost = (todayShipments || []).reduce(
       (sum: number, s: { computed_cost_eur: number | null }) => sum + (Number(s.computed_cost_eur) || 0),
@@ -57,16 +63,16 @@ export async function GET() {
       .from('claims')
       .select('id', { count: 'exact', head: true })
       .eq('tenant_id', tenantId)
-      .gte('opened_at', todayStart.toISOString())
-      .lte('opened_at', todayEnd.toISOString())
+      .gte('opened_at', dayStart.toISOString())
+      .lte('opened_at', dayEnd.toISOString())
 
     // Claims opened yesterday
     const { count: claimsYesterday } = await db
       .from('claims')
       .select('id', { count: 'exact', head: true })
       .eq('tenant_id', tenantId)
-      .gte('opened_at', yesterdayStart.toISOString())
-      .lte('opened_at', yesterdayEnd.toISOString())
+      .gte('opened_at', prevDayStart.toISOString())
+      .lte('opened_at', prevDayEnd.toISOString())
 
     // Overdue claims
     const { count: overdueClaims } = await db

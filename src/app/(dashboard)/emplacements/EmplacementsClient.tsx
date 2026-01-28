@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Download, MapPin, Package, CheckCircle, XCircle, Loader2, Search, X, Plus, MoreHorizontal, Pencil, Trash2, Link2, Unlink, Table as TableIcon, LayoutGrid, Upload } from 'lucide-react'
+import { Download, MapPin, Package, CheckCircle, XCircle, Loader2, Search, X, Plus, MoreHorizontal, Pencil, Trash2, Link2, Unlink, Table as TableIcon, LayoutGrid, Upload, Calendar } from 'lucide-react'
 import { useLocations, useCreateLocation, useUpdateLocation, useDeleteLocation, Location } from '@/hooks/useLocations'
 import { useSkus } from '@/hooks/useSkus'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
@@ -40,6 +40,7 @@ export function EmplacementsClient() {
   const [formLabel, setFormLabel] = useState('')
   const [formActive, setFormActive] = useState(true)
   const [formSkuCode, setFormSkuCode] = useState('')
+  const [formExpiryDate, setFormExpiryDate] = useState('')
 
   const { data, isLoading, isFetching, refetch } = useLocations()
   const { data: skusData } = useSkus()
@@ -99,6 +100,9 @@ export function EmplacementsClient() {
         sku_assigne: l.assignment?.sku?.sku_code || '-',
         sku_nom: l.assignment?.sku?.name || '-',
         quantite: l.assignment?.sku?.stock_snapshots?.[0]?.qty_current ?? '-',
+        dluo: l.expiry_date
+          ? new Date(l.expiry_date).toLocaleDateString('fr-FR')
+          : '-',
         date_assignation: l.assignment?.assigned_at
           ? new Date(l.assignment.assigned_at).toLocaleDateString('fr-FR')
           : '-',
@@ -126,6 +130,7 @@ export function EmplacementsClient() {
     setFormCode(location.code)
     setFormLabel(location.label || '')
     setFormActive(location.active)
+    setFormExpiryDate(location.expiry_date ? location.expiry_date.split('T')[0] : '')
     setEditOpen(true)
   }
 
@@ -184,6 +189,7 @@ export function EmplacementsClient() {
         code: formCode.trim(),
         label: formLabel.trim() || undefined,
         active: formActive,
+        expiry_date: formExpiryDate || null,
       })
       setEditOpen(false)
     } catch {
@@ -407,6 +413,7 @@ export function EmplacementsClient() {
                   <TableHead className="hidden sm:table-cell">Label</TableHead>
                   <TableHead className="whitespace-nowrap">SKU</TableHead>
                   <TableHead className="text-center whitespace-nowrap hidden md:table-cell">Qte</TableHead>
+                  <TableHead className="whitespace-nowrap hidden md:table-cell">DLUO</TableHead>
                   <TableHead className="whitespace-nowrap hidden lg:table-cell">Assigne le</TableHead>
                   <TableHead className="text-center whitespace-nowrap">Actif</TableHead>
                   <TableHead className="text-right whitespace-nowrap">Statut</TableHead>
@@ -437,6 +444,24 @@ export function EmplacementsClient() {
                         <span className={`font-medium ${stockQty < 20 ? 'text-red-600' : stockQty < 50 ? 'text-amber-600' : 'text-green-600'}`}>
                           {stockQty}
                         </span>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell">
+                      {location.expiry_date ? (
+                        <div className="flex items-center gap-1 text-xs">
+                          <Calendar className="h-3 w-3 text-muted-foreground" />
+                          <span className={
+                            new Date(location.expiry_date) < new Date()
+                              ? 'text-red-600 font-medium'
+                              : new Date(location.expiry_date) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+                                ? 'text-amber-600 font-medium'
+                                : 'text-muted-foreground'
+                          }>
+                            {new Date(location.expiry_date).toLocaleDateString('fr-FR')}
+                          </span>
+                        </div>
                       ) : (
                         <span className="text-muted-foreground">-</span>
                       )}
@@ -578,6 +603,14 @@ export function EmplacementsClient() {
                 placeholder="Description optionnelle"
                 value={formLabel}
                 onChange={(e) => setFormLabel(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">DLUO (Date Limite d&apos;Utilisation Optimale)</label>
+              <Input
+                type="date"
+                value={formExpiryDate}
+                onChange={(e) => setFormExpiryDate(e.target.value)}
               />
             </div>
             <div className="flex items-center gap-2">

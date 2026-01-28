@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -7,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Package, AlertTriangle, Clock, ArrowRight, Sun, Euro,
-  AlertCircle, BoxIcon
+  AlertCircle, BoxIcon, CalendarDays, ChevronLeft, ChevronRight
 } from 'lucide-react'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
@@ -40,10 +41,20 @@ interface TodayData {
   }
 }
 
-async function fetchTodaySummary(): Promise<TodayData> {
-  const res = await fetch('/api/dashboard/today')
+async function fetchTodaySummary(date: string): Promise<TodayData> {
+  const res = await fetch(`/api/dashboard/today?date=${date}`)
   if (!res.ok) throw new Error('Failed to fetch')
   return res.json()
+}
+
+function formatDateForDisplay(dateStr: string): string {
+  const date = new Date(dateStr)
+  return date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+}
+
+function isToday(dateStr: string): boolean {
+  const today = new Date().toISOString().split('T')[0]
+  return dateStr === today
 }
 
 function getPriorityColor(priority: string) {
@@ -55,11 +66,32 @@ function getPriorityColor(priority: string) {
 }
 
 export function TodaySummary() {
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0])
+
   const { data, isLoading } = useQuery({
-    queryKey: ['today-summary'],
-    queryFn: fetchTodaySummary,
-    refetchInterval: 60000, // Refresh every minute
+    queryKey: ['today-summary', selectedDate],
+    queryFn: () => fetchTodaySummary(selectedDate),
+    refetchInterval: isToday(selectedDate) ? 60000 : false, // Only auto-refresh for today
   })
+
+  const goToPrevDay = () => {
+    const d = new Date(selectedDate)
+    d.setDate(d.getDate() - 1)
+    setSelectedDate(d.toISOString().split('T')[0])
+  }
+
+  const goToNextDay = () => {
+    const d = new Date(selectedDate)
+    d.setDate(d.getDate() + 1)
+    const today = new Date().toISOString().split('T')[0]
+    if (d.toISOString().split('T')[0] <= today) {
+      setSelectedDate(d.toISOString().split('T')[0])
+    }
+  }
+
+  const goToToday = () => {
+    setSelectedDate(new Date().toISOString().split('T')[0])
+  }
 
   if (isLoading) {
     return (
@@ -88,12 +120,37 @@ export function TodaySummary() {
     >
       <Card className={`border-2 ${hasUrgentItems ? 'border-amber-300 bg-amber-50/50' : 'border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10'}`}>
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Sun className="h-5 w-5 text-amber-500" />
-            Ma journée
-            <span className="text-sm font-normal text-muted-foreground ml-2">
-              {new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
-            </span>
+          <CardTitle className="flex items-center justify-between text-lg">
+            <div className="flex items-center gap-2">
+              <Sun className="h-5 w-5 text-amber-500" />
+              {isToday(selectedDate) ? 'Ma journée' : 'Historique'}
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={goToPrevDay}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <button
+                onClick={goToToday}
+                className="flex items-center gap-1.5 px-2 py-1 text-sm font-normal text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
+              >
+                <CalendarDays className="h-3.5 w-3.5" />
+                <span className="capitalize">{formatDateForDisplay(selectedDate)}</span>
+              </button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={goToNextDay}
+                disabled={isToday(selectedDate)}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -111,7 +168,7 @@ export function TodaySummary() {
                   {data.shipments.cost.toFixed(0)} €
                 </span>
               </div>
-              <div className="text-[10px] text-muted-foreground mt-0.5">aujourd&apos;hui</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">{isToday(selectedDate) ? "aujourd'hui" : 'ce jour'}</div>
             </div>
             <div className="bg-white/80 rounded-xl p-3 border border-border/50">
               <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
@@ -126,7 +183,7 @@ export function TodaySummary() {
                   </Badge>
                 )}
               </div>
-              <div className="text-[10px] text-muted-foreground mt-0.5">aujourd&apos;hui</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">{isToday(selectedDate) ? "aujourd'hui" : 'ce jour'}</div>
             </div>
             <div className={`rounded-xl p-3 border ${data.claims.yesterday > 0 ? 'bg-amber-50 border-amber-200' : 'bg-white/80 border-border/50'}`}>
               <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
@@ -139,11 +196,11 @@ export function TodaySummary() {
                 </span>
                 {data.claims.yesterday > 0 && (
                   <Badge variant="warning" className="text-[10px]">
-                    hier
+                    veille
                   </Badge>
                 )}
               </div>
-              <div className="text-[10px] text-muted-foreground mt-0.5">hier</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">veille</div>
             </div>
           </div>
 
