@@ -117,7 +117,7 @@ export function parseParcel(parcel: SendcloudParcel): ParsedShipment {
   const hasStatusError = statusId !== null && ERROR_STATUS_IDS.includes(statusId)
 
   // Check for errors in raw parcel data
-  const rawErrors = (parcel as Record<string, unknown>).errors as Record<string, string[]> | undefined
+  const rawErrors = (parcel as unknown as Record<string, unknown>).errors as Record<string, string[]> | undefined
   const hasFieldErrors = rawErrors && Object.keys(rawErrors).length > 0
 
   const has_error = hasStatusError || !!hasFieldErrors

@@ -106,6 +106,9 @@ export function parseMockParcel(parcel: SendcloudParcel): ParsedShipment {
     date_updated: parcel.date_updated,
     date_announced: parcel.date_announced,
     items: items?.length ? items : undefined,
+    // Error detection fields (mock data has no errors)
+    has_error: false,
+    error_message: null,
   }
 }
 
