@@ -49,7 +49,7 @@ export function BundlesClient() {
       const exportData = bundles.map(b => ({
         bundle_sku: b.bundle_sku?.sku_code || '-',
         bundle_nom: b.bundle_sku?.name || '-',
-        nb_composants: b.components.length,
+        nb_composants: b.components.reduce((sum, c) => sum + c.qty_component, 0),
         composants: b.components.map(c => `${c.qty_component}x ${c.component_sku?.sku_code || '?'}`).join(', '),
       }))
       const csv = generateCSV(exportData, { delimiter: ';' })
@@ -234,7 +234,7 @@ export function BundlesClient() {
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
                       <Package className="h-4 w-4 text-muted-foreground" />
-                      <span>{bundle.components.length}</span>
+                      <span>{bundle.components.reduce((sum, c) => sum + c.qty_component, 0)}</span>
                     </div>
                   </TableCell>
                   <TableCell className="pr-6">
