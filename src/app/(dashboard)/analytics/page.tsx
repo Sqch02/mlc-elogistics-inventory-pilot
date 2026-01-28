@@ -1,6 +1,9 @@
 'use client'
 
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { subDays, format } from 'date-fns'
+import { DateRangePicker } from '@/components/ui/date-range-picker'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -71,8 +74,12 @@ interface AnalyticsData {
   }
 }
 
-async function fetchAnalytics(): Promise<AnalyticsData> {
-  const res = await fetch('/api/dashboard/analytics')
+async function fetchAnalytics(from?: Date, to?: Date): Promise<AnalyticsData> {
+  const params = new URLSearchParams()
+  if (from) params.set('from', format(from, 'yyyy-MM-dd'))
+  if (to) params.set('to', format(to, 'yyyy-MM-dd'))
+
+  const res = await fetch(`/api/dashboard/analytics?${params.toString()}`)
   if (!res.ok) throw new Error('Failed to fetch analytics')
   return res.json()
 }
@@ -113,9 +120,14 @@ function getDaysProgress(days: number | null) {
 }
 
 export default function AnalyticsPage() {
+  const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
+    from: subDays(new Date(), 29),
+    to: new Date(),
+  })
+
   const { data, isLoading } = useQuery({
-    queryKey: ['analytics'],
-    queryFn: fetchAnalytics,
+    queryKey: ['analytics', dateRange.from, dateRange.to],
+    queryFn: () => fetchAnalytics(dateRange.from, dateRange.to),
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 
@@ -140,14 +152,21 @@ export default function AnalyticsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <BarChart3 className="h-6 w-6 text-primary" />
-          Analytics
-        </h1>
-        <p className="text-muted-foreground text-sm">
-          Vue d&apos;ensemble des performances et tendances
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold flex items-center gap-2">
+            <BarChart3 className="h-6 w-6 text-primary" />
+            Analytics
+          </h1>
+          <p className="text-muted-foreground text-sm">
+            Vue d&apos;ensemble des performances et tendances
+          </p>
+        </div>
+        <DateRangePicker
+          from={dateRange.from}
+          to={dateRange.to}
+          onSelect={setDateRange}
+        />
       </div>
 
       {/* KPI Summary Cards */}
