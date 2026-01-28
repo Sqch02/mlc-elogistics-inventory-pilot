@@ -57,15 +57,6 @@ function formatWeight(grams: number) {
   return `${grams} g`
 }
 
-// Sendcloud error status IDs (real errors only, not delivery variations)
-// 91=Delivery attempt failed, 92=Parcel lost, 93=Damaged
-// 1999=Cancelled, 2000=Submitting cancellation, 2001=Cancellation requested
-const ERROR_STATUS_IDS = [91, 92, 93, 1999, 2000, 2001]
-
-function isErrorStatus(statusId: number | null): boolean {
-  return statusId !== null && ERROR_STATUS_IDS.includes(statusId)
-}
-
 // Status badge colors based on Sendcloud status IDs
 function getStatusBadge(statusId: number | null, statusMessage: string | null) {
   // Special handling for integration shipments (On Hold) - they have no status_id
@@ -117,25 +108,6 @@ function getStatusBadge(statusId: number | null, statusMessage: string | null) {
 
   const status = statusColors[statusId] || { variant: 'muted' as const, label: statusMessage || `Status ${statusId}` }
 
-  // Show error indicator with tooltip for error statuses
-  if (isErrorStatus(statusId)) {
-    return (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Badge variant="error" className="gap-1 cursor-help">
-              <AlertTriangle className="h-3 w-3" />
-              {status.label}
-            </Badge>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>{statusMessage || status.label}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    )
-  }
-
   return <Badge variant={status.variant}>{status.label}</Badge>
 }
 
@@ -176,7 +148,21 @@ function ShipmentRow({ shipment, onCreateClaim, onEdit, onCancel, onRefresh, isC
           </div>
         </TableCell>
         <TableCell>
-          {getStatusBadge(shipment.status_id ?? null, shipment.status_message ?? null)}
+          <div className="flex items-center gap-2">
+            {getStatusBadge(shipment.status_id ?? null, shipment.status_message ?? null)}
+            {shipment.has_error && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="max-w-xs">{shipment.error_message || 'Erreur Sendcloud'}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          </div>
         </TableCell>
         <TableCell>
           <Badge variant="muted" className="text-xs">{shipment.carrier}</Badge>

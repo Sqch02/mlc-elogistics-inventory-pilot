@@ -62,6 +62,8 @@ export interface Shipment {
   date_created: string | null
   date_updated: string | null
   date_announced: string | null
+  has_error: boolean | null
+  error_message: string | null
   shipment_items: Array<{
     qty: number
     skus: { sku_code: string; name: string } | null
