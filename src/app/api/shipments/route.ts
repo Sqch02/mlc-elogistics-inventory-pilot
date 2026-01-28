@@ -62,10 +62,15 @@ export async function GET(request: NextRequest) {
       query = query.not('status_id', 'is', null)
     }
 
-    // Filter by delivery status (issues = problem statuses)
+    // Filter by delivery status (issues = problem statuses OR has_error for pending shipments)
     if (deliveryStatus === 'issue') {
-      // Problem statuses: exception, return, not deliverable, cancelled, etc.
-      query = query.in('status_id', [62, 80, 91, 92, 93, 1999, 2000, 2001])
+      if (shipmentStatus === 'pending') {
+        // For pending shipments (On Hold), use has_error flag instead of status_id
+        query = query.eq('has_error', true)
+      } else {
+        // Problem statuses: exception, return, not deliverable, cancelled, etc.
+        query = query.in('status_id', [62, 80, 91, 92, 93, 1999, 2000, 2001])
+      }
     } else if (deliveryStatus === 'delivered') {
       query = query.in('status_id', [3, 4, 11])
     } else if (deliveryStatus === 'in_transit') {
@@ -107,7 +112,11 @@ export async function GET(request: NextRequest) {
       statsQuery = statsQuery.not('status_id', 'is', null)
     }
     if (deliveryStatus === 'issue') {
-      statsQuery = statsQuery.in('status_id', [62, 80, 91, 92, 93, 1999, 2000, 2001])
+      if (shipmentStatus === 'pending') {
+        statsQuery = statsQuery.eq('has_error', true)
+      } else {
+        statsQuery = statsQuery.in('status_id', [62, 80, 91, 92, 93, 1999, 2000, 2001])
+      }
     } else if (deliveryStatus === 'delivered') {
       statsQuery = statsQuery.in('status_id', [3, 4, 11])
     } else if (deliveryStatus === 'in_transit') {

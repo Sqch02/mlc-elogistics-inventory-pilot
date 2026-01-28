@@ -104,6 +104,13 @@ interface StockForecast {
   alert_threshold: number
 }
 
+interface SkuSalesData {
+  sku_id: string
+  sku_code: string
+  name: string
+  quantity_sold: number
+}
+
 interface SkuRow {
   id: string
   sku_code: string
@@ -304,7 +311,50 @@ export async function GET(request: Request) {
       })
 
     // ===========================================
-    // 4. SUMMARY STATS
+    // 4. SKU SALES (based on date range)
+    // ===========================================
+    // Get shipment items for the selected date range
+    const { data: skuSalesItems } = await supabase
+      .from('shipment_items')
+      .select('sku_id, quantity, skus!inner(sku_code, name), shipments!inner(shipped_at)')
+      .eq('tenant_id', tenantId)
+      .gte('shipments.shipped_at', startDate.toISOString())
+      .lte('shipments.shipped_at', endDate.toISOString())
+
+    // Aggregate by SKU
+    const skuSalesMap = new Map<string, { sku_code: string; name: string; quantity: number }>()
+    for (const item of skuSalesItems || []) {
+      const skuId = item.sku_id
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const skuInfo = item.skus as any
+      const existing = skuSalesMap.get(skuId)
+      if (existing) {
+        existing.quantity += item.quantity || 0
+      } else {
+        skuSalesMap.set(skuId, {
+          sku_code: skuInfo?.sku_code || 'Unknown',
+          name: skuInfo?.name || 'Unknown',
+          quantity: item.quantity || 0,
+        })
+      }
+    }
+
+    // Convert to sorted array (top 10)
+    const skuSalesData: SkuSalesData[] = Array.from(skuSalesMap.entries())
+      .map(([sku_id, data]) => ({
+        sku_id,
+        sku_code: data.sku_code,
+        name: data.name,
+        quantity_sold: data.quantity,
+      }))
+      .sort((a, b) => b.quantity_sold - a.quantity_sold)
+      .slice(0, 10)
+
+    const totalSkusSold = skuSalesMap.size
+    const totalQuantitySold = Array.from(skuSalesMap.values()).reduce((sum, s) => sum + s.quantity, 0)
+
+    // ===========================================
+    // 5. SUMMARY STATS
     // ===========================================
     const currentMonthData = monthlyData[monthlyData.length - 1]
     const previousMonthData = monthlyData[monthlyData.length - 2]
@@ -338,6 +388,11 @@ export async function GET(request: Request) {
         data: stockForecast.slice(0, 20), // Top 20 most urgent
         criticalCount: criticalStockCount,
         totalTracked: stockForecast.length,
+      },
+      skuSales: {
+        data: skuSalesData,
+        totalSkus: totalSkusSold,
+        totalQuantity: totalQuantitySold,
       },
       generatedAt: new Date().toISOString(),
     }, {

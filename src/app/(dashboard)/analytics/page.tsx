@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CostTrendChart } from '@/components/dashboard/CostTrendChart'
 import { CarrierPerformance } from '@/components/dashboard/CarrierPerformance'
+import { SkuSalesChart } from '@/components/dashboard/SkuSalesChart'
 import {
   TrendingUp,
   TrendingDown,
@@ -71,6 +72,16 @@ interface AnalyticsData {
     }>
     criticalCount: number
     totalTracked: number
+  }
+  skuSales: {
+    data: Array<{
+      sku_id: string
+      sku_code: string
+      name: string
+      quantity_sold: number
+    }>
+    totalSkus: number
+    totalQuantity: number
   }
 }
 
@@ -247,6 +258,13 @@ export default function AnalyticsPage() {
           totalCarriers={data.carrierPerformance.totalCarriers}
         />
       </div>
+
+      {/* SKU Sales Chart */}
+      <SkuSalesChart
+        data={data.skuSales.data}
+        totalSkus={data.skuSales.totalSkus}
+        totalQuantity={data.skuSales.totalQuantity}
+      />
 
       {/* Stock Forecast */}
       <Card className="shadow-sm">
