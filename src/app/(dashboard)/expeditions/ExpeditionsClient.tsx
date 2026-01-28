@@ -14,6 +14,12 @@ import {
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, AlertCircle, RefreshCw, XCircle,
   Clock, CheckCircle2
 } from 'lucide-react'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useCreateClaim } from '@/hooks/useClaims'
 import { toast } from 'sonner'
@@ -48,6 +54,13 @@ function formatWeight(grams: number) {
     return `${(grams / 1000).toFixed(2)} kg`
   }
   return `${grams} g`
+}
+
+// Sendcloud error status IDs
+const ERROR_STATUS_IDS = [62, 80, 91, 92, 93, 1999, 2000, 2001]
+
+function isErrorStatus(statusId: number | null): boolean {
+  return statusId !== null && ERROR_STATUS_IDS.includes(statusId)
 }
 
 // Status badge colors based on Sendcloud status IDs
@@ -100,6 +113,26 @@ function getStatusBadge(statusId: number | null, statusMessage: string | null) {
   }
 
   const status = statusColors[statusId] || { variant: 'muted' as const, label: statusMessage || `Status ${statusId}` }
+
+  // Show error indicator with tooltip for error statuses
+  if (isErrorStatus(statusId)) {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge variant="error" className="gap-1 cursor-help">
+              <AlertTriangle className="h-3 w-3" />
+              {status.label}
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{statusMessage || status.label}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    )
+  }
+
   return <Badge variant={status.variant}>{status.label}</Badge>
 }
 
