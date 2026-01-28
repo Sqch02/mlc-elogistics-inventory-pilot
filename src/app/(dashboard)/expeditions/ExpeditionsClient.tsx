@@ -12,7 +12,7 @@ import {
   Truck, Package, DollarSign, AlertTriangle, ExternalLink, Search, X, Download, Loader2,
   ChevronDown, ChevronUp, MapPin, Phone, Mail, User, Calendar, Globe, Tag, FileText, Eye,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, AlertCircle, RefreshCw, XCircle,
-  Clock, CheckCircle2
+  Clock, CheckCircle2, Pencil
 } from 'lucide-react'
 import {
   Tooltip,
@@ -23,7 +23,8 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useCreateClaim } from '@/hooks/useClaims'
 import { toast } from 'sonner'
-import { useShipments, useCarriers, useCancelShipment, useRefreshShipment, ShipmentFilters, Shipment } from '@/hooks/useShipments'
+import { useShipments, useCarriers, useCancelShipment, useRefreshShipment, useUpdateShipment, ShipmentFilters, Shipment } from '@/hooks/useShipments'
+import { Label } from '@/components/ui/label'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CreateShipmentDialog } from '@/components/forms/CreateShipmentDialog'
@@ -139,13 +140,14 @@ function getStatusBadge(statusId: number | null, statusMessage: string | null) {
 interface ShipmentRowProps {
   shipment: Shipment
   onCreateClaim: (shipment: Shipment) => void
+  onEdit: (shipment: Shipment) => void
   onCancel: (shipmentId: string) => void
   onRefresh: (shipmentId: string) => void
   isCancelling: boolean
   isRefreshing: boolean
 }
 
-function ShipmentRow({ shipment, onCreateClaim, onCancel, onRefresh, isCancelling, isRefreshing }: ShipmentRowProps) {
+function ShipmentRow({ shipment, onCreateClaim, onEdit, onCancel, onRefresh, isCancelling, isRefreshing }: ShipmentRowProps) {
   const [isExpanded, setIsExpanded] = useState(false)
 
   return (
@@ -368,6 +370,20 @@ function ShipmentRow({ shipment, onCreateClaim, onCancel, onRefresh, isCancellin
                     </a>
                   </Button>
                 )}
+                {(!shipment.status_id || shipment.status_id < 1000) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onEdit(shipment)
+                    }}
+                    className="gap-2"
+                  >
+                    <Pencil className="h-4 w-4" />
+                    Modifier
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -471,11 +487,54 @@ export function ExpeditionsClient() {
   const [selectedShipmentForClaim, setSelectedShipmentForClaim] = useState<Shipment | null>(null)
   const [claimDescription, setClaimDescription] = useState('')
 
+  // Edit dialog state
+  const [editingShipment, setEditingShipment] = useState<Shipment | null>(null)
+  const [editForm, setEditForm] = useState({
+    recipient_name: '',
+    recipient_email: '',
+    recipient_phone: '',
+    recipient_company: '',
+    address_line1: '',
+    address_line2: '',
+    city: '',
+    postal_code: '',
+    country_code: '',
+    order_ref: '',
+    weight_grams: 0,
+  })
+
   const { data, isLoading, isFetching } = useShipments(filters)
   const { data: carriers = [] } = useCarriers()
   const createClaimMutation = useCreateClaim()
   const cancelMutation = useCancelShipment()
   const refreshMutation = useRefreshShipment()
+  const updateShipment = useUpdateShipment()
+
+  const openEdit = (shipment: Shipment) => {
+    setEditForm({
+      recipient_name: shipment.recipient_name || '',
+      recipient_email: shipment.recipient_email || '',
+      recipient_phone: shipment.recipient_phone || '',
+      recipient_company: shipment.recipient_company || '',
+      address_line1: shipment.address_line1 || '',
+      address_line2: shipment.address_line2 || '',
+      city: shipment.city || '',
+      postal_code: shipment.postal_code || '',
+      country_code: shipment.country_code || '',
+      order_ref: shipment.order_ref || '',
+      weight_grams: shipment.weight_grams || 0,
+    })
+    setEditingShipment(shipment)
+  }
+
+  const handleEditSubmit = async () => {
+    if (!editingShipment) return
+    await updateShipment.mutateAsync({
+      id: editingShipment.id,
+      data: editForm,
+    })
+    setEditingShipment(null)
+  }
 
   const shipments = data?.shipments || []
   const pagination = data?.pagination || { page: 1, pageSize: 100, total: 0, totalPages: 1 }
@@ -832,6 +891,7 @@ export function ExpeditionsClient() {
                     key={shipment.id}
                     shipment={shipment}
                     onCreateClaim={handleOpenClaimDialog}
+                    onEdit={openEdit}
                     onCancel={(id) => cancelMutation.mutate(id)}
                     onRefresh={(id) => refreshMutation.mutate(id)}
                     isCancelling={cancelMutation.isPending && cancelMutation.variables === shipment.id}
@@ -982,6 +1042,135 @@ export function ExpeditionsClient() {
 
       {/* Create Shipment Dialog */}
       <CreateShipmentDialog open={createShipmentOpen} onOpenChange={setCreateShipmentOpen} />
+
+      {/* Edit Shipment Dialog */}
+      <Dialog open={!!editingShipment} onOpenChange={() => setEditingShipment(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Modifier l&apos;expedition #{editingShipment?.order_ref}</DialogTitle>
+            <DialogDescription>
+              Modifiez les informations. Les changements seront synchronises avec Sendcloud.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="recipient_name">Nom</Label>
+                <Input
+                  id="recipient_name"
+                  value={editForm.recipient_name}
+                  onChange={(e) => setEditForm({ ...editForm, recipient_name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="recipient_company">Entreprise</Label>
+                <Input
+                  id="recipient_company"
+                  value={editForm.recipient_company}
+                  onChange={(e) => setEditForm({ ...editForm, recipient_company: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="recipient_email">Email</Label>
+                <Input
+                  id="recipient_email"
+                  type="email"
+                  value={editForm.recipient_email}
+                  onChange={(e) => setEditForm({ ...editForm, recipient_email: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="recipient_phone">Telephone</Label>
+                <Input
+                  id="recipient_phone"
+                  value={editForm.recipient_phone}
+                  onChange={(e) => setEditForm({ ...editForm, recipient_phone: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="address_line1">Adresse</Label>
+              <Input
+                id="address_line1"
+                value={editForm.address_line1}
+                onChange={(e) => setEditForm({ ...editForm, address_line1: e.target.value })}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="address_line2">Adresse (suite)</Label>
+              <Input
+                id="address_line2"
+                value={editForm.address_line2}
+                onChange={(e) => setEditForm({ ...editForm, address_line2: e.target.value })}
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="postal_code">Code postal</Label>
+                <Input
+                  id="postal_code"
+                  value={editForm.postal_code}
+                  onChange={(e) => setEditForm({ ...editForm, postal_code: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="city">Ville</Label>
+                <Input
+                  id="city"
+                  value={editForm.city}
+                  onChange={(e) => setEditForm({ ...editForm, city: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="country_code">Pays</Label>
+                <Input
+                  id="country_code"
+                  value={editForm.country_code}
+                  onChange={(e) => setEditForm({ ...editForm, country_code: e.target.value })}
+                  placeholder="FR"
+                  maxLength={2}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="order_ref">Reference commande</Label>
+                <Input
+                  id="order_ref"
+                  value={editForm.order_ref}
+                  onChange={(e) => setEditForm({ ...editForm, order_ref: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="weight_grams">Poids (grammes)</Label>
+                <Input
+                  id="weight_grams"
+                  type="number"
+                  value={editForm.weight_grams}
+                  onChange={(e) => setEditForm({ ...editForm, weight_grams: Number(e.target.value) })}
+                />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingShipment(null)}>
+              Annuler
+            </Button>
+            <Button onClick={handleEditSubmit} disabled={updateShipment.isPending}>
+              {updateShipment.isPending ? 'Enregistrement...' : 'Enregistrer'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
