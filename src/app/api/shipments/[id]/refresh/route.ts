@@ -95,6 +95,9 @@ export async function POST(
         total_value: parcel.total_value,
         date_updated: parcel.date_updated,
         raw_json: parcel.raw_json,
+        // Error detection fields
+        has_error: parcel.has_error,
+        error_message: parcel.error_message,
       })
       .eq('id', id)
 
