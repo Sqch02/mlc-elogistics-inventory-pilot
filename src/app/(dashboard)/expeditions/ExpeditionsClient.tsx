@@ -66,10 +66,39 @@ function isErrorStatus(statusId: number | null): boolean {
   return statusId !== null && ERROR_STATUS_IDS.includes(statusId)
 }
 
+// Check if an integration shipment needs attention (On Hold without tracking)
+function needsAttention(statusId: number | null, statusMessage: string | null, tracking: string | null): boolean {
+  // Integration shipments with "On Hold" status and no tracking need attention
+  // They likely have validation errors or are stuck
+  if (!statusId && statusMessage === 'On Hold' && !tracking) {
+    return true
+  }
+  return false
+}
+
 // Status badge colors based on Sendcloud status IDs
-function getStatusBadge(statusId: number | null, statusMessage: string | null) {
+function getStatusBadge(statusId: number | null, statusMessage: string | null, tracking?: string | null) {
   // Special handling for integration shipments (On Hold) - they have no status_id
   if (!statusId && statusMessage) {
+    // Check if this shipment needs attention (On Hold without tracking = likely has errors)
+    if (needsAttention(statusId, statusMessage, tracking ?? null)) {
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="warning" className="gap-1 cursor-help">
+                <AlertTriangle className="h-3 w-3" />
+                En attente
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Cette expedition necessite une action (verifiez dans Sendcloud)</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )
+    }
+
     const messageStatuses: Record<string, { variant: 'success' | 'warning' | 'error' | 'info' | 'muted' | 'blue' | 'cyan' | 'purple' | 'indigo', label: string }> = {
       'On Hold': { variant: 'cyan', label: 'En attente' },
       'Ready to send': { variant: 'blue', label: 'Prêt' },
@@ -176,7 +205,7 @@ function ShipmentRow({ shipment, onCreateClaim, onEdit, onCancel, onRefresh, isC
           </div>
         </TableCell>
         <TableCell>
-          {getStatusBadge(shipment.status_id ?? null, shipment.status_message ?? null)}
+          {getStatusBadge(shipment.status_id ?? null, shipment.status_message ?? null, shipment.tracking)}
         </TableCell>
         <TableCell>
           <Badge variant="muted" className="text-xs">{shipment.carrier}</Badge>
