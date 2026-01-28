@@ -110,6 +110,9 @@ export interface ParsedShipment {
     description?: string
     value?: number
   }>
+  // Error detection fields
+  has_error: boolean
+  error_message: string | null
 }
 
 // ============================================

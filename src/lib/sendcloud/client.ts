@@ -111,6 +111,26 @@ export function parseParcel(parcel: SendcloudParcel): ParsedShipment {
     shippedAt = new Date().toISOString()
   }
 
+  // Error detection based on status
+  const ERROR_STATUS_IDS = [91, 92, 93, 1999, 2000, 2001]
+  const statusId = parcel.status?.id || null
+  const hasStatusError = statusId !== null && ERROR_STATUS_IDS.includes(statusId)
+
+  // Check for errors in raw parcel data
+  const rawErrors = (parcel as Record<string, unknown>).errors as Record<string, string[]> | undefined
+  const hasFieldErrors = rawErrors && Object.keys(rawErrors).length > 0
+
+  const has_error = hasStatusError || !!hasFieldErrors
+  let error_message: string | null = null
+
+  if (hasFieldErrors && rawErrors) {
+    error_message = Object.entries(rawErrors)
+      .map(([field, msgs]) => `${field}: ${msgs.join(', ')}`)
+      .join('; ')
+  } else if (hasStatusError) {
+    error_message = parcel.status?.message || 'Erreur Sendcloud'
+  }
+
   return {
     sendcloud_id: String(parcel.id),
     shipped_at: shippedAt,
@@ -148,6 +168,9 @@ export function parseParcel(parcel: SendcloudParcel): ParsedShipment {
     date_updated: parseSendcloudDate(parcel.date_updated),
     date_announced: parseSendcloudDate(parcel.date_announced),
     items: items?.length ? items : undefined,
+    // Error detection fields
+    has_error,
+    error_message,
   }
 }
 
@@ -291,6 +314,10 @@ interface SendcloudIntegrationShipment {
     weight?: string
     value?: string
   }>
+  // Error fields from Sendcloud
+  errors?: Record<string, string[]>
+  warnings?: string[]
+  checkout_payload_errors?: string[]
 }
 
 interface SendcloudIntegrationShipmentsResponse {
@@ -342,6 +369,31 @@ function parseIntegrationShipment(shipment: SendcloudIntegrationShipment): Parse
     value: item.value ? parseFloat(item.value) : undefined,
   })).filter(item => item.sku_code)
 
+  // Error detection for integration shipments
+  const orderStatusId = shipment.order_status?.id?.toLowerCase() || ''
+  const orderStatusMsg = shipment.order_status?.message || ''
+
+  const hasStatusError = orderStatusId.includes('error') ||
+                         orderStatusId.includes('failed') ||
+                         orderStatusMsg.toLowerCase().includes('error') ||
+                         orderStatusMsg.toLowerCase().includes('erreur')
+
+  const hasFieldErrors = shipment.errors && Object.keys(shipment.errors).length > 0
+  const hasCheckoutErrors = shipment.checkout_payload_errors && shipment.checkout_payload_errors.length > 0
+
+  const has_error = hasStatusError || !!hasFieldErrors || !!hasCheckoutErrors
+  let error_message: string | null = null
+
+  if (hasFieldErrors && shipment.errors) {
+    error_message = Object.entries(shipment.errors)
+      .map(([field, msgs]) => `${field}: ${msgs.join(', ')}`)
+      .join('; ')
+  } else if (hasCheckoutErrors && shipment.checkout_payload_errors) {
+    error_message = shipment.checkout_payload_errors.join('; ')
+  } else if (hasStatusError) {
+    error_message = orderStatusMsg || 'Erreur de validation'
+  }
+
   return {
     sendcloud_id: shipment.shipment_uuid, // Use UUID as unique ID for pending orders
     shipped_at: shipment.created_at,
@@ -378,6 +430,9 @@ function parseIntegrationShipment(shipment: SendcloudIntegrationShipment): Parse
     date_updated: shipment.updated_at || null,
     date_announced: null,
     items: items?.length ? items : undefined,
+    // Error detection fields
+    has_error,
+    error_message,
   }
 }
 

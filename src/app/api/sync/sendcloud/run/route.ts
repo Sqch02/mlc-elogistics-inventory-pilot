@@ -190,6 +190,9 @@ export async function POST() {
               date_created: parcel.date_created,
               date_updated: parcel.date_updated,
               date_announced: parcel.date_announced,
+              // Error detection fields
+              has_error: parcel.has_error,
+              error_message: parcel.error_message,
             },
             { onConflict: 'sendcloud_id' }
           )
