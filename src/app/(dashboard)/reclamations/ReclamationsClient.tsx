@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   AlertTriangle, Search, X, Download, Loader2, Plus, Eye, Edit2, Clock,
-  CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, Euro, Upload, Filter, RefreshCw
+  CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, Euro, Upload, Filter, RefreshCw, ExternalLink
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -31,7 +31,7 @@ function formatDate(dateStr: string | null) {
   })
 }
 
-function getStatusBadge(status: ClaimStatus) {
+function getStatusBadge(status: ClaimStatus, indemnitySource?: IndemnitySource | null) {
   const variants: Record<ClaimStatus, 'warning' | 'blue' | 'success' | 'error' | 'muted'> = {
     ouverte: 'warning',
     en_analyse: 'blue',
@@ -39,6 +39,12 @@ function getStatusBadge(status: ClaimStatus) {
     refusee: 'error',
     cloturee: 'muted',
   }
+
+  // For "indemnisee" status, show source-specific label
+  if (status === 'indemnisee' && indemnitySource) {
+    return <Badge variant="success">{INDEMNITY_SOURCE_LABELS[indemnitySource]}</Badge>
+  }
+
   return <Badge variant={variants[status]}>{CLAIM_STATUS_LABELS[status]}</Badge>
 }
 
@@ -89,7 +95,7 @@ function ClaimRow({ claim, onView, onEdit }: ClaimRowProps) {
           {getTypeBadge(claim.claim_type)}
         </TableCell>
         <TableCell>
-          {getStatusBadge(claim.status)}
+          {getStatusBadge(claim.status, claim.indemnity_source)}
         </TableCell>
         <TableCell>
           <div className="flex items-center gap-2">
@@ -105,7 +111,22 @@ function ClaimRow({ claim, onView, onEdit }: ClaimRowProps) {
           ) : '-'}
         </TableCell>
         <TableCell className="font-mono text-xs">
-          {claim.shipments?.tracking || '-'}
+          {claim.shipments?.tracking ? (
+            claim.shipments.tracking_url ? (
+              <a
+                href={claim.shipments.tracking_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-primary hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {claim.shipments.tracking}
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            ) : (
+              <span>{claim.shipments.tracking}</span>
+            )
+          ) : '-'}
         </TableCell>
         <TableCell className="text-right font-mono text-sm">
           {claim.indemnity_eur ? `${claim.indemnity_eur.toFixed(2)} €` : '-'}
@@ -874,47 +895,43 @@ export function ReclamationsClient() {
                 onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
               />
             </div>
-            {(formData.status === 'indemnisee' || formData.status === 'refusee') && (
-              <>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Indemnité (EUR)</label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={formData.indemnity_eur}
-                      onChange={(e) => setFormData(prev => ({ ...prev, indemnity_eur: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Payé par</label>
-                    <Select
-                      value={formData.indemnity_source || 'none'}
-                      onValueChange={(v) => setFormData(prev => ({ ...prev, indemnity_source: v === 'none' ? '' : v as IndemnitySource }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Sélectionner..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Non spécifié</SelectItem>
-                        <SelectItem value="hme">HME</SelectItem>
-                        <SelectItem value="transporteur">Transporteur</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Note de décision</label>
-                  <textarea
-                    className="w-full min-h-[60px] rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    placeholder="Raison de la décision..."
-                    value={formData.decision_note}
-                    onChange={(e) => setFormData(prev => ({ ...prev, decision_note: e.target.value }))}
-                  />
-                </div>
-              </>
-            )}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Indemnité (EUR)</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={formData.indemnity_eur}
+                  onChange={(e) => setFormData(prev => ({ ...prev, indemnity_eur: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Payé par</label>
+                <Select
+                  value={formData.indemnity_source || 'none'}
+                  onValueChange={(v) => setFormData(prev => ({ ...prev, indemnity_source: v === 'none' ? '' : v as IndemnitySource }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sélectionner..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Non spécifié</SelectItem>
+                    <SelectItem value="hme">HME</SelectItem>
+                    <SelectItem value="transporteur">Transporteur</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Note de décision</label>
+              <textarea
+                className="w-full min-h-[60px] rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                placeholder="Raison de la décision..."
+                value={formData.decision_note}
+                onChange={(e) => setFormData(prev => ({ ...prev, decision_note: e.target.value }))}
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditDialogOpen(false)}>

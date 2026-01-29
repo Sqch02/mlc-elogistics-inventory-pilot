@@ -26,6 +26,7 @@ export interface Claim {
     order_ref: string | null
     carrier: string | null
     tracking: string | null
+    tracking_url: string | null
     country_code: string | null
   } | null
 }

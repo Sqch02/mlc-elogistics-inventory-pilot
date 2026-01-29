@@ -32,6 +32,7 @@ async function fetchAllClaims(tenantId: string) {
           order_ref,
           carrier,
           tracking,
+          tracking_url,
           country_code
         )
       `)

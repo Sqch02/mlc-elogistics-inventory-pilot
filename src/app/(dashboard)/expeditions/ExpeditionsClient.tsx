@@ -174,19 +174,24 @@ function ShipmentRow({ shipment, onCreateClaim, onEdit, onCancel, onRefresh, isC
           {shipment.total_value ? `${shipment.total_value.toFixed(2)} €` : '-'}
         </TableCell>
         <TableCell className="text-right pr-4 lg:pr-6">
-          {shipment.tracking_url ? (
-            <a
-              href={shipment.tracking_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-primary hover:underline text-sm"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <ExternalLink className="h-4 w-4" />
-            </a>
-          ) : shipment.tracking ? (
-            <span className="font-mono text-xs text-muted-foreground">{shipment.tracking.slice(-8)}</span>
-          ) : '-'}
+          {shipment.tracking ? (
+            shipment.tracking_url ? (
+              <a
+                href={shipment.tracking_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-primary hover:underline font-mono text-xs"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {shipment.tracking}
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            ) : (
+              <span className="font-mono text-xs text-muted-foreground">{shipment.tracking}</span>
+            )
+          ) : (
+            <span className="text-muted-foreground">-</span>
+          )}
         </TableCell>
       </TableRow>
 

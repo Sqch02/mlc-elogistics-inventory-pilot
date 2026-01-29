@@ -16,6 +16,15 @@
 | Gestion integration shipments | Les commandes "On Hold" (UUID) sont modifiables localement avec message explicatif | 29/01/2026 |
 | Filtre "Problemes" corrige | Ne remonte plus les commandes en transit (91, 92), uniquement les vraies erreurs | 29/01/2026 |
 | Bouton X recherche | Effacer la recherche rapidement | 28/01/2026 |
+| Colonne tracking complete | Numero de suivi complet visible et cliquable dans le tableau | 29/01/2026 |
+
+### Reclamations
+
+| Fonctionnalite | Description | Date |
+|----------------|-------------|------|
+| Colonne tracking | Numero de suivi cliquable dans le tableau des reclamations | 29/01/2026 |
+| Statuts indemnite distincts | "Indemnise par HME" et "Indemnise par transporteur" affiches separement | 29/01/2026 |
+| Montant indemnite editable | Champ indemnite toujours visible et modifiable dans le formulaire | 29/01/2026 |
 
 ### Analytics
 
@@ -45,19 +54,7 @@
 
 ## 2. A FAIRE (Dans le cadre du devis)
 
-### Expeditions
-
-| Tache | Description | Priorite | Complexite |
-|-------|-------------|----------|------------|
-| Colonne tracking | Ajouter le numero de suivi dans le tableau des expeditions | Haute | Faible |
-
-### Reclamations
-
-| Tache | Description | Priorite | Complexite |
-|-------|-------------|----------|------------|
-| Colonne tracking | Ajouter le numero de suivi dans le tableau des reclamations | Haute | Faible |
-| Statuts modifies | Remplacer "Indemnisee" par "Indemnisee par HME" et "Indemnisee par transporteur" | Moyenne | Faible |
-| Montant indemnite editable | Permettre de saisir manuellement le montant de l'indemnite | Moyenne | Faible |
+*Toutes les taches du devis ont ete completees.*
 
 ---
 
@@ -100,6 +97,7 @@
 
 | Date | Version | Modifications |
 |------|---------|---------------|
+| 29/01/2026 | v1.x | Colonne tracking expeditions/reclamations, statuts indemnite distincts, montant editable |
 | 29/01/2026 | v1.x | Fix detection erreurs, SKU sales chart, emplacements inaccessibles |
 | 29/01/2026 | v1.x | Fix filtre Problemes, gestion integration shipments |
 | 28/01/2026 | v1.x | Date picker Analytics, colonne DLUO, indicateur erreur |
