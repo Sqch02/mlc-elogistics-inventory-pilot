@@ -111,18 +111,19 @@ export function parseParcel(parcel: SendcloudParcel): ParsedShipment {
     shippedAt = new Date().toISOString()
   }
 
-  // Error detection based on status
-  const ERROR_STATUS_IDS = [91, 92, 93, 1999, 2000, 2001]
+  // Error detection based on actual problem statuses
+  // Real problems: announcement failed, unknown, delivery failed, unable to deliver, exception, returned, refused, cancelled
+  const ERROR_STATUS_IDS = [1002, 1337, 8, 80, 62996, 62992, 62991, 2000]
   const statusId = parcel.status?.id || null
-  const statusMsg = parcel.status?.message || ''
   const hasStatusError = statusId !== null && ERROR_STATUS_IDS.includes(statusId)
-  const isOnHold = statusMsg.toLowerCase().includes('on hold')
 
-  // Check for errors in raw parcel data
+  // Check for errors in raw parcel data (field validation errors from Sendcloud)
   const rawErrors = (parcel as unknown as Record<string, unknown>).errors as Record<string, string[]> | undefined
   const hasFieldErrors = rawErrors && Object.keys(rawErrors).length > 0
 
-  const has_error = hasStatusError || isOnHold || !!hasFieldErrors
+  // Note: "On Hold" alone is NOT an error - it just means the order is waiting to be processed
+  // Only mark as error if there are actual field errors or problem statuses
+  const has_error = hasStatusError || !!hasFieldErrors
   let error_message: string | null = null
 
   if (hasFieldErrors && rawErrors) {
@@ -131,8 +132,6 @@ export function parseParcel(parcel: SendcloudParcel): ParsedShipment {
       .join('; ')
   } else if (hasStatusError) {
     error_message = parcel.status?.message || 'Erreur Sendcloud'
-  } else if (isOnHold) {
-    error_message = 'Commande en attente - vérifier dans Sendcloud'
   }
 
   return {
@@ -374,16 +373,13 @@ function parseIntegrationShipment(shipment: SendcloudIntegrationShipment): Parse
   })).filter(item => item.sku_code)
 
   // Error detection for integration shipments
-  // Shipments that are "On Hold" without tracking need attention
-  const statusMsg = shipment.order_status?.message || ''
-  const isOnHold = statusMsg.toLowerCase().includes('on hold')
-
-  // Check for explicit errors
+  // Only mark as error if there are ACTUAL field validation errors from Sendcloud
+  // Note: "On Hold" alone is NOT an error - it just means the order is waiting to be processed
   const hasFieldErrors = shipment.errors && Object.keys(shipment.errors).length > 0
   const hasCheckoutErrors = shipment.checkout_payload_errors && shipment.checkout_payload_errors.length > 0
 
-  // On Hold without tracking = needs attention (show warning)
-  const has_error = isOnHold || !!hasFieldErrors || !!hasCheckoutErrors
+  // Only actual errors should be flagged
+  const has_error = !!hasFieldErrors || !!hasCheckoutErrors
   let error_message: string | null = null
 
   if (hasFieldErrors && shipment.errors) {
@@ -392,8 +388,6 @@ function parseIntegrationShipment(shipment: SendcloudIntegrationShipment): Parse
       .join('; ')
   } else if (hasCheckoutErrors && shipment.checkout_payload_errors) {
     error_message = shipment.checkout_payload_errors.join('; ')
-  } else if (isOnHold) {
-    error_message = 'Commande en attente - vérifier dans Sendcloud'
   }
 
   return {

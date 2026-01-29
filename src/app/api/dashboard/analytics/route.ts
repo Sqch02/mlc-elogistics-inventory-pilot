@@ -313,28 +313,36 @@ export async function GET(request: Request) {
     // ===========================================
     // 4. SKU SALES (based on date range)
     // ===========================================
-    // Get shipment items for the selected date range
+    // Get shipment items with their shipments in the date range
+    // Note: Supabase doesn't support filtering on joined tables well, so we fetch and filter
     const { data: skuSalesItems } = await supabase
       .from('shipment_items')
-      .select('sku_id, quantity, skus!inner(sku_code, name), shipments!inner(shipped_at)')
+      .select('sku_id, qty, skus(sku_code, name), shipments(shipped_at)')
       .eq('tenant_id', tenantId)
-      .gte('shipments.shipped_at', startDate.toISOString())
-      .lte('shipments.shipped_at', endDate.toISOString())
 
-    // Aggregate by SKU
+    // Filter by date range and aggregate by SKU
     const skuSalesMap = new Map<string, { sku_code: string; name: string; quantity: number }>()
     for (const item of skuSalesItems || []) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const shipmentData = item.shipments as any
+      const shippedAt = shipmentData?.shipped_at
+
+      // Filter by date range
+      if (!shippedAt) continue
+      const shipDate = new Date(shippedAt)
+      if (shipDate < startDate || shipDate > endDate) continue
+
       const skuId = item.sku_id
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const skuInfo = item.skus as any
       const existing = skuSalesMap.get(skuId)
       if (existing) {
-        existing.quantity += item.quantity || 0
+        existing.quantity += item.qty || 0
       } else {
         skuSalesMap.set(skuId, {
           sku_code: skuInfo?.sku_code || 'Unknown',
           name: skuInfo?.name || 'Unknown',
-          quantity: item.quantity || 0,
+          quantity: item.qty || 0,
         })
       }
     }

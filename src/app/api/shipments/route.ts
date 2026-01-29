@@ -62,19 +62,21 @@ export async function GET(request: NextRequest) {
       query = query.not('status_id', 'is', null)
     }
 
-    // Filter by delivery status (issues = problem statuses OR has_error for pending shipments)
+    // Filter by delivery status (issues = actual problem statuses)
+    // Real problems: announcement failed, unknown, delivery failed, unable to deliver, exception, returned, refused, cancelled
+    const PROBLEM_STATUS_IDS = [1002, 1337, 8, 80, 62996, 62992, 62991, 2000]
     if (deliveryStatus === 'issue') {
       if (shipmentStatus === 'pending') {
-        // For pending shipments (On Hold), use has_error flag instead of status_id
+        // For pending shipments (On Hold), use has_error flag (only true if actual Sendcloud error)
         query = query.eq('has_error', true)
       } else {
-        // Problem statuses: exception, return, not deliverable, cancelled, etc.
-        query = query.in('status_id', [62, 80, 91, 92, 93, 1999, 2000, 2001])
+        query = query.in('status_id', PROBLEM_STATUS_IDS)
       }
     } else if (deliveryStatus === 'delivered') {
-      query = query.in('status_id', [3, 4, 11])
+      query = query.in('status_id', [11]) // 11 = Delivered
     } else if (deliveryStatus === 'in_transit') {
-      query = query.in('status_id', [12, 22, 31, 32, 13])
+      // In transit states: en route, sorting, at customs, driver en route, etc.
+      query = query.in('status_id', [1, 3, 7, 12, 22, 91, 92, 62989, 62990])
     }
 
     // Search by order_ref, tracking, or sendcloud_id
@@ -115,12 +117,12 @@ export async function GET(request: NextRequest) {
       if (shipmentStatus === 'pending') {
         statsQuery = statsQuery.eq('has_error', true)
       } else {
-        statsQuery = statsQuery.in('status_id', [62, 80, 91, 92, 93, 1999, 2000, 2001])
+        statsQuery = statsQuery.in('status_id', PROBLEM_STATUS_IDS)
       }
     } else if (deliveryStatus === 'delivered') {
-      statsQuery = statsQuery.in('status_id', [3, 4, 11])
+      statsQuery = statsQuery.in('status_id', [11])
     } else if (deliveryStatus === 'in_transit') {
-      statsQuery = statsQuery.in('status_id', [12, 22, 31, 32, 13])
+      statsQuery = statsQuery.in('status_id', [1, 3, 7, 12, 22, 91, 92, 62989, 62990])
     }
     if (search) {
       statsQuery = statsQuery.or(`order_ref.ilike.%${search}%,tracking.ilike.%${search}%,sendcloud_id.ilike.%${search}%`)
