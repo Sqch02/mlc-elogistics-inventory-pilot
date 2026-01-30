@@ -373,13 +373,21 @@ function parseIntegrationShipment(shipment: SendcloudIntegrationShipment): Parse
   })).filter(item => item.sku_code)
 
   // Error detection for integration shipments
-  // Only mark as error if there are ACTUAL field validation errors from Sendcloud
+  // Mark as error if there are field validation errors, checkout errors, or warnings
   // Note: "On Hold" alone is NOT an error - it just means the order is waiting to be processed
   const hasFieldErrors = shipment.errors && Object.keys(shipment.errors).length > 0
   const hasCheckoutErrors = shipment.checkout_payload_errors && shipment.checkout_payload_errors.length > 0
+  const hasWarnings = shipment.warnings && shipment.warnings.length > 0
 
-  // Only actual errors should be flagged
-  const has_error = !!hasFieldErrors || !!hasCheckoutErrors
+  // Check order_status for error indicators (e.g., "cancelled", "error", etc.)
+  const errorStatusIds = ['error', 'cancelled', 'failed']
+  const hasStatusError = errorStatusIds.some(id =>
+    shipment.order_status?.id?.toLowerCase().includes(id) ||
+    shipment.order_status?.message?.toLowerCase().includes(id)
+  )
+
+  // Detect errors: field errors, checkout errors, warnings, or error status
+  const has_error = !!hasFieldErrors || !!hasCheckoutErrors || !!hasWarnings || hasStatusError
   let error_message: string | null = null
 
   if (hasFieldErrors && shipment.errors) {
@@ -388,6 +396,10 @@ function parseIntegrationShipment(shipment: SendcloudIntegrationShipment): Parse
       .join('; ')
   } else if (hasCheckoutErrors && shipment.checkout_payload_errors) {
     error_message = shipment.checkout_payload_errors.join('; ')
+  } else if (hasWarnings && shipment.warnings) {
+    error_message = shipment.warnings.join('; ')
+  } else if (hasStatusError) {
+    error_message = shipment.order_status?.message || 'Erreur de statut'
   }
 
   return {
