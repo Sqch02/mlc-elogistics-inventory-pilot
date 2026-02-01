@@ -107,6 +107,35 @@ export async function GET(request: NextRequest) {
       const parcels = Array.from(shipmentMap.values())
 
       // ============================================
+      // CLEANUP: Delete old UUID records when parcel has same order_ref
+      // ============================================
+      // When an integration shipment (UUID) becomes a parcel (numeric ID),
+      // we need to delete the old UUID record to avoid duplicates
+      const parcelOrderRefs = parcels
+        .filter(p => p.order_ref && !p.sendcloud_id.includes('-')) // Numeric sendcloud_id (not UUID)
+        .map(p => p.order_ref)
+        .filter((ref): ref is string => ref !== null)
+
+      if (parcelOrderRefs.length > 0) {
+        // Find and delete old UUID records for these order_refs
+        const { data: oldUuidRecords } = await adminClient
+          .from('shipments')
+          .select('id, sendcloud_id, order_ref')
+          .eq('tenant_id', tenant.id)
+          .in('order_ref', parcelOrderRefs)
+          .like('sendcloud_id', '%-%') // UUID format contains dashes
+
+        if (oldUuidRecords && oldUuidRecords.length > 0) {
+          console.log(`[Cron] Cleaning up ${oldUuidRecords.length} old UUID records that became parcels`)
+          const oldIds = oldUuidRecords.map((r: { id: string }) => r.id)
+          await adminClient
+            .from('shipments')
+            .delete()
+            .in('id', oldIds)
+        }
+      }
+
+      // ============================================
       // BATCH UPSERT SHIPMENTS
       // ============================================
       console.log(`[Cron] Batch upserting ${parcels.length} shipments...`)
@@ -168,6 +197,9 @@ export async function GET(request: NextRequest) {
           date_created: parcel.date_created,
           date_updated: parcel.date_updated,
           date_announced: parcel.date_announced,
+          // Error detection fields - important for "Problemes" filter
+          has_error: parcel.has_error,
+          error_message: parcel.error_message,
         }
       })
 
