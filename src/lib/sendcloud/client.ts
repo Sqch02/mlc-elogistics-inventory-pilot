@@ -150,6 +150,7 @@ export function parseParcel(parcel: SendcloudParcel): ParsedShipment {
     recipient_company: parcel.company_name || null,
     address_line1: parcel.address || null,
     address_line2: parcel.address_2 || null,
+    house_number: parcel.house_number || null,
     city: parcel.city || null,
     postal_code: parcel.postal_code || null,
     country_code: parcel.country?.iso_2 || null,
@@ -415,6 +416,7 @@ function parseIntegrationShipment(shipment: SendcloudIntegrationShipment): Parse
     recipient_company: shipment.company_name || null,
     address_line1: shipment.address,
     address_line2: shipment.address_2 || null,
+    house_number: shipment.house_number || null,
     city: shipment.city,
     postal_code: shipment.postal_code,
     country_code: shipment.country,
@@ -607,6 +609,7 @@ export interface UpdateParcelData {
   name?: string
   address?: string
   address_2?: string
+  house_number?: string
   city?: string
   postal_code?: string
   country?: string

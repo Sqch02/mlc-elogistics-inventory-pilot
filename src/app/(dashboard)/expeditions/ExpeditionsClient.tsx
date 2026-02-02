@@ -489,6 +489,7 @@ export function ExpeditionsClient() {
     recipient_company: '',
     address_line1: '',
     address_line2: '',
+    house_number: '',
     city: '',
     postal_code: '',
     country_code: '',
@@ -511,6 +512,7 @@ export function ExpeditionsClient() {
       recipient_company: shipment.recipient_company || '',
       address_line1: shipment.address_line1 || '',
       address_line2: shipment.address_line2 || '',
+      house_number: shipment.house_number || '',
       city: shipment.city || '',
       postal_code: shipment.postal_code || '',
       country_code: shipment.country_code || '',
@@ -1099,13 +1101,24 @@ export function ExpeditionsClient() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="address_line1">Adresse</Label>
-              <Input
-                id="address_line1"
-                value={editForm.address_line1}
-                onChange={(e) => setEditForm({ ...editForm, address_line1: e.target.value })}
-              />
+            <div className="grid grid-cols-4 gap-4">
+              <div className="col-span-3 space-y-2">
+                <Label htmlFor="address_line1">Adresse</Label>
+                <Input
+                  id="address_line1"
+                  value={editForm.address_line1}
+                  onChange={(e) => setEditForm({ ...editForm, address_line1: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="house_number">N° de voie</Label>
+                <Input
+                  id="house_number"
+                  value={editForm.house_number}
+                  onChange={(e) => setEditForm({ ...editForm, house_number: e.target.value })}
+                  placeholder="12"
+                />
+              </div>
             </div>
 
             <div className="space-y-2">

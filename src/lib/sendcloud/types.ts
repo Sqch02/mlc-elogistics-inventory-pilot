@@ -11,6 +11,7 @@ export interface SendcloudParcel {
   company_name?: string
   address: string
   address_2?: string
+  house_number?: string
   city: string
   postal_code: string
   country: {
@@ -84,6 +85,7 @@ export interface ParsedShipment {
   recipient_company: string | null
   address_line1: string | null
   address_line2: string | null
+  house_number: string | null
   city: string | null
   postal_code: string | null
   country_code: string | null

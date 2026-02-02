@@ -177,6 +177,7 @@ export async function GET(request: NextRequest) {
           recipient_company: parcel.recipient_company,
           address_line1: parcel.address_line1,
           address_line2: parcel.address_line2,
+          house_number: parcel.house_number,
           city: parcel.city,
           postal_code: parcel.postal_code,
           country_code: parcel.country_code,

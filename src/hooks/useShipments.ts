@@ -47,6 +47,7 @@ export interface Shipment {
   recipient_company: string | null
   address_line1: string | null
   address_line2: string | null
+  house_number: string | null
   city: string | null
   postal_code: string | null
   country_code: string | null
@@ -267,6 +268,7 @@ export interface UpdateShipmentData {
   recipient_company?: string
   address_line1?: string
   address_line2?: string
+  house_number?: string
   city?: string
   postal_code?: string
   country_code?: string

@@ -55,6 +55,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           recipient_company: body.recipient_company || undefined,
           address_line1: body.address_line1 || undefined,
           address_line2: body.address_line2 || undefined,
+          house_number: body.house_number || undefined,
           city: body.city || undefined,
           postal_code: body.postal_code || undefined,
           country_code: body.country_code || undefined,
@@ -107,6 +108,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (body.recipient_company) updateData.company_name = body.recipient_company
     if (body.address_line1) updateData.address = body.address_line1
     if (body.address_line2) updateData.address_2 = body.address_line2
+    if (body.house_number) updateData.house_number = body.house_number
     if (body.city) updateData.city = body.city
     if (body.postal_code) updateData.postal_code = body.postal_code
     if (body.country_code) updateData.country = body.country_code
@@ -138,6 +140,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           recipient_company: updatedParcel.recipient_company,
           address_line1: updatedParcel.address_line1,
           address_line2: updatedParcel.address_line2,
+          house_number: updatedParcel.house_number,
           city: updatedParcel.city,
           postal_code: updatedParcel.postal_code,
           country_code: updatedParcel.country_code,

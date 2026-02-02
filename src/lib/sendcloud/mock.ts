@@ -85,6 +85,7 @@ export function parseMockParcel(parcel: SendcloudParcel): ParsedShipment {
     recipient_company: parcel.company_name || null,
     address_line1: parcel.address || null,
     address_line2: parcel.address_2 || null,
+    house_number: null,
     city: parcel.city || null,
     postal_code: parcel.postal_code || null,
     country_code: parcel.country?.iso_2 || null,
