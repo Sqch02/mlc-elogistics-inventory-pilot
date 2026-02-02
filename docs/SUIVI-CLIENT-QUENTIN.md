@@ -125,6 +125,20 @@
 | Telechargement PDF | Recuperer et afficher le PDF de l'etiquette | Faible | Inclus |
 | **Total etiquettes** | Creation complete d'etiquettes | Moyenne | 2-3 jours |
 
+### Conversion commandes "On Hold" en Parcels (Workaround API)
+
+> **Contexte** : Les commandes Shopify importees (integration shipments) sont en **lecture seule** via l'API Sendcloud. On ne peut pas les modifier. MAIS on peut creer un parcel a partir du `shipment_uuid` pour contourner cette limitation.
+
+| Fonctionnalite | Description | Complexite | Estimation |
+|----------------|-------------|------------|------------|
+| Bouton "Traiter commande" | Sur les commandes On Hold, ouvre un formulaire pre-rempli | Moyenne | Inclus |
+| Modification donnees | Corriger adresse, telephone, etc. avant creation | Faible | Inclus |
+| Creation parcel + etiquette | Utilise `shipment_uuid` pour lier au parcel cree | Moyenne | Inclus |
+| Mise a jour auto | Le shipment On Hold disparait, remplace par le parcel | Faible | Inclus |
+| **Total conversion** | Workaround complet pour modifier les On Hold | Moyenne | 1-2 jours |
+
+> **Avantage** : Quentin pourra modifier et traiter les commandes On Hold directement depuis l'app HME au lieu du panel Sendcloud.
+
 ### Messagerie generale (style Slack)
 
 | Fonctionnalite | Description | Complexite | Estimation |
@@ -145,8 +159,9 @@
 | Portail Client | Interface self-service marques | 5-7 jours | Faisable |
 | Receptions | Gestion entrees de stock | 4-5 jours | Faisable |
 | Etiquettes | Creation depuis l'app | 2-3 jours | Faisable |
+| Conversion On Hold | Modifier et traiter commandes Shopify | 1-2 jours | Faisable |
 | Messagerie | Communication interne | 4-5 jours | Faisable |
-| **TOTAL** | | **22-30 jours** | |
+| **TOTAL** | | **23-32 jours** | |
 
 ---
 
