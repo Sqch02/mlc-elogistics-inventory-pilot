@@ -373,33 +373,13 @@ function parseIntegrationShipment(shipment: SendcloudIntegrationShipment): Parse
     value: item.value ? parseFloat(item.value) : undefined,
   })).filter(item => item.sku_code)
 
-  // Error detection for integration shipments
-  // Mark as error ONLY if there are actual field validation errors or checkout errors
-  // Note: "On Hold" alone is NOT an error - it just means the order is waiting to be processed
-  // Note: "warnings" are informational, NOT errors - removed from error detection
-  const hasFieldErrors = shipment.errors && Object.keys(shipment.errors).length > 0
-  const hasCheckoutErrors = shipment.checkout_payload_errors && shipment.checkout_payload_errors.length > 0
-
-  // Check order_status for error indicators (e.g., "cancelled", "error", etc.)
-  const errorStatusIds = ['error', 'cancelled', 'failed']
-  const hasStatusError = errorStatusIds.some(id =>
-    shipment.order_status?.id?.toLowerCase().includes(id) ||
-    shipment.order_status?.message?.toLowerCase().includes(id)
-  )
-
-  // Detect errors: field errors, checkout errors, or error status (NOT warnings)
-  const has_error = !!hasFieldErrors || !!hasCheckoutErrors || hasStatusError
-  let error_message: string | null = null
-
-  if (hasFieldErrors && shipment.errors) {
-    error_message = Object.entries(shipment.errors)
-      .map(([field, msgs]) => `${field}: ${msgs.join(', ')}`)
-      .join('; ')
-  } else if (hasCheckoutErrors && shipment.checkout_payload_errors) {
-    error_message = shipment.checkout_payload_errors.join('; ')
-  } else if (hasStatusError) {
-    error_message = shipment.order_status?.message || 'Erreur de statut'
-  }
+  // Integration shipments (On Hold) are READ-ONLY via API and cannot be modified.
+  // Their "errors" are validation warnings that will be resolved when creating a label.
+  // Per Sendcloud API documentation: these are NOT blocking errors.
+  // Therefore, we do NOT mark integration shipments as having errors.
+  // The user must process them in Sendcloud panel or create a parcel via our app.
+  const has_error = false
+  const error_message: string | null = null
 
   return {
     sendcloud_id: shipment.shipment_uuid, // Use UUID as unique ID for pending orders
