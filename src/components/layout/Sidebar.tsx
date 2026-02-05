@@ -25,6 +25,9 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { features } from '@/lib/config/features'
 
+// Menus hidden for client role (brand users)
+const clientHiddenMenus = ['/analytics', '/emplacements', '/pricing', '/facturation', '/parametres']
+
 // Base navigation items
 const baseNavigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard, feature: null },
@@ -44,17 +47,20 @@ interface SidebarContentProps {
   pathname: string
   onClose: () => void
   onLogout: () => void
+  userRole?: string
 }
 
-function SidebarContent({ pathname, onClose, onLogout }: SidebarContentProps) {
-  // Filter navigation based on feature flags
+function SidebarContent({ pathname, onClose, onLogout, userRole }: SidebarContentProps) {
+  // Filter navigation based on feature flags and user role
   const navigation = useMemo(() => {
     return baseNavigation.filter((item) => {
-      if (item.feature === null) return true
-      if (item.feature === 'returnsModule') return features.returnsModule
+      // Feature flag check
+      if (item.feature === 'returnsModule' && !features.returnsModule) return false
+      // Client role: hide certain menus
+      if (userRole === 'client' && clientHiddenMenus.includes(item.href)) return false
       return true
     })
-  }, [])
+  }, [userRole])
 
   return (
     <>
@@ -132,9 +138,10 @@ function SidebarContent({ pathname, onClose, onLogout }: SidebarContentProps) {
 
 interface SidebarProps {
   onMobileToggle?: (isOpen: boolean) => void
+  userRole?: string
 }
 
-export function Sidebar({ onMobileToggle }: SidebarProps) {
+export function Sidebar({ onMobileToggle, userRole }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -203,7 +210,7 @@ export function Sidebar({ onMobileToggle }: SidebarProps) {
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <SidebarContent pathname={pathname} onClose={handleClose} onLogout={handleLogout} />
+        <SidebarContent pathname={pathname} onClose={handleClose} onLogout={handleLogout} userRole={userRole} />
       </aside>
 
       {/* Desktop sidebar */}
@@ -211,7 +218,7 @@ export function Sidebar({ onMobileToggle }: SidebarProps) {
         className="hidden lg:flex flex-col h-screen bg-white border-r border-border/50 shrink-0 fixed top-0 left-0 bottom-0 w-[260px] z-40"
         style={{ boxShadow: '1px 0 3px rgba(0, 0, 0, 0.02)' }}
       >
-        <SidebarContent pathname={pathname} onClose={handleClose} onLogout={handleLogout} />
+        <SidebarContent pathname={pathname} onClose={handleClose} onLogout={handleLogout} userRole={userRole} />
       </aside>
     </>
   )

@@ -8,7 +8,7 @@ interface User {
   id: string
   email: string
   tenant_id: string
-  role: 'super_admin' | 'admin' | 'ops'
+  role: 'super_admin' | 'admin' | 'ops' | 'sav' | 'client'
   full_name: string | null
 }
 
