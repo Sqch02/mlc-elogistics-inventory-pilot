@@ -29,6 +29,7 @@ import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CreateShipmentDialog } from '@/components/forms/CreateShipmentDialog'
 import { Plus } from 'lucide-react'
+import { useTenant } from '@/components/providers/TenantProvider'
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '-'
@@ -123,6 +124,7 @@ interface ShipmentRowProps {
 
 function ShipmentRow({ shipment, onCreateClaim, onEdit, onCancel, onRefresh, isCancelling, isRefreshing }: ShipmentRowProps) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const { isClient } = useTenant()
 
   return (
     <>
@@ -282,31 +284,33 @@ function ShipmentRow({ shipment, onCreateClaim, onEdit, onCancel, onRefresh, isC
                   </div>
                 </div>
 
-                {/* Facturation */}
-                <div className="space-y-3">
-                  <h4 className="font-semibold text-sm flex items-center gap-2">
-                    <DollarSign className="h-4 w-4 text-primary" />
-                    Facturation
-                  </h4>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Valeur commande</span>
-                      <span className="font-medium">
-                        {shipment.total_value ? `${shipment.total_value.toFixed(2)} ${shipment.currency || 'EUR'}` : '-'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Cout transport</span>
-                      {shipment.pricing_status === 'ok' ? (
-                        <span className="font-medium text-green-600">
-                          {shipment.computed_cost_eur?.toFixed(2)} EUR
+                {/* Facturation (hidden for client) */}
+                {!isClient && (
+                  <div className="space-y-3">
+                    <h4 className="font-semibold text-sm flex items-center gap-2">
+                      <DollarSign className="h-4 w-4 text-primary" />
+                      Facturation
+                    </h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Valeur commande</span>
+                        <span className="font-medium">
+                          {shipment.total_value ? `${shipment.total_value.toFixed(2)} ${shipment.currency || 'EUR'}` : '-'}
                         </span>
-                      ) : (
-                        <Badge variant="warning">Tarif manquant</Badge>
-                      )}
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Cout transport</span>
+                        {shipment.pricing_status === 'ok' ? (
+                          <span className="font-medium text-green-600">
+                            {shipment.computed_cost_eur?.toFixed(2)} EUR
+                          </span>
+                        ) : (
+                          <Badge variant="warning">Tarif manquant</Badge>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Dates & IDs */}
@@ -363,7 +367,7 @@ function ShipmentRow({ shipment, onCreateClaim, onEdit, onCancel, onRefresh, isC
                     </a>
                   </Button>
                 )}
-                {(!shipment.status_id || shipment.status_id < 1000) && (
+                {!isClient && (!shipment.status_id || shipment.status_id < 1000) && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -377,24 +381,26 @@ function ShipmentRow({ shipment, onCreateClaim, onEdit, onCancel, onRefresh, isC
                     Modifier
                   </Button>
                 )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onRefresh(shipment.id)
-                  }}
-                  disabled={isRefreshing}
-                  className="text-blue-600 border-blue-300 hover:bg-blue-50 hover:border-blue-400"
-                >
-                  {isRefreshing ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                  )}
-                  Rafraîchir statut
-                </Button>
-                {shipment.status_id !== 2000 && shipment.status_id !== 3 && shipment.status_id !== 4 && (
+                {!isClient && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onRefresh(shipment.id)
+                    }}
+                    disabled={isRefreshing}
+                    className="text-blue-600 border-blue-300 hover:bg-blue-50 hover:border-blue-400"
+                  >
+                    {isRefreshing ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                    )}
+                    Rafraîchir statut
+                  </Button>
+                )}
+                {!isClient && shipment.status_id !== 2000 && shipment.status_id !== 3 && shipment.status_id !== 4 && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -457,6 +463,7 @@ export function ExpeditionsClient() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const urlSearch = searchParams.get('search')
+  const { isClient } = useTenant()
 
   const [filters, setFilters] = useState<ShipmentFilters>(() => ({
     page: 1,
@@ -576,25 +583,30 @@ export function ExpeditionsClient() {
   const handleExport = async () => {
     setIsExporting(true)
     try {
-      const exportData = shipments.map((s) => ({
-        date: s.shipped_at ? formatDate(s.shipped_at) : '',
-        reference: s.order_ref || '',
-        destinataire: s.recipient_name || '',
-        email: s.recipient_email || '',
-        telephone: s.recipient_phone || '',
-        adresse: s.address_line1 || '',
-        ville: s.city || '',
-        code_postal: s.postal_code || '',
-        pays: s.country_code || '',
-        transporteur: s.carrier || '',
-        service: s.service || '',
-        statut: s.status_message || '',
-        poids_g: s.weight_grams || 0,
-        tracking: s.tracking || '',
-        valeur_commande: s.total_value || '',
-        cout_transport: s.computed_cost_eur || '',
-        statut_tarif: s.pricing_status === 'ok' ? 'OK' : 'Manquant'
-      }))
+      const exportData = shipments.map((s) => {
+        const base: Record<string, string | number> = {
+          date: s.shipped_at ? formatDate(s.shipped_at) : '',
+          reference: s.order_ref || '',
+          destinataire: s.recipient_name || '',
+          email: s.recipient_email || '',
+          telephone: s.recipient_phone || '',
+          adresse: s.address_line1 || '',
+          ville: s.city || '',
+          code_postal: s.postal_code || '',
+          pays: s.country_code || '',
+          transporteur: s.carrier || '',
+          service: s.service || '',
+          statut: s.status_message || '',
+          poids_g: s.weight_grams || 0,
+          tracking: s.tracking || '',
+        }
+        if (!isClient) {
+          base.valeur_commande = s.total_value || ''
+          base.cout_transport = s.computed_cost_eur || ''
+          base.statut_tarif = s.pricing_status === 'ok' ? 'OK' : 'Manquant'
+        }
+        return base
+      })
       const csv = generateCSV(exportData, { delimiter: ';' })
       downloadCSV(csv, `expeditions_${new Date().toISOString().split('T')[0]}.csv`)
     } finally {
@@ -648,10 +660,12 @@ export function ExpeditionsClient() {
             {totalShipments} expedition(s) {isFetching && '(chargement...)'}
           </p>
         </div>
-        <Button onClick={() => setCreateShipmentOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Nouvelle expedition
-        </Button>
+        {!isClient && (
+          <Button onClick={() => setCreateShipmentOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Nouvelle expedition
+          </Button>
+        )}
       </div>
 
       {/* KPI Row */}
@@ -678,23 +692,26 @@ export function ExpeditionsClient() {
             </div>
           </CardContent>
         </Card>
-        <Card className="shadow-sm border-border">
-          <CardContent className="p-3 lg:p-4 flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Cout transport</p>
-              <p className="text-lg lg:text-2xl font-bold">{totalCost.toFixed(2)} EUR</p>
-            </div>
-            <div className="p-1.5 lg:p-2 bg-primary/10 rounded-lg text-primary">
-              <DollarSign className="h-4 w-4 lg:h-5 lg:w-5" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className={`shadow-sm border-border ${missingPricing > 0 ? 'border-amber-300' : ''}`}>
-          <CardContent className="p-3 lg:p-4 flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Tarifs manquants</p>
-              <p className={`text-lg lg:text-2xl font-bold ${missingPricing > 0 ? 'text-amber-600' : 'text-green-600'}`}>
-                {missingPricing}
+        {!isClient && (
+          <Card className="shadow-sm border-border">
+            <CardContent className="p-3 lg:p-4 flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Cout transport</p>
+                <p className="text-lg lg:text-2xl font-bold">{totalCost.toFixed(2)} EUR</p>
+              </div>
+              <div className="p-1.5 lg:p-2 bg-primary/10 rounded-lg text-primary">
+                <DollarSign className="h-4 w-4 lg:h-5 lg:w-5" />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        {!isClient && (
+          <Card className={`shadow-sm border-border ${missingPricing > 0 ? 'border-amber-300' : ''}`}>
+            <CardContent className="p-3 lg:p-4 flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Tarifs manquants</p>
+                <p className={`text-lg lg:text-2xl font-bold ${missingPricing > 0 ? 'text-amber-600' : 'text-green-600'}`}>
+                  {missingPricing}
               </p>
             </div>
             <div className={`p-1.5 lg:p-2 rounded-lg ${missingPricing > 0 ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-600'}`}>
@@ -702,6 +719,7 @@ export function ExpeditionsClient() {
             </div>
           </CardContent>
         </Card>
+        )}
       </div>
 
       {/* Quick Status Filter Tabs */}

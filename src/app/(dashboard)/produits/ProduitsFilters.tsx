@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Search, X, Download, Loader2 } from 'lucide-react'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
+import { useTenant } from '@/components/providers/TenantProvider'
 
 interface ProduitsFiltersProps {
   currentFilters: {
@@ -21,6 +22,7 @@ export function ProduitsFilters({ currentFilters }: ProduitsFiltersProps) {
   const [isPending, startTransition] = useTransition()
   const [search, setSearch] = useState(currentFilters.search || '')
   const [isExporting, setIsExporting] = useState(false)
+  const { isClient } = useTenant()
 
   const handleExport = async () => {
     setIsExporting(true)
@@ -29,16 +31,21 @@ export function ProduitsFilters({ currentFilters }: ProduitsFiltersProps) {
       const response = await fetch(`/api/stock?${params.toString()}`)
       const { skus } = await response.json()
 
-      const exportData = skus.map((s: Record<string, unknown>) => ({
-        sku_code: s.sku_code || '',
-        nom: s.name || '',
-        description: s.description || '',
-        cout_unitaire_eur: s.unit_cost_eur || '',
-        stock_actuel: s.qty_current || 0,
-        seuil_alerte: s.alert_threshold || 0,
-        consommation_30j: s.consumption_30d || 0,
-        statut: s.status || ''
-      }))
+      const exportData = skus.map((s: Record<string, unknown>) => {
+        const base: Record<string, unknown> = {
+          sku_code: s.sku_code || '',
+          nom: s.name || '',
+          description: s.description || '',
+        }
+        if (!isClient) {
+          base.cout_unitaire_eur = s.unit_cost_eur || ''
+        }
+        base.stock_actuel = s.qty_current || 0
+        base.seuil_alerte = s.alert_threshold || 0
+        base.consommation_30j = s.consumption_30d || 0
+        base.statut = s.status || ''
+        return base
+      })
 
       const csv = generateCSV(exportData, { delimiter: ';' })
       downloadCSV(csv, `produits_${new Date().toISOString().split('T')[0]}.csv`)

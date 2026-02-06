@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
+import { useTenant } from '@/components/providers/TenantProvider'
 
 interface TodayData {
   shipments: {
@@ -107,6 +108,8 @@ export function TodaySummary() {
     )
   }
 
+  const { isClient } = useTenant()
+
   if (!data) return null
 
   const hasUrgentItems = data.claims.overdue > 0 || data.claims.open.some(c => c.priority === 'urgent')
@@ -163,10 +166,12 @@ export function TodaySummary() {
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-bold">{data.shipments.today}</span>
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Euro className="h-3 w-3" />
-                  {data.shipments.cost.toFixed(0)} €
-                </span>
+                {!isClient && (
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Euro className="h-3 w-3" />
+                    {data.shipments.cost.toFixed(0)} €
+                  </span>
+                )}
               </div>
               <div className="text-[10px] text-muted-foreground mt-0.5">{isToday(selectedDate) ? "aujourd'hui" : 'ce jour'}</div>
             </div>

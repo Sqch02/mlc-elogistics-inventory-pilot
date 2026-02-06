@@ -13,6 +13,7 @@ import {
 } from 'recharts'
 import { BarChart3, TrendingUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useTenant } from '@/components/providers/TenantProvider'
 import type { DashboardChartData } from '@/types/dashboard'
 
 interface AreaShipmentsChartProps {
@@ -67,6 +68,7 @@ function CustomTooltip({ active, payload, label }: {
 
 export function AreaShipmentsChart({ data, delay = 0 }: AreaShipmentsChartProps) {
   const [showCost, setShowCost] = useState(false)
+  const { isClient } = useTenant()
 
   // Calculate totals
   const totalShipments = data.reduce((sum, d) => sum + d.shipments, 0)
@@ -94,24 +96,26 @@ export function AreaShipmentsChart({ data, delay = 0 }: AreaShipmentsChartProps)
           <div>
             <h3 className="text-lg font-semibold text-foreground">Expéditions par jour</h3>
             <p className="text-sm text-muted-foreground">
-              {totalShipments} expéditions • {totalCost.toFixed(2)} € total
+              {totalShipments} expéditions{!isClient && ` • ${totalCost.toFixed(2)} € total`}
             </p>
           </div>
         </div>
 
-        {/* Toggle cost overlay */}
-        <button
-          onClick={() => setShowCost(!showCost)}
-          className={cn(
-            "flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all",
-            showCost
-              ? "bg-gold/10 text-gold"
-              : "bg-muted text-muted-foreground hover:bg-muted/80"
-          )}
-        >
-          <TrendingUp className="h-4 w-4" />
-          {showCost ? 'Masquer coûts' : 'Afficher coûts'}
-        </button>
+        {/* Toggle cost overlay (hidden for client) */}
+        {!isClient && (
+          <button
+            onClick={() => setShowCost(!showCost)}
+            className={cn(
+              "flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all",
+              showCost
+                ? "bg-gold/10 text-gold"
+                : "bg-muted text-muted-foreground hover:bg-muted/80"
+            )}
+          >
+            <TrendingUp className="h-4 w-4" />
+            {showCost ? 'Masquer coûts' : 'Afficher coûts'}
+          </button>
+        )}
       </div>
 
       {/* Chart */}

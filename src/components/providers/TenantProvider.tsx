@@ -15,6 +15,8 @@ interface TenantContextType {
   setActiveTenantId: (id: string) => void
   isLoading: boolean
   isSuperAdmin: boolean
+  isClient: boolean
+  userRole: string
 }
 
 const TenantContext = createContext<TenantContextType | undefined>(undefined)
@@ -43,6 +45,7 @@ export function TenantProvider({ children, userRole, userTenantId }: TenantProvi
   const [isLoading, setIsLoading] = useState(true)
 
   const isSuperAdmin = userRole === 'super_admin'
+  const isClient = userRole === 'client'
 
   // Load tenants for super_admin
   useEffect(() => {
@@ -98,6 +101,8 @@ export function TenantProvider({ children, userRole, userTenantId }: TenantProvi
         setActiveTenantId,
         isLoading,
         isSuperAdmin,
+        isClient,
+        userRole,
       }}
     >
       {children}

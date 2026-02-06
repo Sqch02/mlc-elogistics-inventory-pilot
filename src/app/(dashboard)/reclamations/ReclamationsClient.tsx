@@ -21,6 +21,7 @@ import {
 } from '@/hooks/useClaims'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { ImportPreviewDialog } from '@/components/forms/ImportPreviewDialog'
+import { useTenant } from '@/components/providers/TenantProvider'
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '-'
@@ -70,6 +71,7 @@ interface ClaimRowProps {
 
 function ClaimRow({ claim, onView, onEdit }: ClaimRowProps) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const { isClient } = useTenant()
   const isOverdue = claim.resolution_deadline &&
     new Date(claim.resolution_deadline) < new Date() &&
     !['indemnisee', 'refusee', 'cloturee'].includes(claim.status)
@@ -128,15 +130,17 @@ function ClaimRow({ claim, onView, onEdit }: ClaimRowProps) {
             )
           ) : '-'}
         </TableCell>
-        <TableCell className="text-right font-mono text-sm">
-          {claim.indemnity_eur ? `${claim.indemnity_eur.toFixed(2)} €` : '-'}
-        </TableCell>
+        {!isClient && (
+          <TableCell className="text-right font-mono text-sm">
+            {claim.indemnity_eur ? `${claim.indemnity_eur.toFixed(2)} €` : '-'}
+          </TableCell>
+        )}
       </TableRow>
 
       {/* Expanded Details */}
       {isExpanded && (
         <TableRow className="bg-muted/30">
-          <TableCell colSpan={9} className="p-0">
+          <TableCell colSpan={isClient ? 8 : 9} className="p-0">
             <div className="p-4 lg:p-6 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {/* Description */}
@@ -189,13 +193,13 @@ function ClaimRow({ claim, onView, onEdit }: ClaimRowProps) {
                     {['indemnisee', 'refusee', 'cloturee'].includes(claim.status) ? 'Résolution' : 'Échéance'}
                   </h4>
                   <div className="space-y-1 text-sm">
-                    {claim.indemnity_eur && (
+                    {!isClient && claim.indemnity_eur && (
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Indemnité</span>
                         <span className="font-medium text-green-600">{claim.indemnity_eur.toFixed(2)} €</span>
                       </div>
                     )}
-                    {claim.indemnity_source && (
+                    {!isClient && claim.indemnity_source && (
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Payé par</span>
                         <span className="font-medium">{INDEMNITY_SOURCE_LABELS[claim.indemnity_source]}</span>
@@ -238,17 +242,19 @@ function ClaimRow({ claim, onView, onEdit }: ClaimRowProps) {
                   <Eye className="h-4 w-4 mr-2" />
                   Historique
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onEdit(claim)
-                  }}
-                >
-                  <Edit2 className="h-4 w-4 mr-2" />
-                  Modifier
-                </Button>
+                {!isClient && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onEdit(claim)
+                    }}
+                  >
+                    <Edit2 className="h-4 w-4 mr-2" />
+                    Modifier
+                  </Button>
+                )}
               </div>
             </div>
           </TableCell>
@@ -286,6 +292,7 @@ export function ReclamationsClient() {
   const { data, isLoading, refetch } = useClaims(filters)
   const createMutation = useCreateClaim()
   const updateMutation = useUpdateClaim()
+  const { isClient } = useTenant()
 
   const claims = data?.claims || []
   const stats = data?.stats || { total: 0, open: 0, inProgress: 0, closed: 0, totalIndemnity: 0, overdue: 0 }
@@ -359,7 +366,7 @@ export function ReclamationsClient() {
           new Date(c.resolution_deadline) < new Date() &&
           !['indemnisee', 'refusee', 'cloturee'].includes(c.status)
 
-        return {
+        const base: Record<string, string | number> = {
           date_ouverture: c.opened_at ? formatDate(c.opened_at) : '',
           reference: c.order_ref || c.shipments?.order_ref || '',
           sendcloud_id: c.shipments?.sendcloud_id || '',
@@ -369,7 +376,6 @@ export function ReclamationsClient() {
           en_retard: isOverdue ? 'OUI' : 'NON',
           transporteur: c.shipments?.carrier || '',
           description: c.description || '',
-          indemnite_eur: c.indemnity_eur ? Number(c.indemnity_eur).toFixed(2) : '',
           date_limite: c.resolution_deadline ? formatDate(c.resolution_deadline) : '',
           date_decision: c.decided_at ? formatDate(c.decided_at) : '',
           note_decision: c.decision_note || '',
@@ -377,6 +383,12 @@ export function ReclamationsClient() {
             ? Math.floor((Date.now() - new Date(c.opened_at).getTime()) / (1000 * 60 * 60 * 24))
             : '',
         }
+
+        if (!isClient) {
+          base.indemnite_eur = c.indemnity_eur ? Number(c.indemnity_eur).toFixed(2) : ''
+        }
+
+        return base
       })
       const csv = generateCSV(exportData, { delimiter: ';' })
       downloadCSV(csv, `reclamations_${new Date().toISOString().split('T')[0]}.csv`)
@@ -469,18 +481,22 @@ export function ReclamationsClient() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleSync} disabled={isSyncing}>
-            {isSyncing ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
-            )}
-            Synchroniser
-          </Button>
-          <Button variant="outline" onClick={() => setImportOpen(true)}>
-            <Upload className="h-4 w-4 mr-2" />
-            Import
-          </Button>
+          {!isClient && (
+            <Button variant="outline" onClick={handleSync} disabled={isSyncing}>
+              {isSyncing ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4 mr-2" />
+              )}
+              Synchroniser
+            </Button>
+          )}
+          {!isClient && (
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <Upload className="h-4 w-4 mr-2" />
+              Import
+            </Button>
+          )}
           <Button onClick={openCreateDialog}>
             <Plus className="h-4 w-4 mr-2" />
             Nouvelle réclamation
@@ -489,7 +505,7 @@ export function ReclamationsClient() {
       </div>
 
       {/* KPI Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 lg:gap-4">
+      <div className={`grid grid-cols-2 ${isClient ? 'lg:grid-cols-4' : 'lg:grid-cols-5'} gap-3 lg:gap-4`}>
         <Card className="shadow-sm border-border">
           <CardContent className="p-3 lg:p-4 flex items-center justify-between">
             <div className="space-y-1">
@@ -536,17 +552,19 @@ export function ReclamationsClient() {
             </div>
           </CardContent>
         </Card>
-        <Card className="shadow-sm border-border">
-          <CardContent className="p-3 lg:p-4 flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Indemnisé</p>
-              <p className="text-lg lg:text-2xl font-bold">{stats.totalIndemnity.toFixed(0)} €</p>
-            </div>
-            <div className="p-1.5 lg:p-2 bg-green-100 rounded-lg text-green-600">
-              <Euro className="h-4 w-4 lg:h-5 lg:w-5" />
-            </div>
-          </CardContent>
-        </Card>
+        {!isClient && (
+          <Card className="shadow-sm border-border">
+            <CardContent className="p-3 lg:p-4 flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Indemnisé</p>
+                <p className="text-lg lg:text-2xl font-bold">{stats.totalIndemnity.toFixed(0)} €</p>
+              </div>
+              <div className="p-1.5 lg:p-2 bg-green-100 rounded-lg text-green-600">
+                <Euro className="h-4 w-4 lg:h-5 lg:w-5" />
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Quick Filters - Multi-select */}
@@ -725,7 +743,7 @@ export function ReclamationsClient() {
                   <TableHead className="whitespace-nowrap">Priorité</TableHead>
                   <TableHead className="whitespace-nowrap">Transporteur</TableHead>
                   <TableHead className="whitespace-nowrap">N° Suivi</TableHead>
-                  <TableHead className="text-right whitespace-nowrap">Indemnité</TableHead>
+                  {!isClient && <TableHead className="text-right whitespace-nowrap">Indemnité</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>

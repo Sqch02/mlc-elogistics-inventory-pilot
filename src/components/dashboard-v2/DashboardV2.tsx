@@ -17,6 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { CostTrendChart } from '@/components/dashboard/CostTrendChart'
 import { CarrierPerformance } from '@/components/dashboard/CarrierPerformance'
 import { TodaySummary } from './TodaySummary'
+import { useTenant } from '@/components/providers/TenantProvider'
 
 // Loading skeleton for the dashboard
 function DashboardSkeleton() {
@@ -63,6 +64,7 @@ export function DashboardV2() {
   const [selectedMonth, setSelectedMonth] = useState(defaultMonth)
   const { data, isLoading, isRefetching } = useDashboard(selectedMonth)
   const { data: analyticsData, isLoading: analyticsLoading } = useAnalytics()
+  const { isClient } = useTenant()
 
   // Generate invoice handler
   const handleGenerateInvoice = async () => {
@@ -123,8 +125,8 @@ export function DashboardV2() {
         isRefreshing={isRefetching}
       />
 
-      {/* Section 1: 4 KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Section 1: KPIs */}
+      <div className={`grid grid-cols-2 ${isClient ? '' : 'lg:grid-cols-4'} gap-4`}>
         <SecondaryKpiCard
           label="Expeditions"
           value={shipmentsCount}
@@ -133,22 +135,26 @@ export function DashboardV2() {
           status="default"
           delay={0.1}
         />
-        <SecondaryKpiCard
-          label="Cout Transport"
-          value={costValue}
-          subValue="ce mois-ci"
-          icon={Banknote}
-          status="default"
-          delay={0.15}
-        />
-        <SecondaryKpiCard
-          label="Indemnites"
-          value={indemnityValue}
-          subValue="ce mois-ci"
-          icon={Award}
-          status={Number(String(indemnityValue).replace(/[^\d.]/g, '')) > 0 ? 'warning' : 'success'}
-          delay={0.2}
-        />
+        {!isClient && (
+          <SecondaryKpiCard
+            label="Cout Transport"
+            value={costValue}
+            subValue="ce mois-ci"
+            icon={Banknote}
+            status="default"
+            delay={0.15}
+          />
+        )}
+        {!isClient && (
+          <SecondaryKpiCard
+            label="Indemnites"
+            value={indemnityValue}
+            subValue="ce mois-ci"
+            icon={Award}
+            status={Number(String(indemnityValue).replace(/[^\d.]/g, '')) > 0 ? 'warning' : 'success'}
+            delay={0.2}
+          />
+        )}
         <SecondaryKpiCard
           label="Stock Critique"
           value={criticalStockCount}
@@ -167,43 +173,49 @@ export function DashboardV2() {
         </div>
       </div>
 
-      {/* Section 3: Cost Trend Chart */}
-      {analyticsLoading ? (
-        <Skeleton className="h-[350px] rounded-2xl" />
-      ) : analyticsData ? (
-        <CostTrendChart
-          data={analyticsData.costTrend.data}
-          percentChange={analyticsData.costTrend.percentChange}
-          shipmentsPercentChange={analyticsData.costTrend.shipmentsPercentChange}
-        />
-      ) : null}
+      {/* Section 3: Cost Trend Chart (hidden for client) */}
+      {!isClient && (
+        analyticsLoading ? (
+          <Skeleton className="h-[350px] rounded-2xl" />
+        ) : analyticsData ? (
+          <CostTrendChart
+            data={analyticsData.costTrend.data}
+            percentChange={analyticsData.costTrend.percentChange}
+            shipmentsPercentChange={analyticsData.costTrend.shipmentsPercentChange}
+          />
+        ) : null
+      )}
 
       {/* Section 3: Operations */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className={`grid grid-cols-1 ${isClient ? '' : 'lg:grid-cols-3'} gap-6`}>
         <StockHealthPanel
           items={data.stockHealth}
           criticalCount={criticalStockCount}
           delay={0.4}
         />
-        {analyticsLoading ? (
-          <Skeleton className="h-[350px] rounded-2xl" />
-        ) : analyticsData ? (
-          <CarrierPerformance
-            data={analyticsData.carrierPerformance.data}
-            totalCarriers={analyticsData.carrierPerformance.totalCarriers}
-          />
-        ) : (
-          <div className="bg-card rounded-2xl border border-border/60 p-6 flex items-center justify-center text-muted-foreground">
-            Donnees non disponibles
-          </div>
+        {!isClient && (
+          analyticsLoading ? (
+            <Skeleton className="h-[350px] rounded-2xl" />
+          ) : analyticsData ? (
+            <CarrierPerformance
+              data={analyticsData.carrierPerformance.data}
+              totalCarriers={analyticsData.carrierPerformance.totalCarriers}
+            />
+          ) : (
+            <div className="bg-card rounded-2xl border border-border/60 p-6 flex items-center justify-center text-muted-foreground">
+              Donnees non disponibles
+            </div>
+          )
         )}
-        <BillingArcCard
-          billing={data.billing}
-          currentMonth={selectedMonth}
-          onGenerateInvoice={handleGenerateInvoice}
-          onDownloadInvoice={handleDownloadInvoice}
-          delay={0.5}
-        />
+        {!isClient && (
+          <BillingArcCard
+            billing={data.billing}
+            currentMonth={selectedMonth}
+            onGenerateInvoice={handleGenerateInvoice}
+            onDownloadInvoice={handleDownloadInvoice}
+            delay={0.5}
+          />
+        )}
       </div>
 
       {/* Section 4: Products Analytics (full width) */}
