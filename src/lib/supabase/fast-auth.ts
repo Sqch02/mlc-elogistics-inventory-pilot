@@ -19,21 +19,21 @@ export async function getFastUser(): Promise<CachedProfile | null> {
   const cookieStore = await cookies()
   const cachedProfile = cookieStore.get('_profile_cache')
 
-  // Check if we have a valid cached profile
-  if (cachedProfile?.value) {
+  // Always verify the auth session first
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  // Check if we have a valid cached profile that matches the current user
+  if (cachedProfile?.value && user) {
     try {
       const profile = JSON.parse(cachedProfile.value) as CachedProfile
-      if (profile.exp > Date.now()) {
+      if (profile.exp > Date.now() && profile.id === user.id) {
         return profile
       }
     } catch {
       // Invalid cache, continue to fetch
     }
   }
-
-  // Need to fetch from DB
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) {
     return null

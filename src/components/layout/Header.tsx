@@ -32,8 +32,9 @@ export function Header({ user }: HeaderProps) {
   const handleLogout = async () => {
     const supabase = createClient()
     await supabase.auth.signOut()
-    // Clear tenant cookie
+    // Clear tenant cookie and profile cache
     document.cookie = 'mlc_active_tenant=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
+    document.cookie = '_profile_cache=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
     router.push('/login')
     router.refresh()
   }
