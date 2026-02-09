@@ -133,10 +133,13 @@ function getDaysProgress(days: number | null) {
 
 export default function AnalyticsPage() {
   const { isClient } = useTenant()
-  // Default to last 12 months to show all historical data
-  const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
-    from: new Date(new Date().getFullYear(), new Date().getMonth() - 11, 1),
-    to: new Date(),
+  // Default to last 3 months of data
+  const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>(() => {
+    const now = new Date()
+    return {
+      from: new Date(now.getFullYear(), now.getMonth() - 2, 1),
+      to: now,
+    }
   })
 
   const { data, isLoading } = useQuery({

@@ -69,6 +69,26 @@ const presets = [
       }
     },
   },
+  {
+    label: '3 derniers mois',
+    getValue: () => {
+      const now = new Date()
+      return {
+        from: startOfDay(new Date(now.getFullYear(), now.getMonth() - 2, 1)),
+        to: endOfDay(now),
+      }
+    },
+  },
+  {
+    label: '12 derniers mois',
+    getValue: () => {
+      const now = new Date()
+      return {
+        from: startOfDay(new Date(now.getFullYear() - 1, now.getMonth(), 1)),
+        to: endOfDay(now),
+      }
+    },
+  },
 ]
 
 export function DateRangePicker({
@@ -114,7 +134,9 @@ export function DateRangePicker({
       }
     }
 
-    return `${format(from, 'd MMM', { locale: fr })} - ${format(to, 'd MMM yyyy', { locale: fr })}`
+    // Show year on from date if it differs from to's year
+    const fromFormat = from.getFullYear() !== to.getFullYear() ? 'd MMM yyyy' : 'd MMM'
+    return `${format(from, fromFormat, { locale: fr })} - ${format(to, 'd MMM yyyy', { locale: fr })}`
   }
 
   return (
@@ -171,7 +193,7 @@ export function DateRangePicker({
             <Calendar
               initialFocus
               mode="range"
-              defaultMonth={from}
+              defaultMonth={to || new Date()}
               selected={tempRange}
               onSelect={setTempRange}
               numberOfMonths={1}

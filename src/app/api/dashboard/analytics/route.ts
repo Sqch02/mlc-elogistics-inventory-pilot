@@ -247,7 +247,7 @@ export async function GET(request: Request) {
         .eq('tenant_id', tenantId),
       adminClient
         .from('shipment_items')
-        .select('sku_id, quantity, shipments!inner(shipped_at)')
+        .select('sku_id, qty, shipments!inner(shipped_at)')
         .eq('tenant_id', tenantId)
         .gte('shipments.shipped_at' as never, ninetyDaysAgo.toISOString()),
     ])
@@ -286,7 +286,7 @@ export async function GET(request: Request) {
     for (const item of (itemsResult.data || []) as any[]) {
       const skuId = item.sku_id
       const existing = consumptionMap.get(skuId) || 0
-      consumptionMap.set(skuId, existing + (item.quantity || 0))
+      consumptionMap.set(skuId, existing + (item.qty || 0))
     }
 
     const stockForecast: StockForecast[] = skus
