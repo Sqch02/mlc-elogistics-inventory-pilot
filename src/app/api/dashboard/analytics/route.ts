@@ -48,6 +48,11 @@ export async function GET(request: Request) {
 
     // Default to last 12 months if no dates provided
     const endDate = to ? new Date(to) : new Date()
+    // Ensure endDate includes the full last day (23:59:59.999 UTC)
+    // new Date('2025-12-31') gives midnight, excluding that day's shipments
+    if (to) {
+      endDate.setUTCHours(23, 59, 59, 999)
+    }
     const startDate = from ? new Date(from) : new Date(endDate.getFullYear(), endDate.getMonth() - 11, 1)
 
     const now = new Date()
@@ -376,14 +381,19 @@ export async function GET(request: Request) {
       }
     }
 
+    console.log('[Analytics] Bundle decomposition:', bundleSkuIds.size, 'bundles,', bundleDecompositionMap.size, 'with components')
+
     for (const item of skuSalesItems) {
       const skuId = item.sku_id
       const itemQty = item.qty || 0
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const skuInfo = item.skus as any
+      const skuCode: string = skuInfo?.sku_code || ''
 
-      // Check if this is a bundle SKU
-      if (bundleSkuIds.has(skuId)) {
+      // Check if this is a bundle SKU (primary: bundleSkuIds set, fallback: SKU code pattern)
+      const isBundle = bundleSkuIds.has(skuId) || skuCode.toUpperCase().includes('BU-')
+
+      if (isBundle) {
         // Decompose bundle into individual component SKUs
         const components = bundleDecompositionMap.get(skuId)
         if (components && components.length > 0) {
@@ -397,12 +407,12 @@ export async function GET(request: Request) {
             )
           }
         }
-        // If bundle has no components defined, skip it entirely
+        // If bundle has no components defined, skip it entirely (don't show bundle as-is)
       } else {
         // Regular individual SKU - count directly
         addToSalesMap(
           skuId,
-          skuInfo?.sku_code || 'Unknown',
+          skuCode || 'Unknown',
           skuInfo?.name || 'Unknown',
           itemQty
         )
