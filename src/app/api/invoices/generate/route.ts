@@ -107,9 +107,10 @@ export async function POST(request: NextRequest) {
     while (hasMore) {
       const { data: shipmentPage, error: shipmentsError } = await supabase
         .from('shipments')
-        .select('id, carrier, weight_grams, pricing_status, computed_cost_eur')
+        .select('id, carrier, weight_grams, pricing_status, computed_cost_eur, status_message')
         .eq('tenant_id', tenantId)
         .eq('is_return', false)
+        .not('status_message', 'in', '("On Hold","Cancelled","Cancelled - customer","Unfulfilled")')
         .gte('shipped_at', startOfMonth.toISOString())
         .lte('shipped_at', endOfMonth.toISOString())
         .range(page * pageSize, (page + 1) * pageSize - 1)
