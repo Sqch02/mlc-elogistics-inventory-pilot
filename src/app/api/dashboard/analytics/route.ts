@@ -342,95 +342,32 @@ export async function GET(request: Request) {
       })
 
     // ===========================================
-    // 4. SKU SALES - fetch only items in date range
+    // 4. SKU SALES - SQL function with bundle decomposition
     // ===========================================
-    const skuSalesItems: { sku_id: string; qty: number; skus: { sku_code: string; name: string } | null }[] = []
-    {
-      let offset = 0
-      let hasMore = true
-      while (hasMore) {
-        const { data, error } = await adminClient
-          .from('shipment_items')
-          .select('sku_id, qty, skus(sku_code, name), shipments!inner(shipped_at)')
-          .eq('tenant_id', tenantId)
-          .gte('shipments.shipped_at' as never, startDate.toISOString())
-          .lte('shipments.shipped_at' as never, endDate.toISOString())
-          .range(offset, offset + 1000 - 1)
+    const { data: skuSalesRaw, error: skuSalesError } = await adminClient.rpc(
+      'analytics_sku_sales' as never,
+      {
+        p_tenant_id: tenantId,
+        p_start_date: startDate.toISOString(),
+        p_end_date: endDate.toISOString(),
+      } as never
+    )
 
-        if (error) throw error
-        if (data && data.length > 0) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          skuSalesItems.push(...(data as any))
-          offset += 1000
-          hasMore = data.length === 1000
-        } else {
-          hasMore = false
-        }
-      }
+    if (skuSalesError) {
+      console.error('[Analytics] SKU sales RPC error:', skuSalesError)
     }
 
-    // Aggregate by SKU with bundle decomposition
-    const skuSalesMap = new Map<string, { sku_code: string; name: string; quantity: number }>()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const skuSalesAll = ((skuSalesRaw || []) as any[]).map((row: { sku_id: string; sku_code: string; name: string; quantity_sold: number }) => ({
+      sku_id: row.sku_id,
+      sku_code: row.sku_code,
+      name: row.name,
+      quantity_sold: Number(row.quantity_sold),
+    }))
 
-    const addToSalesMap = (skuId: string, skuCode: string, name: string, qty: number) => {
-      const existing = skuSalesMap.get(skuId)
-      if (existing) {
-        existing.quantity += qty
-      } else {
-        skuSalesMap.set(skuId, { sku_code: skuCode, name, quantity: qty })
-      }
-    }
-
-    console.log('[Analytics] Bundle decomposition:', bundleSkuIds.size, 'bundles,', bundleDecompositionMap.size, 'with components')
-
-    for (const item of skuSalesItems) {
-      const skuId = item.sku_id
-      const itemQty = item.qty || 0
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const skuInfo = item.skus as any
-      const skuCode: string = skuInfo?.sku_code || ''
-
-      // Check if this is a bundle SKU (primary: bundleSkuIds set, fallback: SKU code pattern)
-      const isBundle = bundleSkuIds.has(skuId) || skuCode.toUpperCase().includes('BU-')
-
-      if (isBundle) {
-        // Decompose bundle into individual component SKUs
-        const components = bundleDecompositionMap.get(skuId)
-        if (components && components.length > 0) {
-          for (const comp of components) {
-            const compInfo = skuInfoMap.get(comp.component_sku_id)
-            addToSalesMap(
-              comp.component_sku_id,
-              compInfo?.sku_code || 'Unknown',
-              compInfo?.name || 'Unknown',
-              itemQty * comp.qty_component
-            )
-          }
-        }
-        // If bundle has no components defined, skip it entirely (don't show bundle as-is)
-      } else {
-        // Regular individual SKU - count directly
-        addToSalesMap(
-          skuId,
-          skuCode || 'Unknown',
-          skuInfo?.name || 'Unknown',
-          itemQty
-        )
-      }
-    }
-
-    const skuSalesData: SkuSalesData[] = Array.from(skuSalesMap.entries())
-      .map(([sku_id, data]) => ({
-        sku_id,
-        sku_code: data.sku_code,
-        name: data.name,
-        quantity_sold: data.quantity,
-      }))
-      .sort((a, b) => b.quantity_sold - a.quantity_sold)
-      .slice(0, 10)
-
-    const totalSkusSold = skuSalesMap.size
-    const totalQuantitySold = Array.from(skuSalesMap.values()).reduce((sum, s) => sum + s.quantity, 0)
+    const skuSalesData: SkuSalesData[] = skuSalesAll.slice(0, 10)
+    const totalSkusSold = skuSalesAll.length
+    const totalQuantitySold = skuSalesAll.reduce((sum: number, s: { quantity_sold: number }) => sum + s.quantity_sold, 0)
 
     // ===========================================
     // 5. SUMMARY STATS
