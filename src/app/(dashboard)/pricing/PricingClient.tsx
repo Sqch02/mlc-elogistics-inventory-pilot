@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Download, DollarSign, Truck, AlertTriangle, CheckCircle, Loader2, Plus, MoreHorizontal, Pencil, Trash2, Upload } from 'lucide-react'
 import { usePricing, useCreatePricingRule, useUpdatePricingRule, useDeletePricingRule, PricingRule, DESTINATION_LABELS } from '@/hooks/usePricing'
+import { useTenant } from '@/components/providers/TenantProvider'
 import { useCarriers } from '@/hooks/useShipments'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
@@ -44,6 +45,7 @@ export function PricingClient() {
   // Filter states
   const [filterDestination, setFilterDestination] = useState<string>('all')
 
+  const { isClient } = useTenant()
   const { data, isLoading, isFetching, refetch } = usePricing()
   const { data: shipmentCarriers = [] } = useCarriers()
 
@@ -208,18 +210,22 @@ export function PricingClient() {
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
-            <Upload className="mr-2 h-4 w-4" />
-            Importer
-          </Button>
+          {!isClient && (
+            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+              <Upload className="mr-2 h-4 w-4" />
+              Importer
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={handleExport} disabled={isExporting}>
             {isExporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
             Export
           </Button>
-          <Button size="sm" onClick={openCreate}>
-            <Plus className="mr-2 h-4 w-4" />
-            Nouvelle regle
-          </Button>
+          {!isClient && (
+            <Button size="sm" onClick={openCreate}>
+              <Plus className="mr-2 h-4 w-4" />
+              Nouvelle regle
+            </Button>
+          )}
         </div>
       </div>
 
@@ -314,25 +320,27 @@ export function PricingClient() {
                       <TableCell className="text-right font-medium whitespace-nowrap">
                         {rule.price_eur.toFixed(2)} EUR
                       </TableCell>
-                      <TableCell className="pr-4 lg:pr-6">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => openEdit(rule)}>
-                              <Pencil className="mr-2 h-4 w-4" />
-                              Modifier
-                            </DropdownMenuItem>
-                            <DropdownMenuItem className="text-error" onClick={() => openDelete(rule)}>
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Supprimer
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
+                      {!isClient && (
+                        <TableCell className="pr-4 lg:pr-6">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openEdit(rule)}>
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Modifier
+                              </DropdownMenuItem>
+                              <DropdownMenuItem className="text-error" onClick={() => openDelete(rule)}>
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Supprimer
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      )}
                     </TableRow>
                   )
                 })}

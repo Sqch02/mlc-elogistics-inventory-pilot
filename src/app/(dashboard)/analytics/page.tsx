@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { subDays, format } from 'date-fns'
+import { format } from 'date-fns'
 import { DateRangePicker } from '@/components/ui/date-range-picker'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -21,6 +21,7 @@ import {
   Clock,
 } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
+import { useTenant } from '@/components/providers/TenantProvider'
 
 interface AnalyticsData {
   costTrend: {
@@ -131,8 +132,10 @@ function getDaysProgress(days: number | null) {
 }
 
 export default function AnalyticsPage() {
+  const { isClient } = useTenant()
+  // Default to last 12 months to show all historical data
   const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
-    from: subDays(new Date(), 29),
+    from: new Date(new Date().getFullYear(), new Date().getMonth() - 11, 1),
     to: new Date(),
   })
 
@@ -181,7 +184,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* KPI Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className={`grid grid-cols-2 ${isClient ? 'lg:grid-cols-2' : 'lg:grid-cols-4'} gap-4`}>
         <Card className="shadow-sm">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
@@ -197,43 +200,47 @@ export default function AnalyticsPage() {
           </CardContent>
         </Card>
 
-        <Card className="shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground font-medium uppercase">Cout total</p>
-                <p className="text-2xl font-bold">{formatEuro(ytdCost)}</p>
-                <TrendBadge value={data.costTrend.percentChange} inverse />
+        {!isClient && (
+          <Card className="shadow-sm">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground font-medium uppercase">Cout total</p>
+                  <p className="text-2xl font-bold">{formatEuro(ytdCost)}</p>
+                  <TrendBadge value={data.costTrend.percentChange} inverse />
+                </div>
+                <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
+                  <Euro className="h-5 w-5" />
+                </div>
               </div>
-              <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
-                <Euro className="h-5 w-5" />
+            </CardContent>
+          </Card>
+        )}
+
+        {!isClient && (
+          <Card className="shadow-sm">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground font-medium uppercase">Cout moyen / exp.</p>
+                  <p className="text-2xl font-bold">{formatEuro(avgCostPerShipment)}</p>
+                  <p className="text-xs text-muted-foreground">sur la periode</p>
+                </div>
+                <div className="p-2 bg-emerald-100 rounded-lg text-emerald-600">
+                  <Package className="h-5 w-5" />
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
         <Card className="shadow-sm">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground font-medium uppercase">Cout moyen / exp.</p>
-                <p className="text-2xl font-bold">{formatEuro(avgCostPerShipment)}</p>
-                <p className="text-xs text-muted-foreground">sur la periode</p>
-              </div>
-              <div className="p-2 bg-emerald-100 rounded-lg text-emerald-600">
-                <Package className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground font-medium uppercase">Indemnites</p>
-                <p className="text-2xl font-bold">{formatEuro(ytdIndemnity)}</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground font-medium uppercase">{isClient ? 'Reclamations' : 'Indemnites'}</p>
+                {!isClient && <p className="text-2xl font-bold">{formatEuro(ytdIndemnity)}</p>}
+                <p className={isClient ? 'text-2xl font-bold' : 'text-xs text-muted-foreground'}>
                   {data.costTrend.data.reduce((sum, m) => sum + m.claims, 0)} reclamations
                 </p>
               </div>
@@ -246,18 +253,20 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <CostTrendChart
-          data={data.costTrend.data}
-          percentChange={data.costTrend.percentChange}
-          shipmentsPercentChange={data.costTrend.shipmentsPercentChange}
-        />
+      {!isClient && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <CostTrendChart
+            data={data.costTrend.data}
+            percentChange={data.costTrend.percentChange}
+            shipmentsPercentChange={data.costTrend.shipmentsPercentChange}
+          />
 
-        <CarrierPerformance
-          data={data.carrierPerformance.data}
-          totalCarriers={data.carrierPerformance.totalCarriers}
-        />
-      </div>
+          <CarrierPerformance
+            data={data.carrierPerformance.data}
+            totalCarriers={data.carrierPerformance.totalCarriers}
+          />
+        </div>
+      )}
 
       {/* SKU Sales Chart */}
       <SkuSalesChart

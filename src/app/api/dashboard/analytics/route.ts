@@ -2,80 +2,6 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireTenant } from '@/lib/supabase/auth'
 
-// Fetch shipments for a date range with pagination (bypasses 1000 row limit)
-async function fetchShipmentsInRange(
-  tenantId: string,
-  startDate: Date,
-  endDate: Date
-): Promise<{ id: string; computed_cost_eur: number | null }[]> {
-  const adminClient = createAdminClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = adminClient as any
-  const allRows: { id: string; computed_cost_eur: number | null }[] = []
-  const pageSize = 1000
-  let offset = 0
-  let hasMore = true
-
-  while (hasMore) {
-    const { data, error } = await db
-      .from('shipments')
-      .select('id, computed_cost_eur')
-      .eq('tenant_id', tenantId)
-      .eq('is_return', false)
-      .gte('shipped_at', startDate.toISOString())
-      .lte('shipped_at', endDate.toISOString())
-      .range(offset, offset + pageSize - 1)
-
-    if (error) throw error
-
-    if (data && data.length > 0) {
-      allRows.push(...data)
-      offset += pageSize
-      hasMore = data.length === pageSize
-    } else {
-      hasMore = false
-    }
-  }
-
-  return allRows
-}
-
-// Fetch all shipments for carrier stats with pagination
-async function fetchRecentShipments(
-  tenantId: string,
-  sinceDate: Date
-): Promise<{ id: string; carrier: string; computed_cost_eur: number | null }[]> {
-  const adminClient = createAdminClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = adminClient as any
-  const allRows: { id: string; carrier: string; computed_cost_eur: number | null }[] = []
-  const pageSize = 1000
-  let offset = 0
-  let hasMore = true
-
-  while (hasMore) {
-    const { data, error } = await db
-      .from('shipments')
-      .select('id, carrier, computed_cost_eur')
-      .eq('tenant_id', tenantId)
-      .eq('is_return', false)
-      .gte('shipped_at', sinceDate.toISOString())
-      .range(offset, offset + pageSize - 1)
-
-    if (error) throw error
-
-    if (data && data.length > 0) {
-      allRows.push(...data)
-      offset += pageSize
-      hasMore = data.length === pageSize
-    } else {
-      hasMore = false
-    }
-  }
-
-  return allRows
-}
-
 interface MonthlyData {
   month: string
   shipments: number
@@ -111,19 +37,10 @@ interface SkuSalesData {
   quantity_sold: number
 }
 
-interface SkuRow {
-  id: string
-  sku_code: string
-  name: string
-  alert_threshold: number | null
-}
-
 export async function GET(request: Request) {
   try {
     const tenantId = await requireTenant()
     const adminClient = createAdminClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const supabase = adminClient as any
 
     const { searchParams } = new URL(request.url)
     const from = searchParams.get('from')
@@ -136,58 +53,138 @@ export async function GET(request: Request) {
     const now = new Date()
 
     // ===========================================
-    // 1. COST TREND: Based on date range
+    // 1. COST TREND: Single aggregated query
     // ===========================================
-    const monthlyData: MonthlyData[] = []
+    const { data: monthlyShipments, error: monthlyError } = await adminClient.rpc(
+      'analytics_monthly_shipments' as never,
+      {
+        p_tenant_id: tenantId,
+        p_start_date: startDate.toISOString(),
+        p_end_date: endDate.toISOString(),
+      } as never
+    )
 
-    // Calculate months between startDate and endDate
-    const startYear = startDate.getFullYear()
-    const startMonth = startDate.getMonth()
-    const endYear = endDate.getFullYear()
-    const endMonth = endDate.getMonth()
-    const totalMonths = (endYear - startYear) * 12 + (endMonth - startMonth) + 1
+    // Fallback: direct query if RPC doesn't exist
+    let monthlyData: MonthlyData[] = []
 
-    for (let i = 0; i < totalMonths; i++) {
-      const date = new Date(startYear, startMonth + i, 1)
-      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-      const startOfMonth = new Date(date.getFullYear(), date.getMonth(), 1)
-      const endOfMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999)
+    if (monthlyError || !monthlyShipments) {
+      // Use direct SQL-like approach with Supabase
+      // Fetch all shipments in the range in one go (paginated)
+      const allShipments: { shipped_at: string; computed_cost_eur: number | null }[] = []
+      const pageSize = 1000
+      let offset = 0
+      let hasMore = true
 
-      // Get shipments for this month (with pagination to bypass 1000 limit)
-      const shipments = await fetchShipmentsInRange(tenantId, startOfMonth, endOfMonth)
+      while (hasMore) {
+        const { data, error } = await adminClient
+          .from('shipments')
+          .select('shipped_at, computed_cost_eur')
+          .eq('tenant_id', tenantId)
+          .eq('is_return', false)
+          .gte('shipped_at', startDate.toISOString())
+          .lte('shipped_at', endDate.toISOString())
+          .range(offset, offset + pageSize - 1)
 
-      // Get claims decided this month
-      const { data: claims } = await supabase
+        if (error) throw error
+        if (data && data.length > 0) {
+          allShipments.push(...data)
+          offset += pageSize
+          hasMore = data.length === pageSize
+        } else {
+          hasMore = false
+        }
+      }
+
+      // Fetch all claims in the range in one go
+      const { data: allClaims } = await adminClient
         .from('claims')
-        .select('id, indemnity_eur')
+        .select('decided_at, indemnity_eur')
         .eq('tenant_id', tenantId)
         .eq('status', 'indemnisee')
-        .gte('decided_at', startOfMonth.toISOString())
-        .lte('decided_at', endOfMonth.toISOString())
+        .gte('decided_at', startDate.toISOString())
+        .lte('decided_at', endDate.toISOString())
 
-      const shipmentCount = shipments?.length || 0
-      const totalCost = shipments?.reduce((sum: number, s: { computed_cost_eur: number | null }) => sum + (Number(s.computed_cost_eur) || 0), 0) || 0
-      const claimCount = claims?.length || 0
-      const totalIndemnity = claims?.reduce((sum: number, c: { indemnity_eur: number | null }) => sum + (Number(c.indemnity_eur) || 0), 0) || 0
+      // Group shipments by month in-memory
+      const shipmentsByMonth = new Map<string, { count: number; cost: number }>()
+      for (const s of allShipments) {
+        if (!s.shipped_at) continue
+        const d = new Date(s.shipped_at)
+        const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+        const existing = shipmentsByMonth.get(key) || { count: 0, cost: 0 }
+        existing.count++
+        existing.cost += Number(s.computed_cost_eur) || 0
+        shipmentsByMonth.set(key, existing)
+      }
 
-      monthlyData.push({
-        month: monthKey,
-        shipments: shipmentCount,
-        cost: Math.round(totalCost * 100) / 100,
-        claims: claimCount,
-        indemnity: Math.round(totalIndemnity * 100) / 100,
-      })
+      // Group claims by month in-memory
+      const claimsByMonth = new Map<string, { count: number; indemnity: number }>()
+      for (const c of (allClaims || []) as { decided_at: string | null; indemnity_eur: number | null }[]) {
+        if (!c.decided_at) continue
+        const d = new Date(c.decided_at)
+        const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+        const existing = claimsByMonth.get(key) || { count: 0, indemnity: 0 }
+        existing.count++
+        existing.indemnity += Number(c.indemnity_eur) || 0
+        claimsByMonth.set(key, existing)
+      }
+
+      // Build monthly data array
+      const startYear = startDate.getFullYear()
+      const startMonth = startDate.getMonth()
+      const endYear = endDate.getFullYear()
+      const endMonth = endDate.getMonth()
+      const totalMonths = (endYear - startYear) * 12 + (endMonth - startMonth) + 1
+
+      for (let i = 0; i < totalMonths; i++) {
+        const date = new Date(startYear, startMonth + i, 1)
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+        const shipData = shipmentsByMonth.get(monthKey) || { count: 0, cost: 0 }
+        const claimData = claimsByMonth.get(monthKey) || { count: 0, indemnity: 0 }
+
+        monthlyData.push({
+          month: monthKey,
+          shipments: shipData.count,
+          cost: Math.round(shipData.cost * 100) / 100,
+          claims: claimData.count,
+          indemnity: Math.round(claimData.indemnity * 100) / 100,
+        })
+      }
+    } else {
+      // RPC returned data
+      monthlyData = (monthlyShipments as MonthlyData[]) || []
     }
 
     // ===========================================
-    // 2. CARRIER PERFORMANCE
+    // 2. CARRIER PERFORMANCE (last 90 days)
     // ===========================================
-    // Get all shipments from the last 90 days for carrier stats (with pagination)
     const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
 
-    const recentShipments = await fetchRecentShipments(tenantId, ninetyDaysAgo)
+    // Fetch all recent shipments in one paginated pass
+    const recentShipments: { carrier: string; computed_cost_eur: number | null }[] = []
+    {
+      let offset = 0
+      let hasMore = true
+      while (hasMore) {
+        const { data, error } = await adminClient
+          .from('shipments')
+          .select('carrier, computed_cost_eur')
+          .eq('tenant_id', tenantId)
+          .eq('is_return', false)
+          .gte('shipped_at', ninetyDaysAgo.toISOString())
+          .range(offset, offset + 1000 - 1)
 
-    const { data: recentClaims } = await supabase
+        if (error) throw error
+        if (data && data.length > 0) {
+          recentShipments.push(...data)
+          offset += 1000
+          hasMore = data.length === 1000
+        } else {
+          hasMore = false
+        }
+      }
+    }
+
+    const { data: recentClaims } = await adminClient
       .from('claims')
       .select('shipment_id, shipments!inner(carrier)')
       .eq('tenant_id', tenantId)
@@ -196,7 +193,7 @@ export async function GET(request: Request) {
     // Group by carrier
     const carrierMap = new Map<string, { shipments: number; cost: number; claims: number }>()
 
-    for (const shipment of recentShipments || []) {
+    for (const shipment of recentShipments) {
       const carrier = (shipment.carrier || 'unknown').toLowerCase()
       const existing = carrierMap.get(carrier) || { shipments: 0, cost: 0, claims: 0 }
       carrierMap.set(carrier, {
@@ -206,10 +203,9 @@ export async function GET(request: Request) {
       })
     }
 
-    // Add claims count by carrier
-    for (const claim of recentClaims || []) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const shipment = claim.shipments as any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const claim of (recentClaims || []) as any[]) {
+      const shipment = claim.shipments
       const carrier = (shipment?.carrier || 'unknown').toLowerCase()
       const existing = carrierMap.get(carrier)
       if (existing) {
@@ -224,59 +220,79 @@ export async function GET(request: Request) {
         totalCost: Math.round(stats.cost * 100) / 100,
         avgCost: stats.shipments > 0 ? Math.round((stats.cost / stats.shipments) * 100) / 100 : 0,
         claims: stats.claims,
-        claimRate: stats.shipments > 0 ? Math.round((stats.claims / stats.shipments) * 10000) / 100 : 0, // percentage
+        claimRate: stats.shipments > 0 ? Math.round((stats.claims / stats.shipments) * 10000) / 100 : 0,
       }))
       .sort((a, b) => b.shipments - a.shipments)
 
     // ===========================================
-    // 3. STOCK FORECAST
+    // 3. STOCK FORECAST (parallel queries)
     // ===========================================
-    // Get all SKUs with their stock
-    const { data: skus } = await supabase
-      .from('skus')
-      .select('id, sku_code, name, alert_threshold')
-      .eq('tenant_id', tenantId)
-      .eq('active', true)
+    const [skusResult, stockResult, bundlesResult, bundleComponentsResult, itemsResult] = await Promise.all([
+      adminClient
+        .from('skus')
+        .select('id, sku_code, name, alert_threshold')
+        .eq('tenant_id', tenantId)
+        .eq('active', true),
+      adminClient
+        .from('stock_snapshots')
+        .select('sku_id, qty_current')
+        .eq('tenant_id', tenantId),
+      adminClient
+        .from('bundles')
+        .select('bundle_sku_id')
+        .eq('tenant_id', tenantId),
+      adminClient
+        .from('bundle_components')
+        .select('bundle_id, component_sku_id, qty_component, bundles!inner(bundle_sku_id), skus!bundle_components_component_sku_id_fkey(sku_code, name)')
+        .eq('tenant_id', tenantId),
+      adminClient
+        .from('shipment_items')
+        .select('sku_id, quantity, shipments!inner(shipped_at)')
+        .eq('tenant_id', tenantId)
+        .gte('shipments.shipped_at' as never, ninetyDaysAgo.toISOString()),
+    ])
 
-    const { data: stockSnapshots } = await supabase
-      .from('stock_snapshots')
-      .select('sku_id, qty_current')
-      .eq('tenant_id', tenantId)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const skus = (skusResult.data || []) as any[]
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const bundleSkuIds = new Set(((bundlesResult.data || []) as any[]).map((b) => b.bundle_sku_id as string))
 
-    // Get bundle SKU IDs to exclude
-    const { data: bundles } = await supabase
-      .from('bundles')
-      .select('bundle_sku_id')
-      .eq('tenant_id', tenantId)
+    // Build bundle decomposition map: bundle_sku_id -> components[]
+    const bundleDecompositionMap = new Map<string, Array<{ component_sku_id: string; qty_component: number; sku_code: string; name: string }>>()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const comp of (bundleComponentsResult.data || []) as any[]) {
+      const bundleSkuId = comp.bundles?.bundle_sku_id as string
+      if (!bundleSkuId) continue
+      const components = bundleDecompositionMap.get(bundleSkuId) || []
+      components.push({
+        component_sku_id: comp.component_sku_id,
+        qty_component: comp.qty_component || 1,
+        sku_code: comp.skus?.sku_code || 'Unknown',
+        name: comp.skus?.name || 'Unknown',
+      })
+      bundleDecompositionMap.set(bundleSkuId, components)
+    }
 
-    const bundleSkuIds = new Set((bundles || []).map((b: { bundle_sku_id: string }) => b.bundle_sku_id))
+    // Build stock map
+    const stockMap = new Map<string, number>()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const snapshot of (stockResult.data || []) as any[]) {
+      stockMap.set(snapshot.sku_id, snapshot.qty_current || 0)
+    }
 
-    // Get shipment consumption over last 90 days
-    const { data: shipmentItems } = await supabase
-      .from('shipment_items')
-      .select('sku_id, quantity, shipments!inner(shipped_at)')
-      .eq('tenant_id', tenantId)
-      .gte('shipments.shipped_at', ninetyDaysAgo.toISOString())
-
-    // Calculate average daily consumption per SKU
+    // Calculate consumption
     const consumptionMap = new Map<string, number>()
-    for (const item of shipmentItems || []) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const item of (itemsResult.data || []) as any[]) {
       const skuId = item.sku_id
       const existing = consumptionMap.get(skuId) || 0
       consumptionMap.set(skuId, existing + (item.quantity || 0))
     }
 
-    // Build stock snapshots map
-    const stockMap = new Map<string, number>()
-    for (const snapshot of stockSnapshots || []) {
-      stockMap.set(snapshot.sku_id, snapshot.qty_current || 0)
-    }
-
-    // Calculate forecast for each SKU
-    const stockForecast: StockForecast[] = ((skus || []) as SkuRow[])
-      .filter((sku: SkuRow) => !bundleSkuIds.has(sku.id)) // Exclude bundles
-      .filter((sku: SkuRow) => !sku.sku_code.toUpperCase().includes('BU-')) // Exclude bundle codes
-      .map((sku: SkuRow) => {
+    const stockForecast: StockForecast[] = skus
+      .filter((sku: { id: string }) => !bundleSkuIds.has(sku.id))
+      .filter((sku: { sku_code: string }) => !sku.sku_code.toUpperCase().includes('BU-'))
+      .map((sku: { id: string; sku_code: string; name: string; alert_threshold: number | null }) => {
         const currentStock = stockMap.get(sku.id) || 0
         const totalConsumption = consumptionMap.get(sku.id) || 0
         const avgDailyConsumption = totalConsumption / 90
@@ -301,9 +317,8 @@ export async function GET(request: Request) {
           alert_threshold: sku.alert_threshold || 10,
         }
       })
-      .filter(sku => sku.current_stock > 0 || sku.avg_daily_consumption > 0) // Only active SKUs
-      .sort((a, b) => {
-        // Sort by days remaining (null = infinite), then by stock
+      .filter((sku: StockForecast) => sku.current_stock > 0 || sku.avg_daily_consumption > 0)
+      .sort((a: StockForecast, b: StockForecast) => {
         if (a.days_remaining === null && b.days_remaining === null) return a.current_stock - b.current_stock
         if (a.days_remaining === null) return 1
         if (b.days_remaining === null) return -1
@@ -311,43 +326,73 @@ export async function GET(request: Request) {
       })
 
     // ===========================================
-    // 4. SKU SALES (based on date range)
+    // 4. SKU SALES - fetch only items in date range
     // ===========================================
-    // Get shipment items with their shipments in the date range
-    // Note: Supabase doesn't support filtering on joined tables well, so we fetch and filter
-    const { data: skuSalesItems } = await supabase
-      .from('shipment_items')
-      .select('sku_id, qty, skus(sku_code, name), shipments(shipped_at)')
-      .eq('tenant_id', tenantId)
+    const skuSalesItems: { sku_id: string; qty: number; skus: { sku_code: string; name: string } | null }[] = []
+    {
+      let offset = 0
+      let hasMore = true
+      while (hasMore) {
+        const { data, error } = await adminClient
+          .from('shipment_items')
+          .select('sku_id, qty, skus(sku_code, name), shipments!inner(shipped_at)')
+          .eq('tenant_id', tenantId)
+          .gte('shipments.shipped_at' as never, startDate.toISOString())
+          .lte('shipments.shipped_at' as never, endDate.toISOString())
+          .range(offset, offset + 1000 - 1)
 
-    // Filter by date range and aggregate by SKU
-    const skuSalesMap = new Map<string, { sku_code: string; name: string; quantity: number }>()
-    for (const item of skuSalesItems || []) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const shipmentData = item.shipments as any
-      const shippedAt = shipmentData?.shipped_at
-
-      // Filter by date range
-      if (!shippedAt) continue
-      const shipDate = new Date(shippedAt)
-      if (shipDate < startDate || shipDate > endDate) continue
-
-      const skuId = item.sku_id
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const skuInfo = item.skus as any
-      const existing = skuSalesMap.get(skuId)
-      if (existing) {
-        existing.quantity += item.qty || 0
-      } else {
-        skuSalesMap.set(skuId, {
-          sku_code: skuInfo?.sku_code || 'Unknown',
-          name: skuInfo?.name || 'Unknown',
-          quantity: item.qty || 0,
-        })
+        if (error) throw error
+        if (data && data.length > 0) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          skuSalesItems.push(...(data as any))
+          offset += 1000
+          hasMore = data.length === 1000
+        } else {
+          hasMore = false
+        }
       }
     }
 
-    // Convert to sorted array (top 10)
+    // Aggregate by SKU with bundle decomposition
+    const skuSalesMap = new Map<string, { sku_code: string; name: string; quantity: number }>()
+
+    const addToSalesMap = (skuId: string, skuCode: string, name: string, qty: number) => {
+      const existing = skuSalesMap.get(skuId)
+      if (existing) {
+        existing.quantity += qty
+      } else {
+        skuSalesMap.set(skuId, { sku_code: skuCode, name, quantity: qty })
+      }
+    }
+
+    for (const item of skuSalesItems) {
+      const skuId = item.sku_id
+      const itemQty = item.qty || 0
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const skuInfo = item.skus as any
+      const components = bundleDecompositionMap.get(skuId)
+
+      if (components && components.length > 0) {
+        // Decompose bundle into individual components
+        for (const comp of components) {
+          addToSalesMap(
+            comp.component_sku_id,
+            comp.sku_code,
+            comp.name,
+            itemQty * comp.qty_component
+          )
+        }
+      } else {
+        // Regular SKU - count directly
+        addToSalesMap(
+          skuId,
+          skuInfo?.sku_code || 'Unknown',
+          skuInfo?.name || 'Unknown',
+          itemQty
+        )
+      }
+    }
+
     const skuSalesData: SkuSalesData[] = Array.from(skuSalesMap.entries())
       .map(([sku_id, data]) => ({
         sku_id,
@@ -365,7 +410,7 @@ export async function GET(request: Request) {
     // 5. SUMMARY STATS
     // ===========================================
     const currentMonthData = monthlyData[monthlyData.length - 1]
-    const previousMonthData = monthlyData[monthlyData.length - 2]
+    const previousMonthData = monthlyData.length >= 2 ? monthlyData[monthlyData.length - 2] : null
 
     const costTrend = previousMonthData && previousMonthData.cost > 0
       ? Math.round(((currentMonthData.cost - previousMonthData.cost) / previousMonthData.cost) * 100)
@@ -375,7 +420,7 @@ export async function GET(request: Request) {
       ? Math.round(((currentMonthData.shipments - previousMonthData.shipments) / previousMonthData.shipments) * 100)
       : 0
 
-    const criticalStockCount = stockForecast.filter(s =>
+    const criticalStockCount = stockForecast.filter((s: StockForecast) =>
       s.days_remaining !== null && s.days_remaining < 30
     ).length
 
@@ -393,7 +438,7 @@ export async function GET(request: Request) {
         topCarrier: carrierStats[0] || null,
       },
       stockForecast: {
-        data: stockForecast.slice(0, 20), // Top 20 most urgent
+        data: stockForecast.slice(0, 20),
         criticalCount: criticalStockCount,
         totalTracked: stockForecast.length,
       },
@@ -405,7 +450,7 @@ export async function GET(request: Request) {
       generatedAt: new Date().toISOString(),
     }, {
       headers: {
-        'Cache-Control': 'private, max-age=300, stale-while-revalidate=600', // 5 min cache
+        'Cache-Control': 'private, max-age=300, stale-while-revalidate=600',
       },
     })
   } catch (error) {

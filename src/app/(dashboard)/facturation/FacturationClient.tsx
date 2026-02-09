@@ -12,6 +12,7 @@ import { FileText, Receipt, Euro, AlertTriangle, CheckCircle, Loader2, MoreHoriz
 import { useInvoices, useGenerateInvoice, useUpdateInvoiceStatus, useDeleteInvoice, Invoice } from '@/hooks/useInvoices'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ExportInvoicesButton, AccountingExportButton } from './FacturationActions'
+import { useTenant } from '@/components/providers/TenantProvider'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { downloadInvoicePDF, formatInvoiceNumber, type InvoicePDFData } from '@/lib/utils/invoice-pdf'
 import { toast } from 'sonner'
@@ -69,6 +70,7 @@ export function FacturationClient() {
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null)
   const [expandedInvoices, setExpandedInvoices] = useState<Set<string>>(new Set())
 
+  const { isClient } = useTenant()
   const { data, isLoading, isFetching } = useInvoices()
 
   // Load company settings for PDF generation
@@ -293,26 +295,30 @@ export function FacturationClient() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <ExportInvoicesButton />
-          <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Choisir un mois" />
-            </SelectTrigger>
-            <SelectContent>
-              {monthOptions.map(opt => (
-                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            variant="default"
-            size="sm"
-            onClick={handleGenerate}
-            disabled={!selectedMonth || generateMutation.isPending}
-          >
-            {generateMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
-            Générer
-          </Button>
+          {!isClient && <ExportInvoicesButton />}
+          {!isClient && (
+            <>
+              <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Choisir un mois" />
+                </SelectTrigger>
+                <SelectContent>
+                  {monthOptions.map(opt => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleGenerate}
+                disabled={!selectedMonth || generateMutation.isPending}
+              >
+                {generateMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+                Générer
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -505,35 +511,39 @@ export function FacturationClient() {
                               <Calculator className="mr-2 h-4 w-4" />
                               Export Sage CSV
                             </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            {inv.status === 'draft' && (
-                              <DropdownMenuItem onClick={() => handleUpdateStatus(inv.id, 'sent')}>
-                                <Send className="mr-2 h-4 w-4" />
-                                Marquer envoyée
-                              </DropdownMenuItem>
-                            )}
-                            {inv.status === 'sent' && (
-                              <DropdownMenuItem onClick={() => handleUpdateStatus(inv.id, 'paid')}>
-                                <CreditCard className="mr-2 h-4 w-4" />
-                                Marquer payée
-                              </DropdownMenuItem>
-                            )}
-                            {inv.status !== 'draft' && inv.status !== 'paid' && (
-                              <DropdownMenuItem onClick={() => handleUpdateStatus(inv.id, 'draft')}>
-                                <FileText className="mr-2 h-4 w-4" />
-                                Remettre en brouillon
-                              </DropdownMenuItem>
-                            )}
-                            {inv.status === 'draft' && (
+                            {!isClient && (
                               <>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  className="text-destructive focus:text-destructive"
-                                  onClick={() => handleDelete(inv)}
-                                >
-                                  <Trash2 className="mr-2 h-4 w-4" />
-                                  Supprimer
-                                </DropdownMenuItem>
+                                {inv.status === 'draft' && (
+                                  <DropdownMenuItem onClick={() => handleUpdateStatus(inv.id, 'sent')}>
+                                    <Send className="mr-2 h-4 w-4" />
+                                    Marquer envoyée
+                                  </DropdownMenuItem>
+                                )}
+                                {inv.status === 'sent' && (
+                                  <DropdownMenuItem onClick={() => handleUpdateStatus(inv.id, 'paid')}>
+                                    <CreditCard className="mr-2 h-4 w-4" />
+                                    Marquer payée
+                                  </DropdownMenuItem>
+                                )}
+                                {inv.status !== 'draft' && inv.status !== 'paid' && (
+                                  <DropdownMenuItem onClick={() => handleUpdateStatus(inv.id, 'draft')}>
+                                    <FileText className="mr-2 h-4 w-4" />
+                                    Remettre en brouillon
+                                  </DropdownMenuItem>
+                                )}
+                                {inv.status === 'draft' && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      className="text-destructive focus:text-destructive"
+                                      onClick={() => handleDelete(inv)}
+                                    >
+                                      <Trash2 className="mr-2 h-4 w-4" />
+                                      Supprimer
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
                               </>
                             )}
                           </DropdownMenuContent>

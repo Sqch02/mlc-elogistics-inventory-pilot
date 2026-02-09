@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Save, RefreshCw, Upload, User, Package, MapPin, DollarSign, Boxes, Truck, Loader2, CheckCircle, Clock, Building2 } from 'lucide-react'
 import { UploadCSV } from '@/components/forms/UploadCSV'
 import { toast } from 'sonner'
+import { useTenant } from '@/components/providers/TenantProvider'
 
 interface UserProfile {
   id: string
@@ -41,6 +42,7 @@ interface ParametresClientProps {
 
 export function ParametresClient({ profile }: ParametresClientProps) {
   const router = useRouter()
+  const { isClient } = useTenant()
   const [activeTab, setActiveTab] = useState('profil')
   const [isSaving, setIsSaving] = useState(false)
   const [fullName, setFullName] = useState(profile.full_name || '')
@@ -299,23 +301,29 @@ export function ParametresClient({ profile }: ParametresClientProps) {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4 lg:w-[500px]">
+        <TabsList className={`grid w-full ${isClient ? 'grid-cols-1 lg:w-[200px]' : 'grid-cols-4 lg:w-[500px]'}`}>
           <TabsTrigger value="profil" className="flex items-center gap-2">
             <User className="h-4 w-4" />
             Profil
           </TabsTrigger>
-          <TabsTrigger value="societe" className="flex items-center gap-2">
-            <Building2 className="h-4 w-4" />
-            Societe
-          </TabsTrigger>
-          <TabsTrigger value="import" className="flex items-center gap-2">
-            <Upload className="h-4 w-4" />
-            Import
-          </TabsTrigger>
-          <TabsTrigger value="sync" className="flex items-center gap-2">
-            <RefreshCw className="h-4 w-4" />
-            Sync
-          </TabsTrigger>
+          {!isClient && (
+            <TabsTrigger value="societe" className="flex items-center gap-2">
+              <Building2 className="h-4 w-4" />
+              Societe
+            </TabsTrigger>
+          )}
+          {!isClient && (
+            <TabsTrigger value="import" className="flex items-center gap-2">
+              <Upload className="h-4 w-4" />
+              Import
+            </TabsTrigger>
+          )}
+          {!isClient && (
+            <TabsTrigger value="sync" className="flex items-center gap-2">
+              <RefreshCw className="h-4 w-4" />
+              Sync
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* Profil Tab */}

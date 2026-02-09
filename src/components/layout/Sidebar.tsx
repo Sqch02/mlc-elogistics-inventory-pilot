@@ -18,6 +18,7 @@ import {
   Menu,
   X,
   BarChart3,
+  PackagePlus,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -26,7 +27,7 @@ import { Button } from '@/components/ui/button'
 import { features } from '@/lib/config/features'
 
 // Menus hidden for client role (brand users)
-const clientHiddenMenus = ['/analytics', '/emplacements', '/pricing', '/facturation', '/parametres']
+const clientHiddenMenus = ['/emplacements']
 
 // Base navigation items
 const baseNavigation = [
@@ -36,6 +37,7 @@ const baseNavigation = [
   { name: 'Retours', href: '/retours', icon: RotateCcw, feature: 'returnsModule' as const },
   { name: 'Produits & Stock', href: '/produits', icon: Package, feature: null },
   { name: 'Bundles', href: '/bundles', icon: Boxes, feature: null },
+  { name: 'Arrivages', href: '/arrivages', icon: PackagePlus, feature: null },
   { name: 'Emplacements', href: '/emplacements', icon: MapPin, feature: null },
   { name: 'Pricing', href: '/pricing', icon: DollarSign, feature: null },
   { name: 'Facturation', href: '/facturation', icon: FileText, feature: null },

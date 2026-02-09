@@ -20,6 +20,7 @@ import { useSkus, useCreateSku, useUpdateSku, useDeleteSku, useAdjustStock, useS
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ImportPreviewDialog } from '@/components/forms/ImportPreviewDialog'
+import { useTenant } from '@/components/providers/TenantProvider'
 
 function getStatusBadge(status: string) {
   switch (status) {
@@ -99,6 +100,7 @@ export function ProduitsClient() {
   const [formData, setFormData] = useState<ProductFormData>(defaultFormData)
   const [stockAdjustment, setStockAdjustment] = useState({ qty: 0, reason: '' })
 
+  const { isClient } = useTenant()
   const { data, isLoading, isFetching, refetch } = useProducts(filters)
   const { data: skusData } = useSkus()
   const { data: movementsData, isLoading: movementsLoading } = useSkuMovements(historySkuId)
@@ -292,16 +294,18 @@ export function ProduitsClient() {
             {stats.totalSkus} SKU(s) {isFetching && '(chargement...)'}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setImportOpen(true)}>
-            <Upload className="h-4 w-4 mr-2" />
-            Importer
-          </Button>
-          <Button onClick={() => { setFormData(defaultFormData); setCreateOpen(true) }}>
-            <Plus className="h-4 w-4 mr-2" />
-            Nouveau produit
-          </Button>
-        </div>
+        {!isClient && (
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <Upload className="h-4 w-4 mr-2" />
+              Importer
+            </Button>
+            <Button onClick={() => { setFormData(defaultFormData); setCreateOpen(true) }}>
+              <Plus className="h-4 w-4 mr-2" />
+              Nouveau produit
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* KPI Row */}
@@ -452,10 +456,12 @@ export function ProduitsClient() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => openStockAdjust(sku.sku_code)}>
-                          <PackagePlus className="h-4 w-4 mr-2" />
-                          Ajuster stock
-                        </DropdownMenuItem>
+                        {!isClient && (
+                          <DropdownMenuItem onClick={() => openStockAdjust(sku.sku_code)}>
+                            <PackagePlus className="h-4 w-4 mr-2" />
+                            Ajuster stock
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem onClick={() => openHistory(sku.sku_code)}>
                           <History className="h-4 w-4 mr-2" />
                           Historique
@@ -464,15 +470,19 @@ export function ProduitsClient() {
                           <BarChart3 className="h-4 w-4 mr-2" />
                           Volume mensuel
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => openEdit(sku.sku_code)}>
-                          <Pencil className="h-4 w-4 mr-2" />
-                          Modifier
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-error" onClick={() => openDelete(sku.sku_code)}>
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Supprimer
-                        </DropdownMenuItem>
+                        {!isClient && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => openEdit(sku.sku_code)}>
+                              <Pencil className="h-4 w-4 mr-2" />
+                              Modifier
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-error" onClick={() => openDelete(sku.sku_code)}>
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Supprimer
+                            </DropdownMenuItem>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
