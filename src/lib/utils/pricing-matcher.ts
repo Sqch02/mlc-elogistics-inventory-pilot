@@ -113,45 +113,63 @@ export function matchShipmentToRule(
   }
 }
 
-/**
- * Map country code to destination identifier matching pricing_rules.destination
- * Pricing rules use: france_relay, france_domicile, belgique, suisse, eu_dom
- */
-const COUNTRY_TO_DESTINATION: Record<string, string> = {
-  FR: 'france_domicile',
-  BE: 'belgique',
-  CH: 'suisse',
-}
+const DOM_TOM = new Set(['GP', 'MQ', 'GF', 'RE', 'YT', 'PM', 'WF', 'PF', 'NC', 'BL', 'MF'])
 
 const EU_COUNTRIES = new Set([
-  'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'DE',
-  'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL',
-  'PT', 'RO', 'SK', 'SI', 'ES', 'SE',
+  'AT', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'DE', 'GR',
+  'HU', 'IE', 'IT', 'LV', 'LT', 'MT', 'NL', 'PL', 'PT', 'RO',
+  'SK', 'SI', 'ES', 'SE',
 ])
 
 /**
+ * Detect if shipment is a relay (point relais) delivery
+ */
+function isRelay(shipment: Shipment): boolean {
+  if (shipment.carrier.toLowerCase() === 'mondial_relay') return true
+  if (shipment.service_point_id) return true
+  return false
+}
+
+/**
  * Get destination identifier from shipment
- * Maps raw country_code + service_point to pricing rule destination format
+ * Maps country_code + delivery type (relay/domicile) to pricing destination
  */
 export function getDestination(shipment: Shipment): string | null {
   const cc = shipment.country_code?.toUpperCase() || null
-
-  if (shipment.service_point_id) {
-    // Relay point delivery
-    if (cc === 'FR') return 'france_relay'
-    // For other countries with relay, fall through to country mapping
-  }
-
   if (!cc) return null
 
-  // Direct country mapping
-  if (COUNTRY_TO_DESTINATION[cc]) return COUNTRY_TO_DESTINATION[cc]
+  const relay = isRelay(shipment)
 
-  // EU countries → eu_dom
-  if (EU_COUNTRIES.has(cc)) return 'eu_dom'
+  // France (+ Monaco)
+  if (cc === 'FR' || cc === 'MC') {
+    return relay ? 'france_relay' : 'france_domicile'
+  }
 
-  // Non-EU international
-  return cc
+  // Belgium
+  if (cc === 'BE') {
+    return relay ? 'relay_be' : 'domicile_be'
+  }
+
+  // Luxembourg
+  if (cc === 'LU') {
+    return relay ? 'relay_lux' : 'domicile_lux'
+  }
+
+  // Switzerland
+  if (cc === 'CH') return 'domicile_suisse'
+
+  // DOM-TOM
+  if (DOM_TOM.has(cc)) {
+    return relay ? 'relay_eu_dom' : 'domicile_ue_dom'
+  }
+
+  // EU countries
+  if (EU_COUNTRIES.has(cc)) {
+    return relay ? 'relay_eu_dom' : 'domicile_ue_dom'
+  }
+
+  // World
+  return 'domicile_world'
 }
 
 /**

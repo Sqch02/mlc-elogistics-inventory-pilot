@@ -14,12 +14,16 @@ export interface PricingRule {
 
 // Labels pour les destinations
 export const DESTINATION_LABELS: Record<string, string> = {
-  france_domicile: 'France Domicile',
-  france_relay: 'France Relais',
-  belgique: 'Belgique',
-  suisse: 'Suisse',
-  eu_dom: 'EU (autres)',
-  monde: 'International',
+  france_relay: 'Relay FR',
+  france_domicile: 'Domicile FR',
+  relay_be: 'Relay BE',
+  domicile_be: 'Domicile BE',
+  relay_lux: 'Relay LUX',
+  domicile_lux: 'Domicile LUX',
+  domicile_suisse: 'Domicile Suisse',
+  relay_eu_dom: 'Relay EU + DOM',
+  domicile_ue_dom: 'Domicile UE + DOM',
+  domicile_world: 'Domicile World',
 }
 
 export interface PricingStats {
