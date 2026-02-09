@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Search, X, Download, Loader2, Calendar } from 'lucide-react'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
-import { cn } from '@/lib/utils'
+import { cn, formatCarrierName } from '@/lib/utils'
 
 // Quick date presets
 function getDatePresets() {
@@ -196,7 +196,7 @@ export function ExpeditionsFilters({ carriers, currentFilters }: ExpeditionsFilt
           <SelectItem value="all">Tous transporteurs</SelectItem>
           {carriers.map((carrier) => (
             <SelectItem key={carrier} value={carrier}>
-              {carrier}
+              {formatCarrierName(carrier)}
             </SelectItem>
           ))}
         </SelectContent>

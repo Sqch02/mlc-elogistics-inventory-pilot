@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { formatCarrierName } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -303,7 +304,7 @@ export function PricingClient() {
                     <TableRow key={rule.id} className="group">
                       <TableCell className="pl-4 lg:pl-6">
                         <Badge variant="muted" className="font-medium text-xs">
-                          {rule.carrier}
+                          {formatCarrierName(rule.carrier)}
                         </Badge>
                       </TableCell>
                       <TableCell>

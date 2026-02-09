@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
+import { formatCarrierName } from '@/lib/utils'
 
 export function GenerateInvoiceButton() {
   const router = useRouter()
@@ -174,15 +175,6 @@ function formatWeightBracket(minGrams: number, maxGrams: number): string {
   return `<${Math.round(maxGrams / 1000)}kg`
 }
 
-// Format carrier name for display
-function formatCarrier(carrier: string): string {
-  const normalized = carrier.toLowerCase()
-  if (normalized.includes('relay') || normalized.includes('point')) return 'Relay'
-  if (normalized.includes('domicile') || normalized.includes('home')) return 'Domicile'
-  if (normalized.includes('colissimo')) return 'Colissimo'
-  if (normalized.includes('chronopost')) return 'Chronopost'
-  return carrier
-}
 
 // Format number with French locale (comma as decimal separator)
 function formatEuro(value: number): string {
@@ -223,7 +215,7 @@ export function ExportInvoicesButton() {
 
           exportLines.push({
             type: 'Prépa & Expédition',
-            description: `${formatCarrier(line.carrier)} ${formatWeightBracket(line.weight_min_grams, line.weight_max_grams)}`,
+            description: `${formatCarrierName(line.carrier)} ${formatWeightBracket(line.weight_min_grams, line.weight_max_grams)}`,
             prix_unitaire_ht: formatEuro(unitPrice),
             quantite: line.shipment_count,
             tva_pct: '20%',

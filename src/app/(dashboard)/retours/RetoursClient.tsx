@@ -30,6 +30,7 @@ import {
 } from '@/hooks/useReturns'
 import { useTenant } from '@/components/providers/TenantProvider'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
+import { formatCarrierName } from '@/lib/utils'
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '-'
@@ -126,7 +127,7 @@ function ReturnRow({ returnItem, isClient, onRestock }: ReturnRowProps) {
         </TableCell>
         <TableCell>
           {returnItem.carrier ? (
-            <Badge variant="muted" className="text-xs">{returnItem.carrier}</Badge>
+            <Badge variant="muted" className="text-xs">{formatCarrierName(returnItem.carrier)}</Badge>
           ) : '-'}
         </TableCell>
         <TableCell>
@@ -246,7 +247,7 @@ function ReturnRow({ returnItem, isClient, onRestock }: ReturnRowProps) {
                     )}
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Transporteur</span>
-                      <span className="font-medium">{returnItem.carrier || '-'}</span>
+                      <span className="font-medium">{formatCarrierName(returnItem.carrier)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Service</span>
@@ -376,7 +377,7 @@ export function RetoursClient() {
         ville: r.sender_city || '',
         code_postal: r.sender_postal_code || '',
         pays: r.sender_country_code || '',
-        transporteur: r.carrier || '',
+        transporteur: formatCarrierName(r.carrier) || '',
         statut: RETURN_STATUS_LABELS[r.status] || r.status,
         raison: r.return_reason ? RETURN_REASON_LABELS[r.return_reason] : '',
         tracking: r.tracking_number || '',

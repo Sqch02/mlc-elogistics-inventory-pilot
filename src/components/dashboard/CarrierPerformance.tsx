@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { Badge } from '@/components/ui/badge'
 import { Truck, AlertTriangle } from 'lucide-react'
+import { formatCarrierName } from '@/lib/utils'
 
 interface CarrierStats {
   carrier: string
@@ -17,18 +18,6 @@ interface CarrierStats {
 interface CarrierPerformanceProps {
   data: CarrierStats[]
   totalCarriers: number
-}
-
-// Carrier display names
-const CARRIER_NAMES: Record<string, string> = {
-  colissimo: 'Colissimo',
-  chronopost: 'Chronopost',
-  mondial_relay: 'Mondial Relay',
-  dhl: 'DHL',
-  ups: 'UPS',
-  gls: 'GLS',
-  dpd: 'DPD',
-  fedex: 'FedEx',
 }
 
 // Color palette for carriers
@@ -52,9 +41,7 @@ export function CarrierPerformance({ data, totalCarriers }: CarrierPerformancePr
     }).format(value)
   }
 
-  const getCarrierName = (carrier: string) => {
-    return CARRIER_NAMES[carrier] || carrier.charAt(0).toUpperCase() + carrier.slice(1).replace(/_/g, ' ')
-  }
+  const getCarrierName = (carrier: string) => formatCarrierName(carrier)
 
   const getCarrierColor = (carrier: string) => {
     return CARRIER_COLORS[carrier] || '#1E3A5F'

@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { formatCarrierName } from '@/lib/utils'
 import {
   Truck, Package, DollarSign, AlertTriangle, ExternalLink, Search, X, Download, Loader2,
   ChevronDown, ChevronUp, MapPin, Phone, Mail, User, Calendar, Globe, Tag, FileText, Eye,
@@ -167,7 +168,7 @@ function ShipmentRow({ shipment, onCreateClaim, onEdit, onCancel, onRefresh, isC
           </div>
         </TableCell>
         <TableCell>
-          <Badge variant="muted" className="text-xs">{shipment.carrier}</Badge>
+          <Badge variant="muted" className="text-xs">{formatCarrierName(shipment.carrier)}</Badge>
         </TableCell>
         <TableCell className="text-xs">
           {shipment.country_code || '-'}
@@ -264,7 +265,7 @@ function ShipmentRow({ shipment, onCreateClaim, onEdit, onCancel, onRefresh, isC
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Transporteur</span>
-                      <span className="font-medium">{shipment.carrier}</span>
+                      <span className="font-medium">{formatCarrierName(shipment.carrier)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Service</span>
@@ -594,7 +595,7 @@ export function ExpeditionsClient() {
           ville: s.city || '',
           code_postal: s.postal_code || '',
           pays: s.country_code || '',
-          transporteur: s.carrier || '',
+          transporteur: formatCarrierName(s.carrier),
           service: s.service || '',
           statut: s.status_message || '',
           poids_g: s.weight_grams || 0,
@@ -1013,7 +1014,7 @@ export function ExpeditionsClient() {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Transporteur</span>
-                  <Badge variant="muted">{selectedShipmentForClaim.carrier}</Badge>
+                  <Badge variant="muted">{formatCarrierName(selectedShipmentForClaim.carrier)}</Badge>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Destinataire</span>

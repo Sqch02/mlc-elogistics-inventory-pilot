@@ -13,7 +13,7 @@ import {
   AlertTriangle, Search, X, Download, Loader2, Plus, Eye, Edit2, Clock,
   CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, Euro, Upload, Filter, RefreshCw, ExternalLink
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, formatCarrierName } from '@/lib/utils'
 import {
   useClaims, useUpdateClaim, useCreateClaim, useClaimHistory,
   ClaimFilters, Claim, ClaimStatus, ClaimType, ClaimPriority, IndemnitySource,
@@ -109,7 +109,7 @@ function ClaimRow({ claim, onView, onEdit }: ClaimRowProps) {
         </TableCell>
         <TableCell>
           {claim.shipments?.carrier ? (
-            <Badge variant="muted" className="text-xs">{claim.shipments.carrier}</Badge>
+            <Badge variant="muted" className="text-xs">{formatCarrierName(claim.shipments.carrier)}</Badge>
           ) : '-'}
         </TableCell>
         <TableCell className="font-mono text-xs">
@@ -172,7 +172,7 @@ function ClaimRow({ claim, onView, onEdit }: ClaimRowProps) {
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Transporteur</span>
-                        <span>{claim.shipments.carrier || '-'}</span>
+                        <span>{formatCarrierName(claim.shipments.carrier)}</span>
                       </div>
                     </div>
                   </div>
@@ -374,7 +374,7 @@ export function ReclamationsClient() {
           statut: CLAIM_STATUS_LABELS[c.status],
           priorite: CLAIM_PRIORITY_LABELS[c.priority],
           en_retard: isOverdue ? 'OUI' : 'NON',
-          transporteur: c.shipments?.carrier || '',
+          transporteur: formatCarrierName(c.shipments?.carrier) || '',
           description: c.description || '',
           date_limite: c.resolution_deadline ? formatDate(c.resolution_deadline) : '',
           date_decision: c.decided_at ? formatDate(c.decided_at) : '',

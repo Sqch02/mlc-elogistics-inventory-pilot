@@ -16,6 +16,7 @@ import { useTenant } from '@/components/providers/TenantProvider'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { downloadInvoicePDF, formatInvoiceNumber, type InvoicePDFData } from '@/lib/utils/invoice-pdf'
 import { toast } from 'sonner'
+import { formatCarrierName } from '@/lib/utils'
 
 interface CompanySettings {
   company_name: string
@@ -150,7 +151,7 @@ export function FacturationClient() {
       periode: invoice.month,
       type: line.line_type || 'shipping',
       description: line.description || '',
-      transporteur: line.carrier || '',
+      transporteur: formatCarrierName(line.carrier) || '',
       poids_min_g: line.weight_min_grams || '',
       poids_max_g: line.weight_max_grams || '',
       quantite: line.quantity || line.shipment_count || 1,
@@ -603,7 +604,7 @@ export function FacturationClient() {
                                             </div>
                                           </TableCell>
                                           <TableCell className="py-2 text-xs text-muted-foreground max-w-[300px] truncate">
-                                            {line.description || (line.carrier ? `${line.carrier} ${line.weight_min_grams}-${line.weight_max_grams}g` : '-')}
+                                            {line.description || (line.carrier ? `${formatCarrierName(line.carrier)} ${line.weight_min_grams}-${line.weight_max_grams}g` : '-')}
                                           </TableCell>
                                           <TableCell className="py-2 text-xs text-right">
                                             {line.quantity || line.shipment_count || 1}
