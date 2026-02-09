@@ -16,7 +16,7 @@ describe('Pricing Matcher', () => {
       id: '1',
       tenant_id: TEST_TENANT_ID,
       carrier: 'colissimo',
-      destination: 'FR',
+      destination: 'france_domicile',
       weight_min_grams: 0,
       weight_max_grams: 500,
       unit_price_eur: 5.37,
@@ -26,7 +26,7 @@ describe('Pricing Matcher', () => {
       id: '2',
       tenant_id: TEST_TENANT_ID,
       carrier: 'colissimo',
-      destination: 'FR',
+      destination: 'france_domicile',
       weight_min_grams: 500,
       weight_max_grams: 1000,
       unit_price_eur: 6.18,
@@ -36,7 +36,7 @@ describe('Pricing Matcher', () => {
       id: '3',
       tenant_id: TEST_TENANT_ID,
       carrier: 'mondial_relay',
-      destination: 'relay',
+      destination: 'france_relay',
       weight_min_grams: 0,
       weight_max_grams: 500,
       unit_price_eur: 5.88,
@@ -56,7 +56,7 @@ describe('Pricing Matcher', () => {
       id: '5',
       tenant_id: TEST_TENANT_ID,
       carrier: 'inactive_carrier',
-      destination: 'FR',
+      destination: 'france_domicile',
       weight_min_grams: 0,
       weight_max_grams: 500,
       unit_price_eur: 10.00,
@@ -220,7 +220,7 @@ describe('Pricing Matcher', () => {
   })
 
   describe('getDestination', () => {
-    it('should return relay for shipments with service_point_id', () => {
+    it('should return france_relay for FR shipments with service_point_id', () => {
       const shipment: Shipment = {
         id: 'ship-1',
         carrier: 'mondial_relay',
@@ -229,10 +229,10 @@ describe('Pricing Matcher', () => {
         service_point_id: 'RELAY-123',
       }
 
-      expect(getDestination(shipment)).toBe('relay')
+      expect(getDestination(shipment)).toBe('france_relay')
     })
 
-    it('should return country_code for home delivery', () => {
+    it('should return france_domicile for FR home delivery', () => {
       const shipment: Shipment = {
         id: 'ship-2',
         carrier: 'colissimo',
@@ -241,7 +241,43 @@ describe('Pricing Matcher', () => {
         service_point_id: null,
       }
 
-      expect(getDestination(shipment)).toBe('FR')
+      expect(getDestination(shipment)).toBe('france_domicile')
+    })
+
+    it('should return belgique for BE shipments', () => {
+      const shipment: Shipment = {
+        id: 'ship-be',
+        carrier: 'colissimo',
+        weight_grams: 300,
+        country_code: 'BE',
+        service_point_id: null,
+      }
+
+      expect(getDestination(shipment)).toBe('belgique')
+    })
+
+    it('should return suisse for CH shipments', () => {
+      const shipment: Shipment = {
+        id: 'ship-ch',
+        carrier: 'colissimo',
+        weight_grams: 300,
+        country_code: 'CH',
+        service_point_id: null,
+      }
+
+      expect(getDestination(shipment)).toBe('suisse')
+    })
+
+    it('should return eu_dom for EU countries', () => {
+      const shipment: Shipment = {
+        id: 'ship-de',
+        carrier: 'dhl',
+        weight_grams: 300,
+        country_code: 'DE',
+        service_point_id: null,
+      }
+
+      expect(getDestination(shipment)).toBe('eu_dom')
     })
 
     it('should return null when no destination info', () => {
