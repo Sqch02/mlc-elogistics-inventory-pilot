@@ -239,11 +239,11 @@ export async function GET(request: Request) {
         .eq('tenant_id', tenantId),
       adminClient
         .from('bundles')
-        .select('bundle_sku_id')
+        .select('id, bundle_sku_id')
         .eq('tenant_id', tenantId),
       adminClient
         .from('bundle_components')
-        .select('bundle_id, component_sku_id, qty_component, bundles!inner(bundle_sku_id), skus!bundle_components_component_sku_id_fkey(sku_code, name)')
+        .select('bundle_id, component_sku_id, qty_component')
         .eq('tenant_id', tenantId),
       adminClient
         .from('shipment_items')
@@ -254,21 +254,32 @@ export async function GET(request: Request) {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const skus = (skusResult.data || []) as any[]
+
+    // Build SKU info map for looking up sku_code and name
+    const skuInfoMap = new Map<string, { sku_code: string; name: string }>()
+    for (const sku of skus) {
+      skuInfoMap.set(sku.id, { sku_code: sku.sku_code, name: sku.name })
+    }
+
+    // Build bundle ID → bundle_sku_id map
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const bundleSkuIds = new Set(((bundlesResult.data || []) as any[]).map((b) => b.bundle_sku_id as string))
+    const bundlesList = ((bundlesResult.data || []) as any[])
+    const bundleIdToSkuIdMap = new Map<string, string>()
+    for (const b of bundlesList) {
+      bundleIdToSkuIdMap.set(b.id, b.bundle_sku_id)
+    }
+    const bundleSkuIds = new Set(bundlesList.map((b: { bundle_sku_id: string }) => b.bundle_sku_id))
 
     // Build bundle decomposition map: bundle_sku_id -> components[]
-    const bundleDecompositionMap = new Map<string, Array<{ component_sku_id: string; qty_component: number; sku_code: string; name: string }>>()
+    const bundleDecompositionMap = new Map<string, Array<{ component_sku_id: string; qty_component: number }>>()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const comp of (bundleComponentsResult.data || []) as any[]) {
-      const bundleSkuId = comp.bundles?.bundle_sku_id as string
+      const bundleSkuId = bundleIdToSkuIdMap.get(comp.bundle_id)
       if (!bundleSkuId) continue
       const components = bundleDecompositionMap.get(bundleSkuId) || []
       components.push({
         component_sku_id: comp.component_sku_id,
         qty_component: comp.qty_component || 1,
-        sku_code: comp.skus?.sku_code || 'Unknown',
-        name: comp.skus?.name || 'Unknown',
       })
       bundleDecompositionMap.set(bundleSkuId, components)
     }
@@ -370,20 +381,25 @@ export async function GET(request: Request) {
       const itemQty = item.qty || 0
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const skuInfo = item.skus as any
-      const components = bundleDecompositionMap.get(skuId)
 
-      if (components && components.length > 0) {
-        // Decompose bundle into individual components
-        for (const comp of components) {
-          addToSalesMap(
-            comp.component_sku_id,
-            comp.sku_code,
-            comp.name,
-            itemQty * comp.qty_component
-          )
+      // Check if this is a bundle SKU
+      if (bundleSkuIds.has(skuId)) {
+        // Decompose bundle into individual component SKUs
+        const components = bundleDecompositionMap.get(skuId)
+        if (components && components.length > 0) {
+          for (const comp of components) {
+            const compInfo = skuInfoMap.get(comp.component_sku_id)
+            addToSalesMap(
+              comp.component_sku_id,
+              compInfo?.sku_code || 'Unknown',
+              compInfo?.name || 'Unknown',
+              itemQty * comp.qty_component
+            )
+          }
         }
+        // If bundle has no components defined, skip it entirely
       } else {
-        // Regular SKU - count directly
+        // Regular individual SKU - count directly
         addToSalesMap(
           skuId,
           skuInfo?.sku_code || 'Unknown',
