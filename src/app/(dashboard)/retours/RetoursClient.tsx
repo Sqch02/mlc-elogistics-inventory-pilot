@@ -4,24 +4,31 @@ import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   RotateCcw, Package, ExternalLink, Search, X, Download, Loader2,
   ChevronDown, ChevronUp, MapPin, Phone, Mail, User,
-  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, RefreshCw
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, RefreshCw,
+  CheckCircle2, XCircle, PackagePlus
 } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   useReturns,
   useSyncReturns,
+  useRestockReturn,
   ReturnFilters,
   Return,
   ReturnStatus,
+  RestockStatus,
   RETURN_STATUS_LABELS,
-  RETURN_REASON_LABELS
+  RETURN_REASON_LABELS,
+  RESTOCK_STATUS_LABELS
 } from '@/hooks/useReturns'
+import { useTenant } from '@/components/providers/TenantProvider'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 
 function formatDate(dateStr: string | null) {
@@ -45,6 +52,17 @@ function getStatusBadge(status: ReturnStatus) {
   return <Badge variant={variants[status] || 'muted'}>{RETURN_STATUS_LABELS[status] || status}</Badge>
 }
 
+function getRestockBadge(status: RestockStatus | null) {
+  if (!status || status === 'not_applicable') return <Badge variant="muted">N/A</Badge>
+  const variants: Record<RestockStatus, 'success' | 'warning' | 'error' | 'muted'> = {
+    pending: 'warning',
+    validated: 'success',
+    rejected: 'error',
+    not_applicable: 'muted',
+  }
+  return <Badge variant={variants[status] || 'muted'}>{RESTOCK_STATUS_LABELS[status] || status}</Badge>
+}
+
 function getReasonBadge(reason: string | null) {
   if (!reason) return <Badge variant="muted">-</Badge>
   const variants: Record<string, 'success' | 'warning' | 'error' | 'info' | 'muted'> = {
@@ -59,10 +77,13 @@ function getReasonBadge(reason: string | null) {
 
 interface ReturnRowProps {
   returnItem: Return
+  isClient: boolean
+  onRestock: (returnItem: Return, action: 'validate' | 'reject') => void
 }
 
-function ReturnRow({ returnItem }: ReturnRowProps) {
+function ReturnRow({ returnItem, isClient, onRestock }: ReturnRowProps) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const colSpan = isClient ? 9 : 10
 
   return (
     <>
@@ -108,7 +129,10 @@ function ReturnRow({ returnItem }: ReturnRowProps) {
             <Badge variant="muted" className="text-xs">{returnItem.carrier}</Badge>
           ) : '-'}
         </TableCell>
-        <TableCell className="text-right pr-4 lg:pr-6">
+        <TableCell>
+          {getRestockBadge(returnItem.restock_status)}
+        </TableCell>
+        <TableCell className={isClient ? 'text-right pr-4 lg:pr-6' : ''}>
           {returnItem.tracking_url ? (
             <a
               href={returnItem.tracking_url}
@@ -123,12 +147,41 @@ function ReturnRow({ returnItem }: ReturnRowProps) {
             <span className="font-mono text-xs text-muted-foreground">{returnItem.tracking_number.slice(-8)}</span>
           ) : '-'}
         </TableCell>
+        {!isClient && (
+          <TableCell className="text-right pr-4 lg:pr-6">
+            {returnItem.restock_status === 'pending' && returnItem.status === 'delivered' && (
+              <div className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-green-600 hover:text-green-700 hover:bg-green-50"
+                  onClick={() => onRestock(returnItem, 'validate')}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                  Valider
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                  onClick={() => onRestock(returnItem, 'reject')}
+                >
+                  <XCircle className="h-3.5 w-3.5 mr-1" />
+                  Rejeter
+                </Button>
+              </div>
+            )}
+            {returnItem.restock_status === 'validated' && returnItem.restock_qty && (
+              <span className="text-xs text-green-600">+{returnItem.restock_qty} unites</span>
+            )}
+          </TableCell>
+        )}
       </TableRow>
 
       {/* Expanded Details */}
       {isExpanded && (
         <TableRow className="bg-muted/30">
-          <TableCell colSpan={8} className="p-0">
+          <TableCell colSpan={colSpan} className="p-0">
             <div className="p-4 lg:p-6 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {/* Expéditeur (Client) */}
@@ -199,6 +252,22 @@ function ReturnRow({ returnItem }: ReturnRowProps) {
                       <span className="text-muted-foreground">Service</span>
                       <span className="text-xs">{returnItem.service || '-'}</span>
                     </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Remise en stock</span>
+                      {getRestockBadge(returnItem.restock_status)}
+                    </div>
+                    {returnItem.restock_qty != null && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Qte remise</span>
+                        <span className="font-medium text-green-600">+{returnItem.restock_qty}</span>
+                      </div>
+                    )}
+                    {returnItem.restock_note && (
+                      <div>
+                        <span className="text-muted-foreground block">Note restock</span>
+                        <span className="text-xs">{returnItem.restock_note}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -245,12 +314,23 @@ function ReturnRow({ returnItem }: ReturnRowProps) {
 }
 
 export function RetoursClient() {
+  const { isClient } = useTenant()
   const [filters, setFilters] = useState<ReturnFilters>({ page: 1, pageSize: 50 })
   const [searchInput, setSearchInput] = useState('')
   const [isExporting, setIsExporting] = useState(false)
 
+  // Restock dialog state
+  const [restockDialog, setRestockDialog] = useState<{
+    open: boolean
+    returnItem: Return | null
+    action: 'validate' | 'reject'
+  }>({ open: false, returnItem: null, action: 'validate' })
+  const [restockQty, setRestockQty] = useState(1)
+  const [restockNote, setRestockNote] = useState('')
+
   const { data, isLoading, isFetching } = useReturns(filters)
   const syncMutation = useSyncReturns()
+  const restockMutation = useRestockReturn()
 
   const returns = data?.returns || []
   const pagination = data?.pagination || { page: 1, pageSize: 50, total: 0, totalPages: 1 }
@@ -300,12 +380,34 @@ export function RetoursClient() {
         statut: RETURN_STATUS_LABELS[r.status] || r.status,
         raison: r.return_reason ? RETURN_REASON_LABELS[r.return_reason] : '',
         tracking: r.tracking_number || '',
+        restock: r.restock_status ? RESTOCK_STATUS_LABELS[r.restock_status] : '',
       }))
       const csv = generateCSV(exportData, { delimiter: ';' })
       downloadCSV(csv, `retours_${new Date().toISOString().split('T')[0]}.csv`)
     } finally {
       setIsExporting(false)
     }
+  }
+
+  const openRestockDialog = (returnItem: Return, action: 'validate' | 'reject') => {
+    setRestockDialog({ open: true, returnItem, action })
+    setRestockQty(1)
+    setRestockNote('')
+  }
+
+  const handleRestockSubmit = () => {
+    if (!restockDialog.returnItem) return
+
+    restockMutation.mutate({
+      returnId: restockDialog.returnItem.id,
+      action: restockDialog.action,
+      restock_qty: restockDialog.action === 'validate' ? restockQty : undefined,
+      note: restockNote || undefined,
+    }, {
+      onSuccess: () => {
+        setRestockDialog({ open: false, returnItem: null, action: 'validate' })
+      }
+    })
   }
 
   const hasFilters = Object.keys(filters).filter(k => k !== 'page' && k !== 'pageSize').length > 0
@@ -484,12 +586,19 @@ export function RetoursClient() {
                   <TableHead className="whitespace-nowrap">Statut</TableHead>
                   <TableHead className="whitespace-nowrap">Raison</TableHead>
                   <TableHead className="whitespace-nowrap">Transporteur</TableHead>
-                  <TableHead className="text-right pr-4 lg:pr-6 whitespace-nowrap">Tracking</TableHead>
+                  <TableHead className="whitespace-nowrap">Restock</TableHead>
+                  <TableHead className="whitespace-nowrap">Tracking</TableHead>
+                  {!isClient && <TableHead className="text-right pr-4 lg:pr-6 whitespace-nowrap">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {returns.map((returnItem) => (
-                  <ReturnRow key={returnItem.id} returnItem={returnItem} />
+                  <ReturnRow
+                    key={returnItem.id}
+                    returnItem={returnItem}
+                    isClient={isClient}
+                    onRestock={openRestockDialog}
+                  />
                 ))}
               </TableBody>
             </Table>
@@ -565,6 +674,80 @@ export function RetoursClient() {
           </div>
         </div>
       )}
+
+      {/* Restock Validation Dialog */}
+      <Dialog open={restockDialog.open} onOpenChange={(open) => {
+        if (!open) setRestockDialog({ open: false, returnItem: null, action: 'validate' })
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {restockDialog.action === 'validate' ? (
+                <>
+                  <PackagePlus className="h-5 w-5 text-green-600" />
+                  Valider la remise en stock
+                </>
+              ) : (
+                <>
+                  <XCircle className="h-5 w-5 text-red-600" />
+                  Rejeter la remise en stock
+                </>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {restockDialog.action === 'validate'
+                ? `Retour #${restockDialog.returnItem?.order_ref || '-'} - Confirmer la remise en stock et la quantité.`
+                : `Retour #${restockDialog.returnItem?.order_ref || '-'} - Ce retour ne sera pas remis en stock.`
+              }
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {restockDialog.action === 'validate' && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Quantité à remettre en stock</label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={restockQty}
+                  onChange={(e) => setRestockQty(Math.max(1, parseInt(e.target.value) || 1))}
+                />
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                {restockDialog.action === 'validate' ? 'Note (optionnel)' : 'Raison du rejet'}
+              </label>
+              <Textarea
+                placeholder={restockDialog.action === 'validate'
+                  ? 'Commentaire sur la remise en stock...'
+                  : 'Raison du rejet (produit endommage, etc.)...'
+                }
+                value={restockNote}
+                onChange={(e) => setRestockNote(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRestockDialog({ open: false, returnItem: null, action: 'validate' })}
+            >
+              Annuler
+            </Button>
+            <Button
+              variant={restockDialog.action === 'validate' ? 'default' : 'destructive'}
+              onClick={handleRestockSubmit}
+              disabled={restockMutation.isPending}
+            >
+              {restockMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {restockDialog.action === 'validate' ? 'Valider la remise en stock' : 'Rejeter'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

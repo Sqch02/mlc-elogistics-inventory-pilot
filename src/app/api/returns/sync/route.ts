@@ -75,6 +75,11 @@ export async function POST() {
 
         const isNew = !existingReturn
 
+        // Determine restock_status for new returns
+        // Only set restock_status on insert (new returns), not on update
+        // Delivered returns need review (pending), others are not applicable yet
+        const restockStatusForNew = ret.status === 'delivered' ? 'pending' : 'not_applicable'
+
         // Upsert return
         const { error: returnError } = await adminClient
           .from('returns')
@@ -103,9 +108,20 @@ export async function POST() {
               return_reason_comment: ret.return_reason_comment,
               announced_at: ret.announced_at,
               raw_json: ret.raw_json,
+              ...(isNew ? { restock_status: restockStatusForNew } : {}),
             },
             { onConflict: 'tenant_id,sendcloud_id' }
           )
+
+        // If return just became delivered and restock was not_applicable, set to pending
+        if (!isNew && ret.status === 'delivered') {
+          await adminClient
+            .from('returns')
+            .update({ restock_status: 'pending' } as never)
+            .eq('tenant_id', tenantId)
+            .eq('sendcloud_id', ret.sendcloud_id)
+            .eq('restock_status', 'not_applicable')
+        }
 
         if (returnError) {
           console.log('[Returns Sync] Error upserting return', ret.sendcloud_id, ':', returnError.message)

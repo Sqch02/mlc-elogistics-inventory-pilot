@@ -6,6 +6,8 @@ import { toast } from 'sonner'
 export type ReturnStatus = 'announced' | 'ready' | 'in_transit' | 'delivered' | 'cancelled' | 'at_carrier'
 export type ReturnReason = 'refund' | 'exchange' | 'defective' | 'wrong_item' | 'other'
 
+export type RestockStatus = 'pending' | 'validated' | 'rejected' | 'not_applicable'
+
 export interface Return {
   id: string
   sendcloud_id: string
@@ -28,6 +30,10 @@ export interface Return {
   sender_country_code: string | null
   return_reason: ReturnReason | null
   return_reason_comment: string | null
+  restock_status: RestockStatus | null
+  restock_qty: number | null
+  restock_note: string | null
+  restocked_at: string | null
   created_at: string
   announced_at: string | null
   delivered_at: string | null
@@ -132,4 +138,43 @@ export const RETURN_REASON_LABELS: Record<ReturnReason, string> = {
   defective: 'Défectueux',
   wrong_item: 'Mauvais article',
   other: 'Autre',
+}
+
+export const RESTOCK_STATUS_LABELS: Record<RestockStatus, string> = {
+  pending: 'En attente',
+  validated: 'Validé',
+  rejected: 'Rejeté',
+  not_applicable: 'N/A',
+}
+
+export function useRestockReturn() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ returnId, action, restock_qty, note }: {
+      returnId: string
+      action: 'validate' | 'reject'
+      restock_qty?: number
+      note?: string
+    }) => {
+      const response = await fetch(`/api/returns/${returnId}/restock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, restock_qty, note }),
+      })
+      if (!response.ok) {
+        const err = await response.json()
+        throw new Error(err.error || 'Erreur lors de la validation')
+      }
+      return response.json()
+    },
+    onSuccess: (data) => {
+      toast.success(data.message || 'Action effectuée')
+      queryClient.invalidateQueries({ queryKey: ['returns'] })
+      queryClient.invalidateQueries({ queryKey: ['stock'] })
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
+  })
 }
