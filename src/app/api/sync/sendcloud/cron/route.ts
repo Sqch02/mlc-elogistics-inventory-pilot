@@ -85,12 +85,25 @@ export async function GET(request: NextRequest) {
       // ============================================
       // FETCH DATA (parallel)
       // ============================================
-      console.log(`[Cron] Fetching data in parallel...`)
+      // Use last sync time to only fetch updated parcels (faster)
+      const { data: lastSync } = await adminClient
+        .from('sync_runs')
+        .select('ended_at')
+        .eq('tenant_id', tenant.id)
+        .eq('source', 'sendcloud')
+        .eq('status', 'success')
+        .order('ended_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      // Fetch parcels updated in the last 2 hours (fallback if no previous sync)
+      const since = lastSync?.ended_at || new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+      console.log(`[Cron] Fetching data in parallel (since: ${since})...`)
 
       const [parcelsRecent, pendingOrders, returnsRecent] = await Promise.all([
-        fetchAllParcels(credentials, undefined, 3),
-        fetchAllIntegrationShipments(credentials, 3),
-        fetchAllReturns(credentials, undefined, 3),
+        fetchAllParcels(credentials, since, 2),
+        fetchAllIntegrationShipments(credentials, 2),
+        fetchAllReturns(credentials, since, 2),
       ])
 
       console.log(`[Cron] Fetched: ${parcelsRecent.length} parcels, ${pendingOrders.length} pending, ${returnsRecent.length} returns`)
