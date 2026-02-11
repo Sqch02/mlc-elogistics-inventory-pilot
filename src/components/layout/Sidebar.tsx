@@ -25,9 +25,13 @@ import { useRouter } from 'next/navigation'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { features } from '@/lib/config/features'
+import { useTenant } from '@/components/providers/TenantProvider'
 
 // Menus hidden for client role (brand users)
 const clientHiddenMenus = ['/emplacements']
+
+// Only these menus visible in hub view (super_admin on own tenant)
+const hubVisibleMenus = ['/', '/parametres']
 
 // Base navigation items
 const baseNavigation = [
@@ -53,16 +57,20 @@ interface SidebarContentProps {
 }
 
 function SidebarContent({ pathname, onClose, onLogout, userRole }: SidebarContentProps) {
-  // Filter navigation based on feature flags and user role
+  const { isHubView } = useTenant()
+
+  // Filter navigation based on feature flags, user role, and hub view
   const navigation = useMemo(() => {
     return baseNavigation.filter((item) => {
+      // Hub view: only show dashboard + parametres
+      if (isHubView && !hubVisibleMenus.includes(item.href)) return false
       // Feature flag check
       if (item.feature === 'returnsModule' && !features.returnsModule) return false
       // Client role: hide certain menus
       if (userRole === 'client' && clientHiddenMenus.includes(item.href)) return false
       return true
     })
-  }, [userRole])
+  }, [userRole, isHubView])
 
   return (
     <>
