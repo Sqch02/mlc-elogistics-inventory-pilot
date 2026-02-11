@@ -52,8 +52,7 @@ export function useCreateInbound() {
 
   return useMutation({
     mutationFn: async (data: {
-      sku_id: string
-      qty: number
+      items: { sku_id: string; qty: number }[]
       eta_date: string
       note?: string
       supplier?: string

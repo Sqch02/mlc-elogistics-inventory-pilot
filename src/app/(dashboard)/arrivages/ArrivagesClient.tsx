@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   PackagePlus, Search, Plus, Loader2, CheckCircle, XCircle,
-  Clock, Package, Truck, Filter,
+  Clock, Package, Truck, Filter, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useInbound, useCreateInbound, useInboundAction, useDeleteInbound, InboundEntry, INBOUND_STATUS_LABELS } from '@/hooks/useInbound'
@@ -294,8 +294,15 @@ export function ArrivagesClient() {
 }
 
 // ==========================
-// Create Dialog
+// Create Dialog (Multi-SKU)
 // ==========================
+interface ItemLine {
+  skuId: string
+  qty: string
+  skuSearch: string
+  showDropdown: boolean
+}
+
 function CreateInboundDialog({
   open,
   onClose,
@@ -308,43 +315,54 @@ function CreateInboundDialog({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mutation: any
 }) {
-  const [skuId, setSkuId] = useState('')
-  const [qty, setQty] = useState('')
+  const emptyLine = (): ItemLine => ({ skuId: '', qty: '', skuSearch: '', showDropdown: false })
+  const [items, setItems] = useState<ItemLine[]>([emptyLine()])
   const [etaDate, setEtaDate] = useState('')
   const [supplier, setSupplier] = useState('')
   const [batchRef, setBatchRef] = useState('')
   const [note, setNote] = useState('')
-  const [skuSearch, setSkuSearch] = useState('')
 
-  const filteredSkus = skus.filter(s =>
-    s.sku_code.toLowerCase().includes(skuSearch.toLowerCase()) ||
-    s.name.toLowerCase().includes(skuSearch.toLowerCase())
-  )
+  const updateItem = (index: number, updates: Partial<ItemLine>) => {
+    setItems(prev => prev.map((item, i) => i === index ? { ...item, ...updates } : item))
+  }
+
+  const addItem = () => setItems(prev => [...prev, emptyLine()])
+
+  const removeItem = (index: number) => {
+    if (items.length <= 1) return
+    setItems(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const getFilteredSkus = (search: string) =>
+    skus.filter(s =>
+      s.sku_code.toLowerCase().includes(search.toLowerCase()) ||
+      s.name.toLowerCase().includes(search.toLowerCase())
+    )
 
   const handleSubmit = async () => {
-    if (!skuId || !qty || !etaDate) {
-      toast.error('Remplissez les champs obligatoires')
+    const validItems = items.filter(i => i.skuId && i.qty)
+    if (validItems.length === 0 || !etaDate) {
+      toast.error('Ajoutez au moins un produit avec quantite et une date ETA')
       return
     }
     try {
       await mutation.mutateAsync({
-        sku_id: skuId,
-        qty: Number(qty),
+        items: validItems.map(i => ({ sku_id: i.skuId, qty: Number(i.qty) })),
         eta_date: etaDate,
         supplier: supplier || undefined,
         batch_reference: batchRef || undefined,
         note: note || undefined,
       })
-      toast.success('Arrivage declare avec succes')
+      toast.success(validItems.length > 1
+        ? `${validItems.length} produits declares avec succes`
+        : 'Arrivage declare avec succes'
+      )
       onClose()
-      // Reset form
-      setSkuId('')
-      setQty('')
+      setItems([emptyLine()])
       setEtaDate('')
       setSupplier('')
       setBatchRef('')
       setNote('')
-      setSkuSearch('')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Erreur')
     }
@@ -352,66 +370,88 @@ function CreateInboundDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Truck className="h-5 w-5" />
             Declarer un arrivage
           </DialogTitle>
           <DialogDescription>
-            Declarez une arrivee de marchandise prevue ou en cours de livraison.
+            Declarez une arrivee de marchandise. Vous pouvez ajouter plusieurs produits.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          {/* SKU selector */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Produit (SKU) *</label>
-            <Input
-              placeholder="Rechercher un SKU..."
-              value={skuSearch}
-              onChange={(e) => setSkuSearch(e.target.value)}
-              className="mb-2"
-            />
-            {skuSearch && (
-              <div className="max-h-40 overflow-y-auto border rounded-md">
-                {filteredSkus.length === 0 ? (
-                  <p className="p-3 text-sm text-muted-foreground">Aucun SKU trouve</p>
-                ) : (
-                  filteredSkus.slice(0, 20).map(s => (
-                    <button
-                      key={s.id}
-                      className={cn(
-                        'w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors',
-                        skuId === s.id && 'bg-primary/10'
-                      )}
-                      onClick={() => { setSkuId(s.id); setSkuSearch(s.sku_code) }}
+          {/* Item lines */}
+          <div className="space-y-3">
+            <label className="text-sm font-medium">Produits *</label>
+            {items.map((item, index) => (
+              <div key={index} className="space-y-2 p-3 border rounded-lg bg-muted/30">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground w-5">{index + 1}.</span>
+                  <div className="flex-1 relative">
+                    <Input
+                      placeholder="Rechercher un SKU..."
+                      value={item.skuSearch}
+                      onChange={(e) => updateItem(index, { skuSearch: e.target.value, showDropdown: true })}
+                      onFocus={() => updateItem(index, { showDropdown: true })}
+                      className="text-sm"
+                    />
+                    {item.showDropdown && item.skuSearch && (
+                      <div className="absolute z-10 w-full mt-1 max-h-32 overflow-y-auto border rounded-md bg-background shadow-md">
+                        {getFilteredSkus(item.skuSearch).length === 0 ? (
+                          <p className="p-2 text-xs text-muted-foreground">Aucun SKU trouve</p>
+                        ) : (
+                          getFilteredSkus(item.skuSearch).slice(0, 10).map(s => (
+                            <button
+                              key={s.id}
+                              className={cn(
+                                'w-full text-left px-3 py-1.5 text-sm hover:bg-muted transition-colors',
+                                item.skuId === s.id && 'bg-primary/10'
+                              )}
+                              onClick={() => updateItem(index, { skuId: s.id, skuSearch: s.sku_code, showDropdown: false })}
+                            >
+                              <span className="font-mono font-medium text-xs">{s.sku_code}</span>
+                              <span className="text-muted-foreground ml-2 text-xs">{s.name}</span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={item.qty}
+                    onChange={(e) => updateItem(index, { qty: e.target.value })}
+                    placeholder="Qty"
+                    className="w-24 text-sm"
+                  />
+                  {items.length > 1 && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-red-600"
+                      onClick={() => removeItem(index)}
                     >
-                      <span className="font-mono font-medium">{s.sku_code}</span>
-                      <span className="text-muted-foreground ml-2">{s.name}</span>
-                    </button>
-                  ))
-                )}
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
               </div>
-            )}
-            {skuId && !skuSearch && (
-              <p className="text-xs text-muted-foreground">
-                Selectionne: {skus.find(s => s.id === skuId)?.sku_code}
-              </p>
-            )}
+            ))}
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full text-xs"
+              onClick={addItem}
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              Ajouter un produit
+            </Button>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Quantite *</label>
-              <Input
-                type="number"
-                min="1"
-                value={qty}
-                onChange={(e) => setQty(e.target.value)}
-                placeholder="Ex: 100"
-              />
-            </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Date ETA *</label>
               <Input
@@ -420,9 +460,6 @@ function CreateInboundDialog({
                 onChange={(e) => setEtaDate(e.target.value)}
               />
             </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Fournisseur</label>
               <Input
@@ -431,6 +468,9 @@ function CreateInboundDialog({
                 placeholder="Nom du fournisseur"
               />
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Reference lot</label>
               <Input
@@ -439,15 +479,14 @@ function CreateInboundDialog({
                 placeholder="Ex: LOT-2026-001"
               />
             </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Note</label>
-            <Input
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Commentaire optionnel"
-            />
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Note</label>
+              <Input
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Commentaire optionnel"
+              />
+            </div>
           </div>
         </div>
 
@@ -455,7 +494,9 @@ function CreateInboundDialog({
           <Button variant="outline" onClick={onClose}>Annuler</Button>
           <Button onClick={handleSubmit} disabled={mutation.isPending}>
             {mutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            Declarer
+            Declarer {items.filter(i => i.skuId && i.qty).length > 1
+              ? `(${items.filter(i => i.skuId && i.qty).length} produits)`
+              : ''}
           </Button>
         </DialogFooter>
       </DialogContent>
