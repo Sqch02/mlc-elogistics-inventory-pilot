@@ -25,7 +25,6 @@ import { useRouter } from 'next/navigation'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { features } from '@/lib/config/features'
-import { useTenant } from '@/components/providers/TenantProvider'
 
 // Menus hidden for client role (brand users)
 const clientHiddenMenus = ['/emplacements']
@@ -54,11 +53,10 @@ interface SidebarContentProps {
   onClose: () => void
   onLogout: () => void
   userRole?: string
+  isHubView?: boolean
 }
 
-function SidebarContent({ pathname, onClose, onLogout, userRole }: SidebarContentProps) {
-  const { isHubView } = useTenant()
-
+function SidebarContent({ pathname, onClose, onLogout, userRole, isHubView }: SidebarContentProps) {
   // Filter navigation based on feature flags, user role, and hub view
   const navigation = useMemo(() => {
     return baseNavigation.filter((item) => {
@@ -71,6 +69,7 @@ function SidebarContent({ pathname, onClose, onLogout, userRole }: SidebarConten
       return true
     })
   }, [userRole, isHubView])
+
 
   return (
     <>
@@ -149,9 +148,10 @@ function SidebarContent({ pathname, onClose, onLogout, userRole }: SidebarConten
 interface SidebarProps {
   onMobileToggle?: (isOpen: boolean) => void
   userRole?: string
+  isHubView?: boolean
 }
 
-export function Sidebar({ onMobileToggle, userRole }: SidebarProps) {
+export function Sidebar({ onMobileToggle, userRole, isHubView }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -220,7 +220,7 @@ export function Sidebar({ onMobileToggle, userRole }: SidebarProps) {
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <SidebarContent pathname={pathname} onClose={handleClose} onLogout={handleLogout} userRole={userRole} />
+        <SidebarContent pathname={pathname} onClose={handleClose} onLogout={handleLogout} userRole={userRole} isHubView={isHubView} />
       </aside>
 
       {/* Desktop sidebar */}
@@ -228,7 +228,7 @@ export function Sidebar({ onMobileToggle, userRole }: SidebarProps) {
         className="hidden lg:flex flex-col h-screen bg-white border-r border-border/50 shrink-0 fixed top-0 left-0 bottom-0 w-[260px] z-40"
         style={{ boxShadow: '1px 0 3px rgba(0, 0, 0, 0.02)' }}
       >
-        <SidebarContent pathname={pathname} onClose={handleClose} onLogout={handleLogout} userRole={userRole} />
+        <SidebarContent pathname={pathname} onClose={handleClose} onLogout={handleLogout} userRole={userRole} isHubView={isHubView} />
       </aside>
     </>
   )

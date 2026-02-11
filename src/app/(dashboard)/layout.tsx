@@ -2,6 +2,7 @@ import { Sidebar } from '@/components/layout/Sidebar'
 import { QueryProvider } from '@/components/providers/QueryProvider'
 import { getFastUser } from '@/lib/supabase/fast-auth'
 import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
 import { DashboardShell } from './DashboardShell'
 
 export default async function DashboardLayout({
@@ -24,9 +25,14 @@ export default async function DashboardLayout({
     full_name: null
   }
 
+  // Determine if super_admin is on their own tenant (hub view)
+  const cookieStore = await cookies()
+  const activeTenant = cookieStore.get('mlc_active_tenant')?.value
+  const isHubView = user.role === 'super_admin' && (!activeTenant || activeTenant === user.tenant_id)
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar userRole={user.role} />
+      <Sidebar userRole={user.role} isHubView={isHubView} />
       <div className="flex-1 flex flex-col overflow-hidden lg:ml-[260px]">
         <DashboardShell user={user}>
           <main className="flex-1 overflow-y-auto bg-background p-4 lg:p-6">
