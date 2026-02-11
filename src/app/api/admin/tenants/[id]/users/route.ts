@@ -39,17 +39,17 @@ export async function POST(
       throw authError
     }
 
-    // Create profile
+    // Upsert profile (trigger may have already created one)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = supabase as any
     const { error: profileError } = await db
       .from('profiles')
-      .insert({
+      .upsert({
         id: authData.user.id,
         email,
         tenant_id: tenantId,
         role: role || 'ops',
-      })
+      }, { onConflict: 'id' })
 
     if (profileError) {
       // Rollback: delete auth user
