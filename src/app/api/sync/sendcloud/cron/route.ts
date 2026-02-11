@@ -59,21 +59,15 @@ export async function GET(request: NextRequest) {
         .eq('tenant_id', tenant.id)
         .single()
 
-      let credentials: SendcloudCredentials
-      if (tenantSettings?.sendcloud_api_key && tenantSettings?.sendcloud_secret) {
-        credentials = {
-          apiKey: tenantSettings.sendcloud_api_key,
-          secret: tenantSettings.sendcloud_secret,
-        }
-      } else {
-        credentials = {
-          apiKey: process.env.SENDCLOUD_API_KEY || '',
-          secret: process.env.SENDCLOUD_SECRET || '',
-        }
+      if (!tenantSettings?.sendcloud_api_key || !tenantSettings?.sendcloud_secret) {
+        console.log(`[Cron] Skipping tenant ${tenant.id}: no Sendcloud credentials`)
+        results.push({ tenantId: tenant.id, success: true, shipments: 0, returns: 0 })
+        continue
       }
 
-      if (!credentials.apiKey || !credentials.secret) {
-        throw new Error('No Sendcloud credentials configured')
+      const credentials: SendcloudCredentials = {
+        apiKey: tenantSettings.sendcloud_api_key,
+        secret: tenantSettings.sendcloud_secret,
       }
 
       // Get pricing rules once
