@@ -294,18 +294,18 @@ export function ProduitsClient() {
             {stats.totalSkus} SKU(s) {isFetching && '(chargement...)'}
           </p>
         </div>
-        {!isClient && (
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
+          {!isClient && (
             <Button variant="outline" onClick={() => setImportOpen(true)}>
               <Upload className="h-4 w-4 mr-2" />
               Importer
             </Button>
-            <Button onClick={() => { setFormData(defaultFormData); setCreateOpen(true) }}>
-              <Plus className="h-4 w-4 mr-2" />
-              Nouveau produit
-            </Button>
-          </div>
-        )}
+          )}
+          <Button onClick={() => { setFormData(defaultFormData); setCreateOpen(true) }}>
+            <Plus className="h-4 w-4 mr-2" />
+            Nouveau produit
+          </Button>
+        </div>
       </div>
 
       {/* KPI Row */}
