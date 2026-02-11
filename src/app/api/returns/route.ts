@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getFastUser } from '@/lib/supabase/fast-auth'
+import { getFastUser, getFastTenantId } from '@/lib/supabase/fast-auth'
 import { sanitizeSearchInput } from '@/lib/utils/sanitize'
 
 interface ReturnRow {
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })
     }
 
-    const tenantId = user.tenant_id
+    const tenantId = await getFastTenantId() || user.tenant_id
     const supabase = await createClient()
     const adminClient = createAdminClient()
 
