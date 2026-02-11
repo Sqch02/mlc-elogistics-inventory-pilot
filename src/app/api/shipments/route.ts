@@ -148,7 +148,7 @@ export async function GET(request: NextRequest) {
       stats
     }, {
       headers: {
-        'Cache-Control': 'private, max-age=30, stale-while-revalidate=60'
+        'Cache-Control': 'private, no-store'
       }
     })
   } catch (error) {

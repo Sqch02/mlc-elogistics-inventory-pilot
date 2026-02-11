@@ -135,7 +135,7 @@ export async function GET(request: NextRequest) {
       skus: filteredSkus,
     }, {
       headers: {
-        'Cache-Control': 'private, max-age=30, stale-while-revalidate=120'
+        'Cache-Control': 'private, no-store'
       }
     })
   } catch (error) {

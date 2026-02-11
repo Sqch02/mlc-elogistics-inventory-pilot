@@ -49,7 +49,7 @@ export async function GET() {
 
     return NextResponse.json({ locations: formattedLocations }, {
       headers: {
-        'Cache-Control': 'private, max-age=60, stale-while-revalidate=300'
+        'Cache-Control': 'private, no-store'
       }
     })
   } catch (error) {

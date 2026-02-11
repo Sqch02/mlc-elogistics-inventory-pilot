@@ -414,7 +414,7 @@ export async function GET(request: Request) {
       generatedAt: new Date().toISOString(),
     }, {
       headers: {
-        'Cache-Control': 'private, max-age=300, stale-while-revalidate=600',
+        'Cache-Control': 'private, no-store',
       },
     })
   } catch (error) {

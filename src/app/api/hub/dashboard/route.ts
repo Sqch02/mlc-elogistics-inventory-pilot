@@ -124,7 +124,7 @@ export async function GET() {
       totals,
       month: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
     }, {
-      headers: { 'Cache-Control': 'private, max-age=60, stale-while-revalidate=300' }
+      headers: { 'Cache-Control': 'private, no-store' }
     })
   } catch (error) {
     console.error('Hub dashboard error:', error)
