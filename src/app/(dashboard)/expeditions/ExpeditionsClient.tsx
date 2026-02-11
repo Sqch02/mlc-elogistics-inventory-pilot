@@ -752,6 +752,22 @@ export function ExpeditionsClient() {
           <CheckCircle2 className="h-4 w-4" />
           Expediees
         </Button>
+        {!isClient && (
+          <Button
+            variant={filters.pricing_status === 'missing' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => updateFilter('pricing_status', filters.pricing_status === 'missing' ? undefined : 'missing')}
+            className={`gap-2 ${filters.pricing_status === 'missing' ? 'bg-amber-600 hover:bg-amber-700' : 'text-amber-600 border-amber-300 hover:bg-amber-50'}`}
+          >
+            <AlertTriangle className="h-4 w-4" />
+            Tarifs manquants
+            {missingPricing > 0 && (
+              <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${filters.pricing_status === 'missing' ? 'bg-white/20' : 'bg-amber-100'}`}>
+                {missingPricing}
+              </span>
+            )}
+          </Button>
+        )}
       </div>
 
       {/* Filters */}
