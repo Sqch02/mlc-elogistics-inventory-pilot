@@ -16,6 +16,7 @@ interface TenantContextType {
   isLoading: boolean
   isSuperAdmin: boolean
   isClient: boolean
+  isHubView: boolean
   userRole: string
 }
 
@@ -91,6 +92,7 @@ export function TenantProvider({ children, userRole, userTenantId }: TenantProvi
   }
 
   const activeTenant = tenants.find(t => t.id === activeTenantId) || null
+  const isHubView = isSuperAdmin && activeTenantId === userTenantId
 
   return (
     <TenantContext.Provider
@@ -102,6 +104,7 @@ export function TenantProvider({ children, userRole, userTenantId }: TenantProvi
         isLoading,
         isSuperAdmin,
         isClient,
+        isHubView,
         userRole,
       }}
     >

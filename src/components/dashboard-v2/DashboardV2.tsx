@@ -18,6 +18,7 @@ import { CostTrendChart } from '@/components/dashboard/CostTrendChart'
 import { CarrierPerformance } from '@/components/dashboard/CarrierPerformance'
 import { TodaySummary } from './TodaySummary'
 import { useTenant } from '@/components/providers/TenantProvider'
+import { HubDashboard } from './HubDashboard'
 
 // Loading skeleton for the dashboard
 function DashboardSkeleton() {
@@ -64,7 +65,12 @@ export function DashboardV2() {
   const [selectedMonth, setSelectedMonth] = useState(defaultMonth)
   const { data, isLoading, isRefetching } = useDashboard(selectedMonth)
   const { data: analyticsData, isLoading: analyticsLoading } = useAnalytics()
-  const { isClient } = useTenant()
+  const { isClient, isHubView } = useTenant()
+
+  // Hub view: show aggregated multi-client dashboard
+  if (isHubView) {
+    return <HubDashboard />
+  }
 
   // Generate invoice handler
   const handleGenerateInvoice = async () => {
