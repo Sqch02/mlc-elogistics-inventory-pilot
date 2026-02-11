@@ -19,6 +19,7 @@ import {
   X,
   BarChart3,
   PackagePlus,
+  Shield,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -30,7 +31,7 @@ import { features } from '@/lib/config/features'
 const clientHiddenMenus = ['/emplacements']
 
 // Only these menus visible in hub view (super_admin on own tenant)
-const hubVisibleMenus = ['/', '/parametres']
+const hubVisibleMenus = ['/', '/admin', '/parametres']
 
 // Base navigation items
 const baseNavigation = [
@@ -45,6 +46,7 @@ const baseNavigation = [
   { name: 'Pricing', href: '/pricing', icon: DollarSign, feature: null },
   { name: 'Facturation', href: '/facturation', icon: FileText, feature: null },
   { name: 'Reclamations', href: '/reclamations', icon: AlertTriangle, feature: null },
+  { name: 'Administration', href: '/admin', icon: Shield, feature: null, superAdminOnly: true },
   { name: 'Parametres', href: '/parametres', icon: Settings, feature: null },
 ]
 
@@ -60,8 +62,10 @@ function SidebarContent({ pathname, onClose, onLogout, userRole, isHubView }: Si
   // Filter navigation based on feature flags, user role, and hub view
   const navigation = useMemo(() => {
     return baseNavigation.filter((item) => {
-      // Hub view: only show dashboard + parametres
+      // Hub view: only show dashboard + admin + parametres
       if (isHubView && !hubVisibleMenus.includes(item.href)) return false
+      // Super admin only items (e.g. Administration)
+      if ('superAdminOnly' in item && item.superAdminOnly && userRole !== 'super_admin') return false
       // Feature flag check
       if (item.feature === 'returnsModule' && !features.returnsModule) return false
       // Client role: hide certain menus
