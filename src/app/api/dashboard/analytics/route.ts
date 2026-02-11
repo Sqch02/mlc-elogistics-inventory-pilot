@@ -372,7 +372,8 @@ export async function GET(request: Request) {
     // ===========================================
     // 5. SUMMARY STATS
     // ===========================================
-    const currentMonthData = monthlyData[monthlyData.length - 1]
+    const emptyMonth = { month: '', shipments: 0, cost: 0, claims: 0, indemnity: 0 }
+    const currentMonthData = monthlyData.length > 0 ? monthlyData[monthlyData.length - 1] : emptyMonth
     const previousMonthData = monthlyData.length >= 2 ? monthlyData[monthlyData.length - 2] : null
 
     const costTrend = previousMonthData && previousMonthData.cost > 0

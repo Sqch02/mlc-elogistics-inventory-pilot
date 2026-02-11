@@ -24,14 +24,7 @@ export async function getCurrentUser(): Promise<UserProfile | null> {
   const profiles = data as UserProfile[] | null
 
   if (error || !profiles || profiles.length === 0) {
-    // Fallback: return basic info from auth user
-    return {
-      id: user.id,
-      email: user.email || '',
-      tenant_id: '00000000-0000-0000-0000-000000000001',
-      role: 'ops' as UserRole,
-      full_name: null
-    }
+    return null
   }
 
   return profiles[0]

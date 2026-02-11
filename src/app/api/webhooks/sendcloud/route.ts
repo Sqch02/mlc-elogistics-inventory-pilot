@@ -360,12 +360,9 @@ function validateSignature(payload: string, signature: string, secret: string): 
   return result === 0
 }
 
-// Get tenant ID from Sendcloud account mapping (if multi-tenant)
-// For now, use default tenant since MLC is single-tenant pilot
+// Get tenant ID from Sendcloud account mapping
 async function getTenantForWebhook(): Promise<string> {
-  // In V1 pilot, use the default tenant
-  // In V2, this would look up the tenant based on Sendcloud account ID
-  return '00000000-0000-0000-0000-000000000001'
+  return 'f1073a00-0000-4000-a000-000000000001'
 }
 
 export async function POST(request: NextRequest) {

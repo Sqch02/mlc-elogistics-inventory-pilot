@@ -49,15 +49,7 @@ export async function getFastUser(): Promise<CachedProfile | null> {
   const profile = profileData as { id: string; email: string; tenant_id: string; role: string } | null
 
   if (!profile) {
-    // Fallback profile
-    const fallback: CachedProfile = {
-      id: user.id,
-      email: user.email || '',
-      tenant_id: '00000000-0000-0000-0000-000000000001',
-      role: 'ops',
-      exp: Date.now() + CACHE_TTL
-    }
-    return fallback
+    return null
   }
 
   const cachedData: CachedProfile = {
@@ -89,5 +81,11 @@ export async function getFastUser(): Promise<CachedProfile | null> {
  */
 export async function getFastTenantId(): Promise<string | null> {
   const user = await getFastUser()
-  return user?.tenant_id ?? null
+  if (!user) return null
+  if (user.role === 'super_admin') {
+    const cookieStore = await cookies()
+    const activeTenant = cookieStore.get('mlc_active_tenant')?.value
+    if (activeTenant) return activeTenant
+  }
+  return user.tenant_id
 }
