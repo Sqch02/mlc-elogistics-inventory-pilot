@@ -96,6 +96,7 @@ const roleLabels: Record<string, string> = {
   admin: 'Admin',
   ops: 'Operations',
   sav: 'SAV',
+  client: 'Client',
 }
 
 export default function TenantDetailPage() {
@@ -835,6 +836,7 @@ export default function TenantDetailPage() {
                           <SelectItem value="admin">Admin</SelectItem>
                           <SelectItem value="ops">Operations</SelectItem>
                           <SelectItem value="sav">SAV</SelectItem>
+                          <SelectItem value="client">Client</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
