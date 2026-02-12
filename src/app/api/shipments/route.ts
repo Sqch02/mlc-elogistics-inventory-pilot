@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getFastUser, getFastTenantId } from '@/lib/supabase/fast-auth'
+import { getAdminDb } from '@/lib/supabase/untyped'
 
 export async function GET(request: NextRequest) {
   try {
@@ -90,51 +91,80 @@ export async function GET(request: NextRequest) {
       throw error
     }
 
-    // Get aggregate stats for all filtered shipments (not just current page)
-    let statsQuery = supabase
-      .from('shipments')
-      .select('computed_cost_eur, pricing_status, total_value')
-      .eq('tenant_id', tenantId)
+    // Get aggregate stats using server-side RPC (avoids PostgREST 1000-row limit)
+    const db = getAdminDb()
+    const { data: rpcStats, error: rpcError } = await db.rpc('get_shipment_stats', {
+      p_tenant_id: tenantId,
+      p_from: from || null,
+      p_to: to || null,
+      p_carrier: carrier || null,
+      p_pricing_status: pricingStatus || null,
+      p_shipment_status: shipmentStatus || null,
+      p_delivery_status: deliveryStatus || null,
+      p_search: search || null,
+    })
 
-    if (from) {
-      statsQuery = statsQuery.gte('shipped_at', from)
-    }
-    if (to) {
-      statsQuery = statsQuery.lte('shipped_at', to)
-    }
-    if (carrier) {
-      statsQuery = statsQuery.ilike('carrier', carrier)
-    }
-    if (pricingStatus) {
-      statsQuery = statsQuery.eq('pricing_status', pricingStatus)
-    }
-    if (shipmentStatus === 'pending') {
-      statsQuery = statsQuery.is('status_id', null)
-    } else if (shipmentStatus === 'shipped') {
-      statsQuery = statsQuery.not('status_id', 'is', null)
-    }
-    if (deliveryStatus === 'issue') {
-      if (shipmentStatus === 'pending') {
-        statsQuery = statsQuery.eq('has_error', true)
-      } else {
-        statsQuery = statsQuery.in('status_id', PROBLEM_STATUS_IDS)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let stats: { totalCost: number; totalValue: number; missingPricing: number }
+
+    if (!rpcError && rpcStats) {
+      // RPC available - use server-side aggregated stats (accurate for any dataset size)
+      stats = {
+        totalCost: Number(rpcStats.totalCost) || 0,
+        totalValue: Number(rpcStats.totalValue) || 0,
+        missingPricing: Number(rpcStats.missingPricing) || 0,
       }
-    } else if (deliveryStatus === 'delivered') {
-      statsQuery = statsQuery.in('status_id', [11])
-    } else if (deliveryStatus === 'in_transit') {
-      statsQuery = statsQuery.in('status_id', [1, 3, 7, 12, 22, 91, 92, 62989, 62990])
-    }
-    if (search) {
-      statsQuery = statsQuery.or(`order_ref.ilike.%${search}%,tracking.ilike.%${search}%,sendcloud_id.ilike.%${search}%`)
-    }
+    } else {
+      // Fallback: head-only count for missingPricing (always accurate)
+      // + row-based sums (capped at 1000 rows by PostgREST default)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const applyFilters = (q: any) => {
+        if (from) q = q.gte('shipped_at', from)
+        if (to) q = q.lte('shipped_at', to)
+        if (carrier) q = q.ilike('carrier', carrier)
+        if (shipmentStatus === 'pending') q = q.is('status_id', null)
+        else if (shipmentStatus === 'shipped') q = q.not('status_id', 'is', null)
+        if (deliveryStatus === 'issue') {
+          if (shipmentStatus === 'pending') q = q.eq('has_error', true)
+          else q = q.in('status_id', PROBLEM_STATUS_IDS)
+        } else if (deliveryStatus === 'delivered') {
+          q = q.in('status_id', [11])
+        } else if (deliveryStatus === 'in_transit') {
+          q = q.in('status_id', [1, 3, 7, 12, 22, 91, 92, 62989, 62990])
+        }
+        if (search) {
+          q = q.or(`order_ref.ilike.%${search}%,tracking.ilike.%${search}%,sendcloud_id.ilike.%${search}%`)
+        }
+        return q
+      }
 
-    const { data: allShipments } = await statsQuery
+      // Missing pricing: accurate count via head-only query
+      const needsMissingCount = !pricingStatus || pricingStatus === 'missing'
+      const missingPromise = needsMissingCount
+        ? applyFilters(
+            supabase.from('shipments')
+              .select('*', { count: 'exact', head: true })
+              .eq('tenant_id', tenantId)
+              .eq('pricing_status', 'missing')
+          )
+        : Promise.resolve({ count: 0 })
 
-    const shipmentsForStats = allShipments as Array<{ computed_cost_eur: number | null; pricing_status: string | null; total_value: number | null }> | null
-    const stats = {
-      totalCost: shipmentsForStats?.reduce((sum, s) => sum + (Number(s.computed_cost_eur) || 0), 0) || 0,
-      totalValue: shipmentsForStats?.reduce((sum, s) => sum + (Number(s.total_value) || 0), 0) || 0,
-      missingPricing: shipmentsForStats?.filter(s => s.pricing_status === 'missing').length || 0,
+      // Sums: still limited to 1000 rows without the RPC
+      let sumsQuery = supabase
+        .from('shipments')
+        .select('computed_cost_eur, total_value')
+        .eq('tenant_id', tenantId)
+      sumsQuery = applyFilters(sumsQuery)
+      if (pricingStatus) sumsQuery = sumsQuery.eq('pricing_status', pricingStatus)
+
+      const [missingRes, sumsRes] = await Promise.all([missingPromise, sumsQuery])
+
+      const sumsData = sumsRes.data as Array<{ computed_cost_eur: number | null; total_value: number | null }> | null
+      stats = {
+        totalCost: sumsData?.reduce((sum: number, s: { computed_cost_eur: number | null }) => sum + (Number(s.computed_cost_eur) || 0), 0) || 0,
+        totalValue: sumsData?.reduce((sum: number, s: { total_value: number | null }) => sum + (Number(s.total_value) || 0), 0) || 0,
+        missingPricing: missingRes.count || 0,
+      }
     }
 
     return NextResponse.json({
