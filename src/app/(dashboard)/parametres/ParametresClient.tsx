@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Save, RefreshCw, Upload, User, Package, MapPin, DollarSign, Boxes, Truck, Loader2, CheckCircle, Clock, Building2 } from 'lucide-react'
+import { Save, RefreshCw, Upload, User, Package, MapPin, DollarSign, Boxes, Truck, Loader2, CheckCircle, Clock, Building2, Link2, AlertTriangle, Trash2, Plus } from 'lucide-react'
 import { UploadCSV } from '@/components/forms/UploadCSV'
 import { toast } from 'sonner'
 import { useTenant } from '@/components/providers/TenantProvider'
@@ -79,10 +79,40 @@ export function ParametresClient({ profile }: ParametresClientProps) {
   const [isRecalculating, setIsRecalculating] = useState(false)
   const [recalcResult, setRecalcResult] = useState<{ success: boolean; message: string; stats?: { processed: number; skipped: number; errors: number } } | null>(null)
 
+  // SKU Mappings state
+  interface SkuMapping {
+    id: string
+    description_pattern: string
+    sku_id: string
+    created_at: string
+    skus: { sku_code: string; name: string } | null
+  }
+  interface UnmappedItem {
+    description: string
+    total_qty: number
+  }
+  const [mappings, setMappings] = useState<SkuMapping[]>([])
+  const [unmappedItems, setUnmappedItems] = useState<UnmappedItem[]>([])
+  const [isLoadingMappings, setIsLoadingMappings] = useState(false)
+  const [isBackfilling, setIsBackfilling] = useState(false)
+  const [backfillResult, setBackfillResult] = useState<{ success: boolean; message: string; stats?: Record<string, number> } | null>(null)
+  const [skuList, setSkuList] = useState<Array<{ id: string; sku_code: string; name: string }>>([])
+  const [mappingSkuId, setMappingSkuId] = useState('')
+  const [mappingDesc, setMappingDesc] = useState('')
+  const [isCreatingMapping, setIsCreatingMapping] = useState(false)
+
   // Load company settings when tab changes to 'societe'
   useEffect(() => {
     if (activeTab === 'societe' && !companySettings.company_name) {
       loadCompanySettings()
+    }
+  }, [activeTab])
+
+  // Load mappings when tab changes to 'mappings'
+  useEffect(() => {
+    if (activeTab === 'mappings') {
+      loadMappings()
+      loadSkuList()
     }
   }, [activeTab])
 
@@ -98,6 +128,101 @@ export function ParametresClient({ profile }: ParametresClientProps) {
       console.error('Error loading company settings:', error)
     } finally {
       setIsLoadingCompany(false)
+    }
+  }
+
+  const loadMappings = async () => {
+    setIsLoadingMappings(true)
+    try {
+      const response = await fetch('/api/admin/sku-mappings')
+      if (response.ok) {
+        const data = await response.json()
+        setMappings(data.mappings || [])
+        setUnmappedItems(data.unmapped || [])
+      }
+    } catch (error) {
+      console.error('Error loading mappings:', error)
+    } finally {
+      setIsLoadingMappings(false)
+    }
+  }
+
+  const loadSkuList = async () => {
+    try {
+      // Use all=true to include bundles (mappings can target bundles)
+      const response = await fetch('/api/skus?all=true')
+      if (response.ok) {
+        const data = await response.json()
+        setSkuList(data.skus || data || [])
+      }
+    } catch (error) {
+      console.error('Error loading SKUs:', error)
+    }
+  }
+
+  const handleCreateMapping = async (description: string, skuId: string) => {
+    setIsCreatingMapping(true)
+    try {
+      const response = await fetch('/api/admin/sku-mappings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description_pattern: description, sku_id: skuId }),
+      })
+      if (response.ok) {
+        toast.success('Mapping cree')
+        loadMappings()
+        setMappingDesc('')
+        setMappingSkuId('')
+      } else {
+        const err = await response.json()
+        toast.error(err.error || 'Erreur')
+      }
+    } catch {
+      toast.error('Erreur de connexion')
+    } finally {
+      setIsCreatingMapping(false)
+    }
+  }
+
+  const handleDeleteMapping = async (id: string) => {
+    try {
+      const response = await fetch('/api/admin/sku-mappings', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+      if (response.ok) {
+        toast.success('Mapping supprime')
+        setMappings(prev => prev.filter(m => m.id !== id))
+      }
+    } catch {
+      toast.error('Erreur de connexion')
+    }
+  }
+
+  const handleBackfill = async () => {
+    setIsBackfilling(true)
+    setBackfillResult(null)
+    try {
+      const response = await fetch('/api/stock/backfill-items', { method: 'POST' })
+      const result = await response.json()
+      setBackfillResult({
+        success: result.success,
+        message: result.message || (result.success ? 'Backfill termine' : 'Erreur'),
+        stats: result.stats,
+      })
+      if (result.success) {
+        toast.success('Backfill termine', {
+          description: `${result.stats?.itemsCreated || 0} items crees`,
+        })
+      } else {
+        toast.error(result.error || result.message || 'Erreur')
+      }
+    } catch {
+      setBackfillResult({ success: false, message: 'Erreur de connexion' })
+      toast.error('Erreur de connexion')
+    } finally {
+      setIsBackfilling(false)
     }
   }
 
@@ -301,7 +426,7 @@ export function ParametresClient({ profile }: ParametresClientProps) {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className={`grid w-full ${isClient ? 'grid-cols-1 lg:w-[200px]' : 'grid-cols-4 lg:w-[500px]'}`}>
+        <TabsList className={`grid w-full ${isClient ? 'grid-cols-1 lg:w-[200px]' : 'grid-cols-5 lg:w-[620px]'}`}>
           <TabsTrigger value="profil" className="flex items-center gap-2">
             <User className="h-4 w-4" />
             Profil
@@ -322,6 +447,12 @@ export function ParametresClient({ profile }: ParametresClientProps) {
             <TabsTrigger value="sync" className="flex items-center gap-2">
               <RefreshCw className="h-4 w-4" />
               Sync
+            </TabsTrigger>
+          )}
+          {!isClient && (
+            <TabsTrigger value="mappings" className="flex items-center gap-2">
+              <Link2 className="h-4 w-4" />
+              Mappings
             </TabsTrigger>
           )}
         </TabsList>
@@ -822,6 +953,242 @@ export function ParametresClient({ profile }: ParametresClientProps) {
                       {recalcResult.stats.errors > 0 && (
                         <span className="text-red-600 ml-2">({recalcResult.stats.errors} erreurs)</span>
                       )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Mappings Tab */}
+        <TabsContent value="mappings" className="space-y-6">
+          {/* KPI badges */}
+          <div className="flex gap-3">
+            <Badge variant="outline" className="text-sm px-3 py-1">
+              {mappings.length} mappings actifs
+            </Badge>
+            {unmappedItems.length > 0 && (
+              <Badge variant="destructive" className="text-sm px-3 py-1">
+                <AlertTriangle className="h-3 w-3 mr-1" />
+                {unmappedItems.length} descriptions non mappees
+              </Badge>
+            )}
+          </div>
+
+          {/* Existing mappings */}
+          <Card className="shadow-sm border-border">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Link2 className="h-5 w-5 text-primary" />
+                <CardTitle>Mappings Sendcloud → SKU</CardTitle>
+              </div>
+              <CardDescription>
+                Correspondance entre les descriptions Sendcloud et vos produits
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoadingMappings ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : mappings.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4">Aucun mapping configure</p>
+              ) : (
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="text-left px-4 py-2 font-medium">Description Sendcloud</th>
+                        <th className="text-left px-4 py-2 font-medium">SKU</th>
+                        <th className="text-left px-4 py-2 font-medium">Produit</th>
+                        <th className="w-10"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {mappings.map((m) => (
+                        <tr key={m.id} className="hover:bg-muted/30">
+                          <td className="px-4 py-2 font-mono text-xs">{m.description_pattern}</td>
+                          <td className="px-4 py-2">
+                            <Badge variant="outline" className="font-mono text-xs">
+                              {m.skus?.sku_code || '—'}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-2 text-muted-foreground">{m.skus?.name || '—'}</td>
+                          <td className="px-2 py-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteMapping(m.id)}
+                              className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Add new mapping */}
+          <Card className="shadow-sm border-border">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Plus className="h-5 w-5 text-primary" />
+                <CardTitle className="text-base">Ajouter un mapping</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <Input
+                  placeholder="Description Sendcloud (ex: Flacon 50ml Rose)"
+                  value={mappingDesc}
+                  onChange={(e) => setMappingDesc(e.target.value)}
+                  className="flex-1"
+                />
+                <select
+                  value={mappingSkuId}
+                  onChange={(e) => setMappingSkuId(e.target.value)}
+                  className="h-10 rounded-md border border-input bg-background px-3 text-sm min-w-[200px]"
+                >
+                  <option value="">Selectionner un SKU...</option>
+                  {skuList.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.sku_code} — {s.name}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  onClick={() => handleCreateMapping(mappingDesc, mappingSkuId)}
+                  disabled={!mappingDesc || !mappingSkuId || isCreatingMapping}
+                  className="shrink-0"
+                >
+                  {isCreatingMapping ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Plus className="mr-2 h-4 w-4" />
+                  )}
+                  Ajouter
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Unmapped descriptions */}
+          {unmappedItems.length > 0 && (
+            <Card className="shadow-sm border-border border-orange-200">
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-orange-500" />
+                  <CardTitle className="text-base">Descriptions non mappees</CardTitle>
+                </div>
+                <CardDescription>
+                  Ces descriptions Sendcloud n&apos;ont pas pu etre associees a un produit
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-orange-50">
+                      <tr>
+                        <th className="text-left px-4 py-2 font-medium">Description</th>
+                        <th className="text-left px-4 py-2 font-medium">Quantite totale</th>
+                        <th className="text-left px-4 py-2 font-medium">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {unmappedItems.map((item, i) => (
+                        <tr key={i} className="hover:bg-muted/30">
+                          <td className="px-4 py-2 font-mono text-xs">{item.description}</td>
+                          <td className="px-4 py-2">
+                            <Badge variant="outline">{item.total_qty}</Badge>
+                          </td>
+                          <td className="px-4 py-2">
+                            <select
+                              className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                              defaultValue=""
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  handleCreateMapping(item.description, e.target.value)
+                                }
+                              }}
+                            >
+                              <option value="">Mapper vers...</option>
+                              {skuList.map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.sku_code} — {s.name}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Backfill + Recalculate actions */}
+          <Card className="shadow-sm border-border">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <RefreshCw className="h-5 w-5 text-blue-500" />
+                <CardTitle className="text-base">Rattrapage & Recalcul</CardTitle>
+              </div>
+              <CardDescription>
+                Retraitez les expeditions historiques avec les nouveaux mappings puis recalculez le stock
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <Button
+                  onClick={handleBackfill}
+                  disabled={isBackfilling}
+                  variant="outline"
+                  className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                >
+                  {isBackfilling ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                  )}
+                  {isBackfilling ? 'Backfill en cours...' : '1. Lancer le backfill'}
+                </Button>
+                <Button
+                  onClick={handleStockRecalculate}
+                  disabled={isRecalculating}
+                  variant="outline"
+                  className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                >
+                  {isRecalculating ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                  )}
+                  {isRecalculating ? 'Recalcul en cours...' : '2. Recalculer le stock'}
+                </Button>
+              </div>
+              {backfillResult && !isBackfilling && (
+                <div className={`p-3 rounded-lg border ${backfillResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                  <div className="flex items-center gap-2">
+                    {backfillResult.success ? (
+                      <CheckCircle className="h-4 w-4 text-green-600" />
+                    ) : (
+                      <AlertTriangle className="h-4 w-4 text-red-600" />
+                    )}
+                    <span className={`text-sm font-medium ${backfillResult.success ? 'text-green-700' : 'text-red-700'}`}>
+                      {backfillResult.message}
+                    </span>
+                  </div>
+                  {backfillResult.stats && (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {backfillResult.stats.itemsCreated} items crees | {backfillResult.stats.processed} expeditions traitees | {backfillResult.stats.skipped} ignorees | {backfillResult.stats.unmapped} non mappees
                     </div>
                   )}
                 </div>

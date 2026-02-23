@@ -452,6 +452,18 @@ export async function POST(request: NextRequest) {
       skus?.map((s: { sku_code: string; id: string }) => [s.sku_code.toLowerCase(), s.id]) || []
     )
 
+    // Get description->SKU mappings for fallback matching
+    const { data: descMappings } = await adminClient
+      .from('sendcloud_sku_mappings')
+      .select('description_pattern, sku_id')
+      .eq('tenant_id', tenantId)
+
+    const descMap = new Map<string, string>(
+      descMappings?.map((m: { description_pattern: string; sku_id: string }) =>
+        [m.description_pattern.toLowerCase(), m.sku_id]
+      ) || []
+    )
+
     const results = {
       processed: 0,
       errors: [] as string[],
@@ -608,8 +620,17 @@ export async function POST(request: NextRequest) {
 
         // Process items if available
         if (parcel.items && parcel.items.length > 0 && shipment) {
+          const unmappedItems: Array<{ description: string; qty: number }> = []
+
           for (const item of parcel.items) {
-            const skuId = skuMap.get(item.sku_code.toLowerCase())
+            // 1. Try direct SKU code match (existing behavior)
+            let skuId = skuMap.get(item.sku_code.toLowerCase())
+
+            // 2. Fallback: try description mapping
+            if (!skuId && item.description) {
+              skuId = descMap.get(item.description.toLowerCase())
+            }
+
             if (skuId) {
               await adminClient
                 .from('shipment_items')
@@ -638,7 +659,17 @@ export async function POST(request: NextRequest) {
                   console.error(`[Webhook] Error consuming stock for SKU ${item.sku_code}:`, stockError)
                 }
               }
+            } else if (item.description) {
+              unmappedItems.push({ description: item.description, qty: item.qty })
             }
+          }
+
+          // Store unmapped items on the shipment for later mapping
+          if (unmappedItems.length > 0) {
+            await adminClient
+              .from('shipments')
+              .update({ unmapped_items: unmappedItems })
+              .eq('id', shipment.id)
           }
         }
       } catch (error) {

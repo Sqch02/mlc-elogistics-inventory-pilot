@@ -13,11 +13,12 @@ interface SKUWithStock {
   stock_snapshots: Array<{ qty_current: number; updated_at: string }> | null
 }
 
-// GET /api/skus - List all SKUs with stock (excludes bundle SKUs)
-export async function GET() {
+// GET /api/skus - List all SKUs with stock (excludes bundle SKUs by default)
+export async function GET(request: NextRequest) {
   try {
     const tenantId = await requireTenant()
     const supabase = await getServerDb()
+    const includeAll = request.nextUrl.searchParams.get('all') === 'true'
 
     // Get all SKUs with stock
     const { data, error } = await supabase
@@ -37,33 +38,35 @@ export async function GET() {
 
     if (error) throw error
 
-    // Get bundle SKU IDs to exclude them
-    const { data: bundles } = await supabase
-      .from('bundles')
-      .select('bundle_sku_id')
-      .eq('tenant_id', tenantId)
+    let filtered = data || []
 
-    const bundleSkuIds = new Set((bundles || []).map((b: { bundle_sku_id: string }) => b.bundle_sku_id))
+    // Exclude bundles unless ?all=true
+    if (!includeAll) {
+      // Get bundle SKU IDs to exclude them
+      const { data: bundles } = await supabase
+        .from('bundles')
+        .select('bundle_sku_id')
+        .eq('tenant_id', tenantId)
 
-    // Filter out SKUs that are bundles (by ID or by code pattern)
-    const skus = (data || [])
-      .filter((sku: SKUWithStock) => {
-        // Exclude if SKU ID is in bundles table
+      const bundleSkuIds = new Set((bundles || []).map((b: { bundle_sku_id: string }) => b.bundle_sku_id))
+
+      filtered = filtered.filter((sku: SKUWithStock) => {
         if (bundleSkuIds.has(sku.id)) return false
-        // Also exclude by code pattern (FLRNBU- prefix = bundle)
         if (sku.sku_code.toUpperCase().includes('BU-') || sku.sku_code.toUpperCase().startsWith('BUNDLE')) return false
         return true
       })
-      .map((sku: SKUWithStock) => ({
-        id: sku.id,
-        sku_code: sku.sku_code,
-        name: sku.name,
-        weight_grams: sku.weight_grams,
-        alert_threshold: sku.alert_threshold,
-        created_at: sku.created_at,
-        qty_current: sku.stock_snapshots?.[0]?.qty_current || 0,
-        stock_updated_at: sku.stock_snapshots?.[0]?.updated_at || null,
-      }))
+    }
+
+    const skus = filtered.map((sku: SKUWithStock) => ({
+      id: sku.id,
+      sku_code: sku.sku_code,
+      name: sku.name,
+      weight_grams: sku.weight_grams,
+      alert_threshold: sku.alert_threshold,
+      created_at: sku.created_at,
+      qty_current: sku.stock_snapshots?.[0]?.qty_current || 0,
+      stock_updated_at: sku.stock_snapshots?.[0]?.updated_at || null,
+    }))
 
     return NextResponse.json({ skus })
   } catch (error) {
