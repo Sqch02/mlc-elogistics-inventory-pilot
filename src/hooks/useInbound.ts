@@ -11,6 +11,9 @@ export interface InboundEntry {
   accepted_qty: number | null
   supplier: string | null
   batch_reference: string | null
+  group_id: string | null
+  nb_palettes: number | null
+  lot_number: string | null
   received: boolean
   received_at: string | null
   created_by: string | null
@@ -52,11 +55,12 @@ export function useCreateInbound() {
 
   return useMutation({
     mutationFn: async (data: {
-      items: { sku_id: string; qty: number }[]
+      items: { sku_id: string; qty: number; lot_number?: string }[]
       eta_date: string
       note?: string
       supplier?: string
       batch_reference?: string
+      nb_palettes?: number
     }) => {
       const res = await fetch('/api/inbound', {
         method: 'POST',

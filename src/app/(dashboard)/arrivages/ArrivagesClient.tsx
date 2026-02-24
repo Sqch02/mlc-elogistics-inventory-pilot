@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   PackagePlus, Search, Plus, Loader2, CheckCircle, XCircle,
-  Clock, Package, Truck, Filter, Trash2,
+  Clock, Package, Truck, Filter, Trash2, Eye, Layers,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useInbound, useCreateInbound, useInboundAction, useDeleteInbound, InboundEntry, INBOUND_STATUS_LABELS } from '@/hooks/useInbound'
@@ -38,14 +38,60 @@ function getStatusBadge(status: string) {
   return <Badge variant={variants[status] || 'muted'}>{INBOUND_STATUS_LABELS[status] || status}</Badge>
 }
 
+// Determine the overall status of a group of entries
+function getGroupStatus(entries: InboundEntry[]): string {
+  const statuses = new Set(entries.map(e => e.status))
+  if (statuses.size === 1) return entries[0].status
+  if (statuses.has('pending')) return 'pending'
+  if (statuses.has('rejected')) return 'rejected'
+  return entries[0].status
+}
+
+interface InboundGroup {
+  groupId: string
+  entries: InboundEntry[]
+  batchReference: string | null
+  supplier: string | null
+  etaDate: string
+  nbPalettes: number | null
+  status: string
+  totalQty: number
+  createdAt: string
+}
+
+function groupEntries(entries: InboundEntry[]): InboundGroup[] {
+  const map = new Map<string, InboundEntry[]>()
+  for (const entry of entries) {
+    const key = entry.group_id || entry.id
+    if (!map.has(key)) map.set(key, [])
+    map.get(key)!.push(entry)
+  }
+  const groups: InboundGroup[] = []
+  for (const [groupId, groupEntries] of map) {
+    const first = groupEntries[0]
+    groups.push({
+      groupId,
+      entries: groupEntries,
+      batchReference: first.batch_reference,
+      supplier: first.supplier,
+      etaDate: first.eta_date,
+      nbPalettes: first.nb_palettes,
+      status: getGroupStatus(groupEntries),
+      totalQty: groupEntries.reduce((sum, e) => sum + e.qty, 0),
+      createdAt: first.created_at,
+    })
+  }
+  groups.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  return groups
+}
+
 export function ArrivagesClient() {
   const { isClient } = useTenant()
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
   const [showCreateDialog, setShowCreateDialog] = useState(false)
-  const [showActionDialog, setShowActionDialog] = useState(false)
-  const [selectedEntry, setSelectedEntry] = useState<InboundEntry | null>(null)
-  const [actionType, setActionType] = useState<'accept' | 'reject'>('accept')
+  const [showDetailDialog, setShowDetailDialog] = useState(false)
+  const [selectedGroup, setSelectedGroup] = useState<InboundGroup | null>(null)
 
   const { data: entries, isLoading } = useInbound({ status: statusFilter, search })
   const createMutation = useCreateInbound()
@@ -55,25 +101,16 @@ export function ArrivagesClient() {
 
   const skus = skusData?.skus || []
 
-  // KPI counts
-  const pendingCount = entries?.filter(e => e.status === 'pending').length || 0
-  const acceptedCount = entries?.filter(e => e.status === 'accepted').length || 0
-  const rejectedCount = entries?.filter(e => e.status === 'rejected').length || 0
+  const groups = useMemo(() => groupEntries(entries || []), [entries])
 
-  const handleAction = (entry: InboundEntry, action: 'accept' | 'reject') => {
-    setSelectedEntry(entry)
-    setActionType(action)
-    setShowActionDialog(true)
-  }
+  // KPI counts (based on groups)
+  const pendingCount = groups.filter(g => g.status === 'pending').length
+  const acceptedCount = groups.filter(g => g.status === 'accepted').length
+  const rejectedCount = groups.filter(g => g.status === 'rejected').length
 
-  const handleDelete = async (entry: InboundEntry) => {
-    if (!confirm('Supprimer cet arrivage ?')) return
-    try {
-      await deleteMutation.mutateAsync(entry.id)
-      toast.success('Arrivage supprime')
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Erreur')
-    }
+  const handleGroupClick = (group: InboundGroup) => {
+    setSelectedGroup(group)
+    setShowDetailDialog(true)
   }
 
   if (isLoading) {
@@ -152,7 +189,7 @@ export function ArrivagesClient() {
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Rechercher par fournisseur, note, reference..."
+                placeholder="Rechercher par fournisseur, note, N BL..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-9"
@@ -173,96 +210,65 @@ export function ArrivagesClient() {
         </CardContent>
       </Card>
 
-      {/* Table */}
+      {/* Table - Grouped by arrivage */}
       <Card className="shadow-sm">
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>SKU</TableHead>
-                <TableHead>Produit</TableHead>
-                <TableHead className="text-right">Quantite</TableHead>
+                <TableHead>N° BL</TableHead>
+                <TableHead>Produits</TableHead>
+                <TableHead>Palettes</TableHead>
+                <TableHead className="text-right">Qty totale</TableHead>
                 <TableHead>ETA</TableHead>
                 <TableHead>Fournisseur</TableHead>
                 <TableHead>Statut</TableHead>
-                <TableHead>Date creation</TableHead>
-                {!isClient && <TableHead className="text-right">Actions</TableHead>}
+                <TableHead className="text-right">Detail</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {!entries || entries.length === 0 ? (
+              {groups.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={isClient ? 7 : 8} className="text-center py-12 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                     <Package className="h-12 w-12 mx-auto mb-3 opacity-50" />
                     <p>Aucun arrivage trouve</p>
                   </TableCell>
                 </TableRow>
               ) : (
-                entries.map((entry) => (
-                  <TableRow key={entry.id}>
+                groups.map((group) => (
+                  <TableRow
+                    key={group.groupId}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => handleGroupClick(group)}
+                  >
                     <TableCell className="font-mono text-sm font-medium">
-                      {entry.skus?.sku_code || '-'}
+                      {group.batchReference || <span className="text-muted-foreground">-</span>}
                     </TableCell>
-                    <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">
-                      {entry.skus?.name || '-'}
+                    <TableCell>
+                      <Badge variant="muted" className="gap-1">
+                        <Layers className="h-3 w-3" />
+                        {group.entries.length} produit{group.entries.length > 1 ? 's' : ''}
+                      </Badge>
                     </TableCell>
-                    <TableCell className="text-right font-medium">
-                      {entry.accepted_qty != null ? (
-                        <span>
-                          <span className="text-emerald-600">{entry.accepted_qty}</span>
-                          {entry.accepted_qty !== entry.qty && (
-                            <span className="text-muted-foreground text-xs ml-1">/ {entry.qty}</span>
-                          )}
-                        </span>
-                      ) : (
-                        entry.qty
-                      )}
+                    <TableCell className="text-sm">
+                      {group.nbPalettes != null ? group.nbPalettes : '-'}
                     </TableCell>
-                    <TableCell className="text-sm">{formatDate(entry.eta_date)}</TableCell>
+                    <TableCell className="text-right font-medium">{group.totalQty}</TableCell>
+                    <TableCell className="text-sm">{formatDate(group.etaDate)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {entry.supplier || '-'}
+                      {group.supplier || '-'}
                     </TableCell>
-                    <TableCell>{getStatusBadge(entry.status)}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{formatDate(entry.created_at)}</TableCell>
-                    {!isClient && (
-                      <TableCell className="text-right">
-                        {entry.status === 'pending' && (
-                          <div className="flex items-center justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-                              onClick={() => handleAction(entry, 'accept')}
-                            >
-                              <CheckCircle className="h-4 w-4 mr-1" />
-                              Accepter
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              onClick={() => handleAction(entry, 'reject')}
-                            >
-                              <XCircle className="h-4 w-4 mr-1" />
-                              Rejeter
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-muted-foreground"
-                              onClick={() => handleDelete(entry)}
-                            >
-                              Suppr.
-                            </Button>
-                          </div>
-                        )}
-                        {entry.status !== 'pending' && (
-                          <span className="text-xs text-muted-foreground">
-                            {entry.reviewed_at ? formatDate(entry.reviewed_at) : '-'}
-                          </span>
-                        )}
-                      </TableCell>
-                    )}
+                    <TableCell>{getStatusBadge(group.status)}</TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-muted-foreground hover:text-primary"
+                        onClick={(e) => { e.stopPropagation(); handleGroupClick(group) }}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -279,14 +285,15 @@ export function ArrivagesClient() {
         mutation={createMutation}
       />
 
-      {/* Action Dialog (Accept/Reject) */}
-      {selectedEntry && (
-        <ActionDialog
-          open={showActionDialog}
-          onClose={() => { setShowActionDialog(false); setSelectedEntry(null) }}
-          entry={selectedEntry}
-          action={actionType}
-          mutation={actionMutation}
+      {/* Detail Dialog */}
+      {selectedGroup && (
+        <DetailDialog
+          open={showDetailDialog}
+          onClose={() => { setShowDetailDialog(false); setSelectedGroup(null) }}
+          group={selectedGroup}
+          isClient={isClient}
+          actionMutation={actionMutation}
+          deleteMutation={deleteMutation}
         />
       )}
     </div>
@@ -299,6 +306,7 @@ export function ArrivagesClient() {
 interface ItemLine {
   skuId: string
   qty: string
+  lotNumber: string
   skuSearch: string
   showDropdown: boolean
 }
@@ -315,11 +323,12 @@ function CreateInboundDialog({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mutation: any
 }) {
-  const emptyLine = (): ItemLine => ({ skuId: '', qty: '', skuSearch: '', showDropdown: false })
+  const emptyLine = (): ItemLine => ({ skuId: '', qty: '', lotNumber: '', skuSearch: '', showDropdown: false })
   const [items, setItems] = useState<ItemLine[]>([emptyLine()])
   const [etaDate, setEtaDate] = useState('')
   const [supplier, setSupplier] = useState('')
   const [batchRef, setBatchRef] = useState('')
+  const [nbPalettes, setNbPalettes] = useState('')
   const [note, setNote] = useState('')
 
   const updateItem = (index: number, updates: Partial<ItemLine>) => {
@@ -347,10 +356,15 @@ function CreateInboundDialog({
     }
     try {
       await mutation.mutateAsync({
-        items: validItems.map(i => ({ sku_id: i.skuId, qty: Number(i.qty) })),
+        items: validItems.map(i => ({
+          sku_id: i.skuId,
+          qty: Number(i.qty),
+          ...(i.lotNumber && { lot_number: i.lotNumber }),
+        })),
         eta_date: etaDate,
         supplier: supplier || undefined,
         batch_reference: batchRef || undefined,
+        nb_palettes: nbPalettes ? Number(nbPalettes) : undefined,
         note: note || undefined,
       })
       toast.success(validItems.length > 1
@@ -362,6 +376,7 @@ function CreateInboundDialog({
       setEtaDate('')
       setSupplier('')
       setBatchRef('')
+      setNbPalettes('')
       setNote('')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Erreur')
@@ -438,6 +453,14 @@ function CreateInboundDialog({
                     </Button>
                   )}
                 </div>
+                <div className="pl-7">
+                  <Input
+                    value={item.lotNumber}
+                    onChange={(e) => updateItem(index, { lotNumber: e.target.value })}
+                    placeholder="N° de lot (optionnel)"
+                    className="text-sm h-8"
+                  />
+                </div>
               </div>
             ))}
             <Button
@@ -472,21 +495,32 @@ function CreateInboundDialog({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Reference lot</label>
+              <label className="text-sm font-medium">Numero BL</label>
               <Input
                 value={batchRef}
                 onChange={(e) => setBatchRef(e.target.value)}
-                placeholder="Ex: LOT-2026-001"
+                placeholder="Ex: BL-2026-001"
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Note</label>
+              <label className="text-sm font-medium">Nombre de palettes</label>
               <Input
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Commentaire optionnel"
+                type="number"
+                min="0"
+                value={nbPalettes}
+                onChange={(e) => setNbPalettes(e.target.value)}
+                placeholder="Ex: 2"
               />
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Note</label>
+            <Input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Commentaire optionnel"
+            />
           </div>
         </div>
 
@@ -505,40 +539,93 @@ function CreateInboundDialog({
 }
 
 // ==========================
-// Action Dialog (Accept/Reject)
+// Detail Dialog (Group view)
 // ==========================
-function ActionDialog({
+function DetailDialog({
   open,
   onClose,
-  entry,
-  action,
-  mutation,
+  group,
+  isClient,
+  actionMutation,
+  deleteMutation,
 }: {
   open: boolean
   onClose: () => void
-  entry: InboundEntry
-  action: 'accept' | 'reject'
+  group: InboundGroup
+  isClient: boolean
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  mutation: any
+  actionMutation: any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  deleteMutation: any
 }) {
-  const [acceptedQty, setAcceptedQty] = useState(String(entry.qty))
-  const [note, setNote] = useState(entry.note || '')
+  const [actionEntry, setActionEntry] = useState<InboundEntry | null>(null)
+  const [actionType, setActionType] = useState<'accept' | 'reject'>('accept')
+  const [acceptedQty, setAcceptedQty] = useState('')
+  const [actionNote, setActionNote] = useState('')
 
-  const isAccept = action === 'accept'
-  const title = isAccept ? 'Accepter l\'arrivage' : 'Rejeter l\'arrivage'
-  const description = isAccept
-    ? 'Confirmez la quantite recue. Le stock sera mis a jour automatiquement.'
-    : 'Indiquez la raison du rejet.'
+  const hasPendingEntries = group.entries.some(e => e.status === 'pending')
 
-  const handleSubmit = async () => {
+  const handleStartAction = (entry: InboundEntry, action: 'accept' | 'reject') => {
+    setActionEntry(entry)
+    setActionType(action)
+    setAcceptedQty(String(entry.qty))
+    setActionNote('')
+  }
+
+  const handleSubmitAction = async () => {
+    if (!actionEntry) return
     try {
-      await mutation.mutateAsync({
-        id: entry.id,
-        action,
-        ...(isAccept && { accepted_qty: Number(acceptedQty) }),
-        ...(note && { note }),
+      await actionMutation.mutateAsync({
+        id: actionEntry.id,
+        action: actionType,
+        ...(actionType === 'accept' && { accepted_qty: Number(acceptedQty) }),
+        ...(actionNote && { note: actionNote }),
       })
-      toast.success(isAccept ? 'Arrivage accepte - stock mis a jour' : 'Arrivage rejete')
+      toast.success(actionType === 'accept' ? 'Produit accepte - stock mis a jour' : 'Produit rejete')
+      setActionEntry(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erreur')
+    }
+  }
+
+  const handleAcceptAll = async () => {
+    const pendingEntries = group.entries.filter(e => e.status === 'pending')
+    try {
+      for (const entry of pendingEntries) {
+        await actionMutation.mutateAsync({
+          id: entry.id,
+          action: 'accept' as const,
+          accepted_qty: entry.qty,
+        })
+      }
+      toast.success(`${pendingEntries.length} produit${pendingEntries.length > 1 ? 's' : ''} accepte${pendingEntries.length > 1 ? 's' : ''}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erreur')
+    }
+  }
+
+  const handleRejectAll = async () => {
+    const pendingEntries = group.entries.filter(e => e.status === 'pending')
+    try {
+      for (const entry of pendingEntries) {
+        await actionMutation.mutateAsync({
+          id: entry.id,
+          action: 'reject' as const,
+        })
+      }
+      toast.success(`${pendingEntries.length} produit${pendingEntries.length > 1 ? 's' : ''} rejete${pendingEntries.length > 1 ? 's' : ''}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erreur')
+    }
+  }
+
+  const handleDeleteGroup = async () => {
+    if (!confirm('Supprimer tout cet arrivage ?')) return
+    try {
+      for (const entry of group.entries) {
+        await deleteMutation.mutateAsync(entry.id)
+      }
+      toast.success('Arrivage supprime')
       onClose()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Erreur')
@@ -547,62 +634,190 @@ function ActionDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            {isAccept ? <CheckCircle className="h-5 w-5 text-emerald-600" /> : <XCircle className="h-5 w-5 text-red-600" />}
-            {title}
+            <Package className="h-5 w-5" />
+            Detail de l&apos;arrivage
           </DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          <DialogDescription>
+            {group.batchReference ? `BL: ${group.batchReference}` : 'Sans numero BL'}
+            {group.supplier && ` | Fournisseur: ${group.supplier}`}
+          </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
-          <div className="p-3 bg-muted rounded-lg">
-            <p className="text-sm font-medium">{entry.skus?.sku_code} - {entry.skus?.name}</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Quantite declaree: {entry.qty} | ETA: {formatDate(entry.eta_date)}
-              {entry.supplier && ` | Fournisseur: ${entry.supplier}`}
-            </p>
+        {/* Header info */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 py-2">
+          <div className="p-3 bg-muted/50 rounded-lg">
+            <p className="text-xs text-muted-foreground">N° BL</p>
+            <p className="text-sm font-medium">{group.batchReference || '-'}</p>
           </div>
-
-          {isAccept && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Quantite recue</label>
-              <Input
-                type="number"
-                min="0"
-                value={acceptedQty}
-                onChange={(e) => setAcceptedQty(e.target.value)}
-              />
-              {Number(acceptedQty) !== entry.qty && (
-                <p className="text-xs text-amber-600">
-                  Difference de {Number(acceptedQty) - entry.qty} par rapport a la declaration
-                </p>
-              )}
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">{isAccept ? 'Note (optionnel)' : 'Raison du rejet'}</label>
-            <Input
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder={isAccept ? 'Commentaire' : 'Indiquez la raison...'}
-            />
+          <div className="p-3 bg-muted/50 rounded-lg">
+            <p className="text-xs text-muted-foreground">Palettes</p>
+            <p className="text-sm font-medium">{group.nbPalettes != null ? group.nbPalettes : '-'}</p>
+          </div>
+          <div className="p-3 bg-muted/50 rounded-lg">
+            <p className="text-xs text-muted-foreground">ETA</p>
+            <p className="text-sm font-medium">{formatDate(group.etaDate)}</p>
+          </div>
+          <div className="p-3 bg-muted/50 rounded-lg">
+            <p className="text-xs text-muted-foreground">Statut</p>
+            <div className="mt-0.5">{getStatusBadge(group.status)}</div>
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Annuler</Button>
-          <Button
-            variant={isAccept ? 'default' : 'destructive'}
-            onClick={handleSubmit}
-            disabled={mutation.isPending}
-          >
-            {mutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {isAccept ? 'Accepter' : 'Rejeter'}
-          </Button>
-        </DialogFooter>
+        {group.entries[0]?.note && (
+          <div className="text-sm text-muted-foreground bg-muted/30 p-3 rounded-lg">
+            <span className="font-medium">Note :</span> {group.entries[0].note}
+          </div>
+        )}
+
+        {/* Products table */}
+        <div className="border rounded-lg overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>SKU</TableHead>
+                <TableHead>Produit</TableHead>
+                <TableHead>N° Lot</TableHead>
+                <TableHead className="text-right">Qty declaree</TableHead>
+                <TableHead className="text-right">Qty recue</TableHead>
+                <TableHead>Statut</TableHead>
+                {!isClient && <TableHead className="text-right">Actions</TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {group.entries.map((entry) => (
+                <TableRow key={entry.id}>
+                  <TableCell className="font-mono text-xs font-medium">
+                    {entry.skus?.sku_code || '-'}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground max-w-[150px] truncate">
+                    {entry.skus?.name || '-'}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {entry.lot_number || '-'}
+                  </TableCell>
+                  <TableCell className="text-right text-sm font-medium">{entry.qty}</TableCell>
+                  <TableCell className="text-right text-sm">
+                    {entry.accepted_qty != null ? (
+                      <span className={entry.accepted_qty === entry.qty ? 'text-emerald-600' : 'text-amber-600'}>
+                        {entry.accepted_qty}
+                      </span>
+                    ) : '-'}
+                  </TableCell>
+                  <TableCell>{getStatusBadge(entry.status)}</TableCell>
+                  {!isClient && (
+                    <TableCell className="text-right">
+                      {entry.status === 'pending' && (
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                            onClick={() => handleStartAction(entry, 'accept')}
+                          >
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                            Accepter
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => handleStartAction(entry, 'reject')}
+                          >
+                            <XCircle className="h-3 w-3 mr-1" />
+                            Rejeter
+                          </Button>
+                        </div>
+                      )}
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+
+        {/* Inline action form for single entry */}
+        {actionEntry && (
+          <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
+            <p className="text-sm font-medium">
+              {actionType === 'accept' ? 'Accepter' : 'Rejeter'} : {actionEntry.skus?.sku_code} - {actionEntry.skus?.name}
+            </p>
+            {actionType === 'accept' && (
+              <div className="space-y-1">
+                <label className="text-xs font-medium">Quantite recue</label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={acceptedQty}
+                  onChange={(e) => setAcceptedQty(e.target.value)}
+                  className="h-8 text-sm w-32"
+                />
+              </div>
+            )}
+            <div className="space-y-1">
+              <label className="text-xs font-medium">{actionType === 'accept' ? 'Note' : 'Raison du rejet'}</label>
+              <Input
+                value={actionNote}
+                onChange={(e) => setActionNote(e.target.value)}
+                placeholder={actionType === 'accept' ? 'Commentaire optionnel' : 'Indiquez la raison...'}
+                className="h-8 text-sm"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant={actionType === 'accept' ? 'default' : 'destructive'}
+                onClick={handleSubmitAction}
+                disabled={actionMutation.isPending}
+              >
+                {actionMutation.isPending && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+                Confirmer
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setActionEntry(null)}>
+                Annuler
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Footer actions */}
+        {!isClient && hasPendingEntries && !actionEntry && (
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            {group.status === 'pending' && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground"
+                onClick={handleDeleteGroup}
+              >
+                <Trash2 className="h-4 w-4 mr-1" />
+                Supprimer
+              </Button>
+            )}
+            <div className="flex-1" />
+            <Button
+              variant="outline"
+              className="text-red-600 border-red-200 hover:bg-red-50"
+              onClick={handleRejectAll}
+              disabled={actionMutation.isPending}
+            >
+              {actionMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              <XCircle className="h-4 w-4 mr-1" />
+              Tout rejeter
+            </Button>
+            <Button
+              onClick={handleAcceptAll}
+              disabled={actionMutation.isPending}
+            >
+              {actionMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              <CheckCircle className="h-4 w-4 mr-1" />
+              Tout accepter
+            </Button>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   )

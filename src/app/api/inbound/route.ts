@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
 
     // Support both formats: {items: [...], eta_date, ...} or legacy {sku_id, qty, eta_date, ...}
-    const items: { sku_id: string; qty: number }[] = body.items
+    const items: { sku_id: string; qty: number; lot_number?: string }[] = body.items
       ? body.items
       : [{ sku_id: body.sku_id, qty: body.qty }]
 
@@ -56,6 +56,8 @@ export async function POST(request: NextRequest) {
     const note = body.note || null
     const supplier = body.supplier || null
     const batch_reference = body.batch_reference || null
+    const nb_palettes = body.nb_palettes ?? null
+    const group_id = crypto.randomUUID()
 
     if (!eta_date || items.length === 0) {
       return NextResponse.json(
@@ -98,6 +100,9 @@ export async function POST(request: NextRequest) {
       note,
       supplier,
       batch_reference,
+      nb_palettes,
+      lot_number: item.lot_number || null,
+      group_id,
       status: 'pending',
       received: false,
       created_by: user?.id || null,
