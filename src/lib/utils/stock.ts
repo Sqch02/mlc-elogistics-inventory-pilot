@@ -98,9 +98,13 @@ export async function calculateSKUMetrics(
   // Build consumption map
   const consumptionMap = new Map<string, { last30d: number; last90d: number }>()
   const itemsList = shipmentItems as ShipmentItemData[] | null
+  let earliestShipmentDate: Date | null = null
 
   itemsList?.forEach((item: ShipmentItemData) => {
     const shippedAt = new Date(item.shipments.shipped_at)
+    if (!earliestShipmentDate || shippedAt < earliestShipmentDate) {
+      earliestShipmentDate = shippedAt
+    }
     const skuIds: Array<{ id: string; qty: number }> = []
 
     // Check if this is a bundle
@@ -150,7 +154,10 @@ export async function calculateSKUMetrics(
       : sku.stock_snapshots
     const qtyCurrent = stockSnapshot?.qty_current || 0
     const consumption = consumptionMap.get(sku.id) || { last30d: 0, last90d: 0 }
-    const avgDaily90d = consumption.last90d / 90
+    const actualDays = earliestShipmentDate
+      ? Math.max(1, Math.ceil((now.getTime() - earliestShipmentDate.getTime()) / (24 * 60 * 60 * 1000)))
+      : 90
+    const avgDaily90d = consumption.last90d / actualDays
     const daysRemaining = avgDaily90d > 0 ? Math.floor(qtyCurrent / avgDaily90d) : null
     const pendingRestock = restockMap.get(sku.id) || 0
     const projectedStock = qtyCurrent + pendingRestock

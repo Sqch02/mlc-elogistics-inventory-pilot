@@ -3,7 +3,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Package } from 'lucide-react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts'
 
 interface SkuSalesData {
   sku_id: string
@@ -104,6 +104,12 @@ export function SkuSalesChart({ data, totalSkus, totalQuantity }: SkuSalesChartP
                   }}
                 />
                 <Bar dataKey="quantity_sold" radius={[0, 4, 4, 0]}>
+                  <LabelList
+                    dataKey="quantity_sold"
+                    position="right"
+                    formatter={(value) => Number(value).toLocaleString('fr-FR')}
+                    style={{ fontSize: 11, fontWeight: 600, fill: '#374151' }}
+                  />
                   {chartData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.fill} />
                   ))}

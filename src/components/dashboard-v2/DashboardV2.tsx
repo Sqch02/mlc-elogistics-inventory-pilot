@@ -132,7 +132,7 @@ export function DashboardV2() {
       />
 
       {/* Section 1: KPIs */}
-      <div className={`grid grid-cols-2 ${isClient ? '' : 'lg:grid-cols-4'} gap-4`}>
+      <div className={`grid grid-cols-2 ${isClient ? '' : 'lg:grid-cols-5'} gap-4`}>
         <SecondaryKpiCard
           label="Expeditions"
           value={shipmentsCount}
@@ -149,6 +149,16 @@ export function DashboardV2() {
             icon={Banknote}
             status="default"
             delay={0.15}
+          />
+        )}
+        {!isClient && (
+          <SecondaryKpiCard
+            label="Cout hier"
+            value={data.kpis.costYesterday?.value || '0.00 €'}
+            subValue="hier"
+            icon={Banknote}
+            status="default"
+            delay={0.17}
           />
         )}
         {!isClient && (

@@ -83,12 +83,19 @@ function StockItem({ item, index, delay }: {
             {item.sku}
           </span>
         </div>
-        <span className={cn(
-          "px-1.5 py-0.5 rounded text-[10px] font-semibold border flex-shrink-0",
-          badgeColors[status]
-        )}>
-          {item.daysRemaining}j
-        </span>
+        <div className="flex items-center gap-4 text-[10px] text-muted-foreground flex-shrink-0">
+          <span>{item.stock}</span>
+          <span className="flex items-center gap-0.5">
+            <TrendingDown className="h-2.5 w-2.5" />
+            {item.avgConsumption90d || item.consumption30d || 0}
+          </span>
+          <span className={cn(
+            "w-8 text-right px-1 py-0.5 rounded font-semibold border text-[10px]",
+            badgeColors[status]
+          )}>
+            {item.daysRemaining}j
+          </span>
+        </div>
       </div>
 
       <ProgressBar
@@ -97,14 +104,6 @@ function StockItem({ item, index, delay }: {
         status={status}
         delay={delay + index * 0.05 + 0.1}
       />
-
-      <div className="flex items-center justify-between mt-1.5 text-[10px] text-muted-foreground">
-        <span>{item.stock} unites</span>
-        <span className="flex items-center gap-0.5">
-          <TrendingDown className="h-2.5 w-2.5" />
-          {item.avgConsumption90d || item.consumption30d || 0}/j
-        </span>
-      </div>
     </motion.div>
   )
 }
@@ -151,6 +150,14 @@ export function StockHealthPanel({ items, criticalCount, delay = 0 }: StockHealt
       <div className="flex-1 min-h-0 overflow-hidden">
         {items.length > 0 ? (
           <div className="space-y-0">
+            <div className="flex items-center justify-between px-0.5 mb-1 text-[9px] font-medium text-muted-foreground uppercase tracking-wider">
+              <span>SKU</span>
+              <div className="flex items-center gap-4">
+                <span>Stock</span>
+                <span>Conso/j</span>
+                <span className="w-8 text-right">Jours</span>
+              </div>
+            </div>
             {displayItems.map((item, index) => (
               <StockItem
                 key={item.sku}

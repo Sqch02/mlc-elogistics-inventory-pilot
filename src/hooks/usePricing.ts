@@ -26,6 +26,23 @@ export const DESTINATION_LABELS: Record<string, string> = {
   domicile_world: 'Domicile World',
 }
 
+export function splitDestination(dest: string | null): { country: string; type: string } {
+  if (!dest) return { country: '-', type: '-' }
+  const map: Record<string, { country: string; type: string }> = {
+    france_relay: { country: 'France', type: 'Relay' },
+    france_domicile: { country: 'France', type: 'Domicile' },
+    relay_be: { country: 'Belgique', type: 'Relay' },
+    domicile_be: { country: 'Belgique', type: 'Domicile' },
+    relay_lux: { country: 'Luxembourg', type: 'Relay' },
+    domicile_lux: { country: 'Luxembourg', type: 'Domicile' },
+    domicile_suisse: { country: 'Suisse', type: 'Domicile' },
+    relay_eu_dom: { country: 'EU + DOM', type: 'Relay' },
+    domicile_ue_dom: { country: 'UE + DOM', type: 'Domicile' },
+    domicile_world: { country: 'World', type: 'Domicile' },
+  }
+  return map[dest] || { country: dest, type: '-' }
+}
+
 export interface PricingStats {
   totalRules: number
   carriers: string[]

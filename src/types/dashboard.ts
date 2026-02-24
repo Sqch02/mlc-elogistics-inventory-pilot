@@ -50,6 +50,8 @@ export interface DashboardData {
     missingPricing: DashboardKPIData
     indemnity: DashboardKPIData
     criticalStock: DashboardKPIData
+    claimsYesterday: DashboardKPIData
+    costYesterday: DashboardKPIData
     shipmentsWithoutItems: DashboardKPIData
   }
   chartData: DashboardChartData[]

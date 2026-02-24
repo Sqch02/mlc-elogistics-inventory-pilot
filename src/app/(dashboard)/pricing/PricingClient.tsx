@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Download, DollarSign, Truck, AlertTriangle, CheckCircle, Loader2, Plus, MoreHorizontal, Pencil, Trash2, Upload } from 'lucide-react'
-import { usePricing, useCreatePricingRule, useUpdatePricingRule, useDeletePricingRule, PricingRule, DESTINATION_LABELS } from '@/hooks/usePricing'
+import { usePricing, useCreatePricingRule, useUpdatePricingRule, useDeletePricingRule, PricingRule, DESTINATION_LABELS, splitDestination } from '@/hooks/usePricing'
 import { useTenant } from '@/components/providers/TenantProvider'
 import { useCarriers } from '@/hooks/useShipments'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -291,7 +291,8 @@ export function PricingClient() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="pl-4 lg:pl-6 whitespace-nowrap">Transporteur</TableHead>
-                  <TableHead className="whitespace-nowrap">Destination</TableHead>
+                  <TableHead className="whitespace-nowrap">Pays</TableHead>
+                  <TableHead className="whitespace-nowrap">Type</TableHead>
                   <TableHead className="text-right whitespace-nowrap">Min</TableHead>
                   <TableHead className="text-right whitespace-nowrap">Max</TableHead>
                   <TableHead className="text-right whitespace-nowrap">Prix</TableHead>
@@ -308,9 +309,12 @@ export function PricingClient() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <span className="text-sm text-muted-foreground">
-                          {rule.destination ? (DESTINATION_LABELS[rule.destination] || rule.destination) : '-'}
-                        </span>
+                        <span className="text-sm">{splitDestination(rule.destination).country}</span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="muted" className="text-[10px]">
+                          {splitDestination(rule.destination).type}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs lg:text-sm whitespace-nowrap">
                         {formatWeight(rule.weight_min_grams)}

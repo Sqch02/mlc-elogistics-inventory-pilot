@@ -58,7 +58,8 @@ export async function GET(request: NextRequest) {
       claimsResult,
       stockResult,
       dailyShipmentsResult,
-      claimsYesterdayResult
+      claimsYesterdayResult,
+      costYesterdayResult
     ] = await Promise.all([
       supabase
         .from('shipments')
@@ -118,7 +119,16 @@ export async function GET(request: NextRequest) {
         .select('*', { count: 'exact', head: true })
         .eq('tenant_id', tenantId)
         .gte('opened_at', yesterday.toISOString())
-        .lte('opened_at', yesterdayEnd.toISOString())
+        .lte('opened_at', yesterdayEnd.toISOString()),
+
+      // Cost yesterday
+      supabase
+        .from('shipments')
+        .select('computed_cost_eur')
+        .eq('tenant_id', tenantId)
+        .eq('pricing_status', 'ok')
+        .gte('shipped_at', yesterday.toISOString())
+        .lte('shipped_at', yesterdayEnd.toISOString())
     ])
 
     const shipmentsCost = shipmentsCostResult.data as { computed_cost_eur: number | null }[] | null
@@ -131,6 +141,8 @@ export async function GET(request: NextRequest) {
     const missingPricingMonthCount = missingPricingMonthResult.count || 0
     const missingPricingTotalCount = missingPricingTotalResult.count || 0
     const claimsYesterdayCount = claimsYesterdayResult.count || 0
+    const costYesterdayData = costYesterdayResult.data as { computed_cost_eur: number | null }[] | null
+    const costYesterday = costYesterdayData?.reduce((sum, s) => sum + (Number(s.computed_cost_eur) || 0), 0) || 0
     // criticalStockCount will be calculated after filtering bundles below
 
     // Group daily shipments (with pagination to get all data)
@@ -236,6 +248,7 @@ export async function GET(request: NextRequest) {
         indemnity: { label: "Total indemnisé", value: `${totalIndemnity.toFixed(2)} €`, subValue: "ce mois-ci", status: indemnityStatus },
         criticalStock: { label: "SKUs critiques", value: criticalStockCount, subValue: "stock < 20", status: criticalStockStatus },
         claimsYesterday: { label: "Réclamations", value: claimsYesterdayCount, subValue: "hier", status: claimsYesterdayCount > 0 ? 'warning' : 'success' },
+        costYesterday: { label: "Coût HME hier", value: `${costYesterday.toFixed(2)} €`, subValue: "hier", status: 'default' },
       },
       chartData,
       stockHealth,
