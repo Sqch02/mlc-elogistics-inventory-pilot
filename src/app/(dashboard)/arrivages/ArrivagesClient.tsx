@@ -558,54 +558,51 @@ function DetailDialog({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   deleteMutation: any
 }) {
-  const [actionEntry, setActionEntry] = useState<InboundEntry | null>(null)
-  const [actionType, setActionType] = useState<'accept' | 'reject'>('accept')
-  const [acceptedQty, setAcceptedQty] = useState('')
-  const [actionNote, setActionNote] = useState('')
+  const [controlMode, setControlMode] = useState(false)
+  // Map of entry.id -> { qty: string, note: string }
+  const [controlData, setControlData] = useState<Record<string, { qty: string; note: string }>>({})
 
   const hasPendingEntries = group.entries.some(e => e.status === 'pending')
+  const pendingEntries = group.entries.filter(e => e.status === 'pending')
 
-  const handleStartAction = (entry: InboundEntry, action: 'accept' | 'reject') => {
-    setActionEntry(entry)
-    setActionType(action)
-    setAcceptedQty(String(entry.qty))
-    setActionNote('')
-  }
-
-  const handleSubmitAction = async () => {
-    if (!actionEntry) return
-    try {
-      await actionMutation.mutateAsync({
-        id: actionEntry.id,
-        action: actionType,
-        ...(actionType === 'accept' && { accepted_qty: Number(acceptedQty) }),
-        ...(actionNote && { note: actionNote }),
-      })
-      toast.success(actionType === 'accept' ? 'Produit accepte - stock mis a jour' : 'Produit rejete')
-      setActionEntry(null)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Erreur')
+  const startControl = () => {
+    const initial: Record<string, { qty: string; note: string }> = {}
+    for (const entry of pendingEntries) {
+      initial[entry.id] = { qty: String(entry.qty), note: '' }
     }
+    setControlData(initial)
+    setControlMode(true)
   }
 
-  const handleAcceptAll = async () => {
-    const pendingEntries = group.entries.filter(e => e.status === 'pending')
+  const updateControlQty = (id: string, qty: string) => {
+    setControlData(prev => ({ ...prev, [id]: { ...prev[id], qty } }))
+  }
+
+  const updateControlNote = (id: string, note: string) => {
+    setControlData(prev => ({ ...prev, [id]: { ...prev[id], note } }))
+  }
+
+  const handleValidateControl = async () => {
     try {
       for (const entry of pendingEntries) {
+        const data = controlData[entry.id]
+        if (!data) continue
+        const receivedQty = Number(data.qty)
         await actionMutation.mutateAsync({
           id: entry.id,
           action: 'accept' as const,
-          accepted_qty: entry.qty,
+          accepted_qty: receivedQty,
+          ...(data.note && { note: data.note }),
         })
       }
-      toast.success(`${pendingEntries.length} produit${pendingEntries.length > 1 ? 's' : ''} accepte${pendingEntries.length > 1 ? 's' : ''}`)
+      toast.success(`${pendingEntries.length} produit${pendingEntries.length > 1 ? 's' : ''} controle${pendingEntries.length > 1 ? 's' : ''} et accepte${pendingEntries.length > 1 ? 's' : ''}`)
+      setControlMode(false)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Erreur')
     }
   }
 
   const handleRejectAll = async () => {
-    const pendingEntries = group.entries.filter(e => e.status === 'pending')
     try {
       for (const entry of pendingEntries) {
         await actionMutation.mutateAsync({
@@ -631,6 +628,12 @@ function DetailDialog({
       toast.error(err instanceof Error ? err.message : 'Erreur')
     }
   }
+
+  // Check if any qty differs from declared in control mode
+  const hasDifferences = controlMode && pendingEntries.some(e => {
+    const data = controlData[e.id]
+    return data && Number(data.qty) !== e.qty
+  })
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -681,141 +684,144 @@ function DetailDialog({
                 <TableHead>Produit</TableHead>
                 <TableHead>N° Lot</TableHead>
                 <TableHead className="text-right">Qty declaree</TableHead>
-                <TableHead className="text-right">Qty recue</TableHead>
+                <TableHead className="text-right">{controlMode ? 'Qty recue' : 'Qty recue'}</TableHead>
+                {controlMode && <TableHead>Note</TableHead>}
                 <TableHead>Statut</TableHead>
-                {!isClient && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {group.entries.map((entry) => (
-                <TableRow key={entry.id}>
-                  <TableCell className="font-mono text-xs font-medium">
-                    {entry.skus?.sku_code || '-'}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground max-w-[150px] truncate">
-                    {entry.skus?.name || '-'}
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {entry.lot_number || '-'}
-                  </TableCell>
-                  <TableCell className="text-right text-sm font-medium">{entry.qty}</TableCell>
-                  <TableCell className="text-right text-sm">
-                    {entry.accepted_qty != null ? (
-                      <span className={entry.accepted_qty === entry.qty ? 'text-emerald-600' : 'text-amber-600'}>
-                        {entry.accepted_qty}
-                      </span>
-                    ) : '-'}
-                  </TableCell>
-                  <TableCell>{getStatusBadge(entry.status)}</TableCell>
-                  {!isClient && (
-                    <TableCell className="text-right">
-                      {entry.status === 'pending' && (
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-                            onClick={() => handleStartAction(entry, 'accept')}
-                          >
-                            <CheckCircle className="h-3 w-3 mr-1" />
-                            Accepter
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
-                            onClick={() => handleStartAction(entry, 'reject')}
-                          >
-                            <XCircle className="h-3 w-3 mr-1" />
-                            Rejeter
-                          </Button>
-                        </div>
-                      )}
+              {group.entries.map((entry) => {
+                const isEntryPending = entry.status === 'pending'
+                const data = controlData[entry.id]
+                const qtyDiff = controlMode && isEntryPending && data ? Number(data.qty) - entry.qty : 0
+
+                return (
+                  <TableRow key={entry.id} className={controlMode && isEntryPending && qtyDiff !== 0 ? 'bg-amber-50' : ''}>
+                    <TableCell className="font-mono text-xs font-medium">
+                      {entry.skus?.sku_code || '-'}
                     </TableCell>
-                  )}
-                </TableRow>
-              ))}
+                    <TableCell className="text-sm text-muted-foreground max-w-[150px] truncate">
+                      {entry.skus?.name || '-'}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {entry.lot_number || '-'}
+                    </TableCell>
+                    <TableCell className="text-right text-sm font-medium">{entry.qty}</TableCell>
+                    <TableCell className="text-right text-sm">
+                      {controlMode && isEntryPending && data ? (
+                        <div className="flex items-center justify-end gap-1">
+                          <Input
+                            type="number"
+                            min="0"
+                            value={data.qty}
+                            onChange={(e) => updateControlQty(entry.id, e.target.value)}
+                            className="h-7 w-20 text-sm text-right"
+                          />
+                          {qtyDiff !== 0 && (
+                            <span className={cn('text-xs font-medium', qtyDiff < 0 ? 'text-amber-600' : 'text-emerald-600')}>
+                              {qtyDiff > 0 ? '+' : ''}{qtyDiff}
+                            </span>
+                          )}
+                        </div>
+                      ) : entry.accepted_qty != null ? (
+                        <span className={entry.accepted_qty === entry.qty ? 'text-emerald-600' : 'text-amber-600'}>
+                          {entry.accepted_qty}
+                          {entry.accepted_qty !== entry.qty && (
+                            <span className="text-xs ml-1">({entry.accepted_qty - entry.qty > 0 ? '+' : ''}{entry.accepted_qty - entry.qty})</span>
+                          )}
+                        </span>
+                      ) : '-'}
+                    </TableCell>
+                    {controlMode && (
+                      <TableCell>
+                        {isEntryPending && data ? (
+                          <Input
+                            value={data.note}
+                            onChange={(e) => updateControlNote(entry.id, e.target.value)}
+                            placeholder="Casse, manquant..."
+                            className="h-7 text-xs w-32"
+                          />
+                        ) : null}
+                      </TableCell>
+                    )}
+                    <TableCell>{getStatusBadge(entry.status)}</TableCell>
+                  </TableRow>
+                )
+              })}
             </TableBody>
           </Table>
         </div>
 
-        {/* Inline action form for single entry */}
-        {actionEntry && (
-          <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
-            <p className="text-sm font-medium">
-              {actionType === 'accept' ? 'Accepter' : 'Rejeter'} : {actionEntry.skus?.sku_code} - {actionEntry.skus?.name}
-            </p>
-            {actionType === 'accept' && (
-              <div className="space-y-1">
-                <label className="text-xs font-medium">Quantite recue</label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={acceptedQty}
-                  onChange={(e) => setAcceptedQty(e.target.value)}
-                  className="h-8 text-sm w-32"
-                />
-              </div>
-            )}
-            <div className="space-y-1">
-              <label className="text-xs font-medium">{actionType === 'accept' ? 'Note' : 'Raison du rejet'}</label>
-              <Input
-                value={actionNote}
-                onChange={(e) => setActionNote(e.target.value)}
-                placeholder={actionType === 'accept' ? 'Commentaire optionnel' : 'Indiquez la raison...'}
-                className="h-8 text-sm"
-              />
-            </div>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant={actionType === 'accept' ? 'default' : 'destructive'}
-                onClick={handleSubmitAction}
-                disabled={actionMutation.isPending}
-              >
-                {actionMutation.isPending && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
-                Confirmer
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => setActionEntry(null)}>
-                Annuler
-              </Button>
-            </div>
+        {/* Difference summary in control mode */}
+        {controlMode && hasDifferences && (
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+            <p className="font-medium text-amber-800">Differences detectees :</p>
+            <ul className="mt-1 space-y-0.5">
+              {pendingEntries.filter(e => {
+                const data = controlData[e.id]
+                return data && Number(data.qty) !== e.qty
+              }).map(e => {
+                const data = controlData[e.id]
+                const diff = Number(data.qty) - e.qty
+                return (
+                  <li key={e.id} className="text-amber-700 text-xs">
+                    {e.skus?.sku_code} : {e.qty} declarees, {data.qty} recues ({diff > 0 ? '+' : ''}{diff})
+                    {data.note && <span className="italic ml-1">- {data.note}</span>}
+                  </li>
+                )
+              })}
+            </ul>
           </div>
         )}
 
         {/* Footer actions */}
-        {!isClient && hasPendingEntries && !actionEntry && (
+        {!isClient && hasPendingEntries && (
           <DialogFooter className="flex-col sm:flex-row gap-2">
-            {group.status === 'pending' && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-muted-foreground"
-                onClick={handleDeleteGroup}
-              >
-                <Trash2 className="h-4 w-4 mr-1" />
-                Supprimer
-              </Button>
+            {!controlMode ? (
+              <>
+                {group.status === 'pending' && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground"
+                    onClick={handleDeleteGroup}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Supprimer
+                  </Button>
+                )}
+                <div className="flex-1" />
+                <Button
+                  variant="outline"
+                  className="text-red-600 border-red-200 hover:bg-red-50"
+                  onClick={handleRejectAll}
+                  disabled={actionMutation.isPending}
+                >
+                  {actionMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  <XCircle className="h-4 w-4 mr-1" />
+                  Tout rejeter
+                </Button>
+                <Button onClick={startControl}>
+                  <CheckCircle className="h-4 w-4 mr-1" />
+                  Controler et accepter
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => setControlMode(false)}>
+                  Annuler
+                </Button>
+                <div className="flex-1" />
+                <Button
+                  onClick={handleValidateControl}
+                  disabled={actionMutation.isPending}
+                >
+                  {actionMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  <CheckCircle className="h-4 w-4 mr-1" />
+                  Valider le controle ({pendingEntries.length} produit{pendingEntries.length > 1 ? 's' : ''})
+                </Button>
+              </>
             )}
-            <div className="flex-1" />
-            <Button
-              variant="outline"
-              className="text-red-600 border-red-200 hover:bg-red-50"
-              onClick={handleRejectAll}
-              disabled={actionMutation.isPending}
-            >
-              {actionMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              <XCircle className="h-4 w-4 mr-1" />
-              Tout rejeter
-            </Button>
-            <Button
-              onClick={handleAcceptAll}
-              disabled={actionMutation.isPending}
-            >
-              {actionMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              <CheckCircle className="h-4 w-4 mr-1" />
-              Tout accepter
-            </Button>
           </DialogFooter>
         )}
       </DialogContent>
