@@ -366,8 +366,15 @@ async function getTenantForWebhook(): Promise<string> {
 }
 
 export async function POST(request: NextRequest) {
+  // Deprecated: use /api/webhooks/sendcloud/[tenantCode] instead
+  console.warn('[Webhook] Deprecated endpoint called without tenant code. Use /api/webhooks/sendcloud/[tenantCode]')
+  return NextResponse.json(
+    { error: 'This endpoint is deprecated. Use /api/webhooks/sendcloud/{TENANT_CODE}' },
+    { status: 410 }
+  )
+
+  // Legacy code below - kept for reference but unreachable
   try {
-    // Get raw body for signature validation
     const rawBody = await request.text()
 
     // Get signature from header
