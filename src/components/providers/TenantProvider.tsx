@@ -71,8 +71,7 @@ export function TenantProvider({ children, userRole, userTenantId }: TenantProvi
           // Set initial cookie
           setCookie('mlc_active_tenant', userTenantId)
         }
-      } catch (error) {
-        console.error('Error loading tenants:', error)
+      } catch {
         setActiveTenantIdState(userTenantId)
       } finally {
         setIsLoading(false)

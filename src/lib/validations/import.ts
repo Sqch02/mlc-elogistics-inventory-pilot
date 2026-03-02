@@ -60,7 +60,7 @@ export const claimsImportRowSchema = z.object({
     const lower = v.toLowerCase()
     if (lower.includes('perdu') || lower.includes('lost')) return 'lost'
     if (lower.includes('endom') || lower.includes('damage')) return 'damaged'
-    if (lower.includes('manqu') || lower.includes('missing')) return 'missing_item'
+    if (lower.includes('manqu') || lower.includes('missing')) return 'missing_items'
     if (lower.includes('retard') || lower.includes('delay')) return 'delay'
     return 'other'
   }),

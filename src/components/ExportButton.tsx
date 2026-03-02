@@ -76,8 +76,8 @@ export function ExportButtonAsync({
       const data = await fetchData()
       const csv = generateCSV(data, { headers, delimiter: ';' })
       downloadCSV(csv, filename)
-    } catch (error) {
-      console.error('Export error:', error)
+    } catch {
+      // silently handle export errors
     } finally {
       setIsExporting(false)
     }

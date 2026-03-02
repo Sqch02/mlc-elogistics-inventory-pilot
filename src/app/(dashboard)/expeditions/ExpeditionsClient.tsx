@@ -13,7 +13,7 @@ import {
   Truck, Package, DollarSign, AlertTriangle, ExternalLink, Search, X, Download, Loader2,
   ChevronDown, ChevronUp, MapPin, Phone, Mail, User, Calendar, Globe, Tag, FileText, Eye,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, AlertCircle, RefreshCw, XCircle,
-  Clock, CheckCircle2, Pencil
+  Clock, CheckCircle2, Pencil, Plus
 } from 'lucide-react'
 import {
   Tooltip,
@@ -29,7 +29,6 @@ import { Label } from '@/components/ui/label'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CreateShipmentDialog } from '@/components/forms/CreateShipmentDialog'
-import { Plus } from 'lucide-react'
 import { useTenant } from '@/components/providers/TenantProvider'
 
 function formatDate(dateStr: string | null) {

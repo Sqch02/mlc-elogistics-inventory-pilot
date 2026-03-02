@@ -194,8 +194,8 @@ export default function TenantDetailPage() {
         phone: data.tenant?.phone || '',
       })
       setUsers(data.users || [])
-    } catch (error) {
-      console.error('Error fetching tenant:', error)
+    } catch {
+      // handled silently
     } finally {
       setLoading(false)
     }
@@ -219,8 +219,7 @@ export default function TenantDetailPage() {
       } else if (data.error) {
         toast.error(data.error)
       }
-    } catch (error) {
-      console.error('Error saving settings:', error)
+    } catch {
       toast.error('Erreur lors de la sauvegarde')
     } finally {
       setSaving(false)
@@ -240,8 +239,7 @@ export default function TenantDetailPage() {
         toast.success(data.message)
         fetchTenant()
       }
-    } catch (error) {
-      console.error('Error toggling active status:', error)
+    } catch {
       toast.error('Erreur lors du changement de statut')
     }
   }
@@ -270,8 +268,8 @@ export default function TenantDetailPage() {
       } else {
         toast.error(data.error || 'Erreur lors de la creation')
       }
-    } catch (error) {
-      console.error('Error creating user:', error)
+    } catch {
+      // handled silently
     } finally {
       setCreatingUser(false)
     }
@@ -290,8 +288,8 @@ export default function TenantDetailPage() {
         toast.success('Client supprime')
         router.push('/admin/tenants')
       }
-    } catch (error) {
-      console.error('Error deleting tenant:', error)
+    } catch {
+      // handled silently
     }
   }
 

@@ -124,8 +124,8 @@ export function ParametresClient({ profile }: ParametresClientProps) {
         const data = await response.json()
         setCompanySettings(data)
       }
-    } catch (error) {
-      console.error('Error loading company settings:', error)
+    } catch {
+      // handled silently
     } finally {
       setIsLoadingCompany(false)
     }
@@ -140,8 +140,8 @@ export function ParametresClient({ profile }: ParametresClientProps) {
         setMappings(data.mappings || [])
         setUnmappedItems(data.unmapped || [])
       }
-    } catch (error) {
-      console.error('Error loading mappings:', error)
+    } catch {
+      // handled silently
     } finally {
       setIsLoadingMappings(false)
     }
@@ -155,8 +155,8 @@ export function ParametresClient({ profile }: ParametresClientProps) {
         const data = await response.json()
         setSkuList(data.skus || data || [])
       }
-    } catch (error) {
-      console.error('Error loading SKUs:', error)
+    } catch {
+      // handled silently
     }
   }
 
