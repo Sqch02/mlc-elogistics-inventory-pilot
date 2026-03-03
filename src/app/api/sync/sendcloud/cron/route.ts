@@ -21,16 +21,16 @@ export async function GET(request: NextRequest) {
   console.log(`[Cron] Timestamp: ${new Date().toISOString()}`)
   console.log('========================================')
 
-  // Verify cron secret
+  // Verify cron secret - ALWAYS required
   const authHeader = request.headers.get('authorization')
   const cronSecret = process.env.CRON_SECRET
 
-  if (process.env.NODE_ENV === 'production' && !cronSecret) {
-    console.error('[Cron] CRON_SECRET not configured in production')
+  if (!cronSecret) {
+    console.error('[Cron] CRON_SECRET not configured')
     return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 })
   }
 
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
