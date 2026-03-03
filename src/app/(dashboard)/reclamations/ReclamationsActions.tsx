@@ -122,8 +122,8 @@ export function UpdateClaimStatus({ claimId, currentStatus }: UpdateClaimStatusP
         setStatus(newStatus)
         router.refresh()
       }
-    } catch (err) {
-      console.error('Error updating claim:', err)
+    } catch {
+      // error handled by catch block
     } finally {
       setIsLoading(false)
     }

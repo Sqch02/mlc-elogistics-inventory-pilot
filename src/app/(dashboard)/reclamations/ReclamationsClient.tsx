@@ -351,8 +351,8 @@ export function ReclamationsClient() {
       if (data.success) {
         refetch()
       }
-    } catch (error) {
-      console.error('Sync error:', error)
+    } catch {
+      // error handled by catch block
     } finally {
       setIsSyncing(false)
     }

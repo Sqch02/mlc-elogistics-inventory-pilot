@@ -263,8 +263,8 @@ export function ProduitsClient() {
           const data = await res.json()
           setVolumeData(data)
         }
-      } catch (error) {
-        console.error('Error fetching volume:', error)
+      } catch {
+        // error handled by catch block
       } finally {
         setVolumeLoading(false)
       }

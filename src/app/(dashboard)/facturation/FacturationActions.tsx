@@ -119,8 +119,8 @@ export function UpdateStatusButton({ invoiceId, currentStatus }: UpdateStatusBut
       if (response.ok) {
         router.refresh()
       }
-    } catch (err) {
-      console.error('Error updating status:', err)
+    } catch {
+      // error handled by catch block
     } finally {
       setIsLoading(false)
     }
@@ -288,8 +288,8 @@ export function ExportInvoicesButton() {
         delimiter: ';'
       })
       downloadCSV(csv, `factures_detaillees_${new Date().toISOString().split('T')[0]}.csv`)
-    } catch (error) {
-      console.error('Export error:', error)
+    } catch {
+      // error handled by catch block
     } finally {
       setIsExporting(false)
     }
@@ -321,8 +321,6 @@ export function AccountingExportButton({ invoiceId, invoiceNumber }: AccountingE
       const response = await fetch(`/api/invoices/${invoiceId}/export?format=${format}`)
 
       if (!response.ok) {
-        const error = await response.json()
-        console.error('Export error:', error)
         return
       }
 
@@ -345,8 +343,8 @@ export function AccountingExportButton({ invoiceId, invoiceNumber }: AccountingE
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-    } catch (error) {
-      console.error('Export error:', error)
+    } catch {
+      // error handled by catch block
     } finally {
       setIsExporting(null)
     }

@@ -216,8 +216,7 @@ export function FacturationClient() {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
       toast.success(`Export ${format.toUpperCase()} téléchargé`)
-    } catch (error) {
-      console.error('Export error:', error)
+    } catch {
       toast.error('Erreur lors de l\'export')
     }
   }

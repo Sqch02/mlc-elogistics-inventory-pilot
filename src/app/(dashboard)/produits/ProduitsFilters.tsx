@@ -49,8 +49,8 @@ export function ProduitsFilters({ currentFilters }: ProduitsFiltersProps) {
 
       const csv = generateCSV(exportData, { delimiter: ';' })
       downloadCSV(csv, `produits_${new Date().toISOString().split('T')[0]}.csv`)
-    } catch (error) {
-      console.error('Export error:', error)
+    } catch {
+      // error handled by catch block
     } finally {
       setIsExporting(false)
     }

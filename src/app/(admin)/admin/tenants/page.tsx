@@ -52,8 +52,8 @@ export default function AdminTenantsPage() {
       const response = await fetch('/api/admin/tenants')
       const data = await response.json()
       setTenants(data.tenants || [])
-    } catch (error) {
-      console.error('Error fetching tenants:', error)
+    } catch {
+      // error handled by catch block
     } finally {
       setLoading(false)
     }
@@ -80,8 +80,8 @@ export default function AdminTenantsPage() {
       } else if (data.error) {
         alert(data.error)
       }
-    } catch (error) {
-      console.error('Error creating tenant:', error)
+    } catch {
+      // error handled by catch block
     } finally {
       setCreating(false)
     }

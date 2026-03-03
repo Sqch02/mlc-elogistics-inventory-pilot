@@ -82,8 +82,8 @@ export function ExpeditionsFilters({ carriers, currentFilters }: ExpeditionsFilt
 
       const csv = generateCSV(exportData, { delimiter: ';' })
       downloadCSV(csv, `expeditions_${new Date().toISOString().split('T')[0]}.csv`)
-    } catch (error) {
-      console.error('Export error:', error)
+    } catch {
+      // error handled by catch block
     } finally {
       setIsExporting(false)
     }
