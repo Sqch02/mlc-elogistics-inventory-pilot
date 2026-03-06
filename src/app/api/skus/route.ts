@@ -8,6 +8,7 @@ interface SKUWithStock {
   sku_code: string
   name: string
   weight_grams: number | null
+  volume_m3: number | null
   alert_threshold: number
   created_at: string
   stock_snapshots: Array<{ qty_current: number; updated_at: string }> | null
@@ -28,6 +29,7 @@ export async function GET(request: NextRequest) {
         sku_code,
         name,
         weight_grams,
+        volume_m3,
         alert_threshold,
         created_at,
         stock_snapshots(qty_current, updated_at)
@@ -62,6 +64,7 @@ export async function GET(request: NextRequest) {
       sku_code: sku.sku_code,
       name: sku.name,
       weight_grams: sku.weight_grams,
+      volume_m3: sku.volume_m3,
       alert_threshold: sku.alert_threshold,
       created_at: sku.created_at,
       qty_current: sku.stock_snapshots?.[0]?.qty_current || 0,
@@ -86,7 +89,7 @@ export async function POST(request: NextRequest) {
     const supabase = await getServerDb()
     const body = await request.json()
 
-    const { sku_code, name, weight_grams, alert_threshold, qty_initial } = body
+    const { sku_code, name, weight_grams, volume_m3, alert_threshold, qty_initial } = body
 
     if (!sku_code || !name) {
       return NextResponse.json(
@@ -118,6 +121,7 @@ export async function POST(request: NextRequest) {
         sku_code,
         name,
         weight_grams: weight_grams || null,
+        volume_m3: volume_m3 || null,
         alert_threshold: alert_threshold || 10,
       })
       .select()

@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
         id,
         sku_code,
         name,
+        volume_m3,
         alert_threshold
       `)
       .eq('tenant_id', tenantId)
@@ -71,6 +72,7 @@ export async function GET(request: NextRequest) {
       id: string
       sku_code: string
       name: string
+      volume_m3: number | null
       alert_threshold: number
     }
 
@@ -99,6 +101,7 @@ export async function GET(request: NextRequest) {
         id: sku.id,
         sku_code: sku.sku_code,
         name: sku.name,
+        volume_m3: sku.volume_m3,
         alert_threshold: alertThreshold,
         qty_current: qtyCurrent,
         consumption_30d: m?.consumption_30d || 0,
@@ -115,6 +118,7 @@ export async function GET(request: NextRequest) {
       id: string
       sku_code: string
       name: string
+      volume_m3: number | null
       alert_threshold: number
       qty_current: number
       consumption_30d: number

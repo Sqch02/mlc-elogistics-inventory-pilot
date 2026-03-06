@@ -61,7 +61,7 @@ export async function PATCH(
     const { id } = await params
     const body = await request.json()
 
-    const { sku_code, name, description, weight_grams, alert_threshold } = body
+    const { sku_code, name, description, weight_grams, volume_m3, alert_threshold } = body
 
     // Get current SKU for audit log
     const { data: existing } = await supabase
@@ -98,6 +98,7 @@ export async function PATCH(
     if (name !== undefined) updateData.name = name
     if (description !== undefined) updateData.description = description
     if (weight_grams !== undefined) updateData.weight_grams = weight_grams
+    if (volume_m3 !== undefined) updateData.volume_m3 = volume_m3
     if (alert_threshold !== undefined) updateData.alert_threshold = alert_threshold
 
     const { data: sku, error } = await supabase
