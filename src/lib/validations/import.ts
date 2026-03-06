@@ -5,6 +5,7 @@ export const skuImportRowSchema = z.object({
   sku_code: z.string().min(1, 'SKU code requis'),
   name: z.string().min(1, 'Nom requis'),
   weight_grams: z.coerce.number().optional().nullable(),
+  volume_m3: z.coerce.number().optional().nullable(),
   qty_current: z.coerce.number().int().min(0).optional().default(0),
   active: z.string().optional().transform((v) => v?.toLowerCase() !== 'false'),
 })
