@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getFastUser, getFastTenantId } from '@/lib/supabase/fast-auth'
 import { getAdminDb } from '@/lib/supabase/untyped'
+import { sanitizeSearchInput } from '@/lib/utils/sanitize'
 
 export async function GET(request: NextRequest) {
   try {
@@ -82,7 +83,10 @@ export async function GET(request: NextRequest) {
 
     // Search by order_ref, tracking, or sendcloud_id
     if (search) {
-      query = query.or(`order_ref.ilike.%${search}%,tracking.ilike.%${search}%,sendcloud_id.ilike.%${search}%`)
+      const sanitizedSearch = sanitizeSearchInput(search)
+      if (sanitizedSearch) {
+        query = query.or(`order_ref.ilike.%${sanitizedSearch}%,tracking.ilike.%${sanitizedSearch}%,sendcloud_id.ilike.%${sanitizedSearch}%`)
+      }
     }
 
     const { data: shipments, error, count } = await query
@@ -133,7 +137,10 @@ export async function GET(request: NextRequest) {
           q = q.in('status_id', [1, 3, 7, 12, 22, 91, 92, 62989, 62990])
         }
         if (search) {
-          q = q.or(`order_ref.ilike.%${search}%,tracking.ilike.%${search}%,sendcloud_id.ilike.%${search}%`)
+          const s = sanitizeSearchInput(search)
+          if (s) {
+            q = q.or(`order_ref.ilike.%${s}%,tracking.ilike.%${s}%,sendcloud_id.ilike.%${s}%`)
+          }
         }
         return q
       }

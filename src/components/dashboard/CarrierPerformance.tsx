@@ -54,7 +54,9 @@ export function CarrierPerformance({ data, totalCarriers }: CarrierPerformancePr
   }))
 
   // Find carrier with highest claim rate
-  const highestClaimRate = data.reduce((max, d) => d.claimRate > max.claimRate ? d : max, data[0])
+  const highestClaimRate = data.length > 0
+    ? data.reduce((max, d) => d.claimRate > max.claimRate ? d : max, data[0])
+    : null
 
   return (
     <Card>

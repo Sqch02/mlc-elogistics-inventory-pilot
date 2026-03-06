@@ -209,15 +209,16 @@ export async function POST(
     // Get webhook secret - prefer tenant-specific, fallback to global
     const webhookSecret = tenant.webhookSecret || process.env.SENDCLOUD_WEBHOOK_SECRET || ''
 
-    // Validate signature if secret is configured
-    if (webhookSecret) {
-      const isValid = validateSignature(rawBody, signature, webhookSecret)
-      if (!isValid) {
-        console.error('[Webhook] Invalid signature for tenant:', tenantCode)
-        return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
-      }
-    } else {
-      console.warn('[Webhook] No webhook secret configured for tenant:', tenantCode)
+    // Validate signature - require secret
+    if (!webhookSecret) {
+      console.error('[Webhook] No webhook secret configured for tenant:', tenantCode)
+      return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 })
+    }
+
+    const isValid = validateSignature(rawBody, signature, webhookSecret)
+    if (!isValid) {
+      console.error('[Webhook] Invalid signature for tenant:', tenantCode)
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
     }
 
     // Parse payload

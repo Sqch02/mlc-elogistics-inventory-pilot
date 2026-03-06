@@ -10,8 +10,6 @@ export interface ProductFilters {
 export interface Product {
   sku_code: string
   name: string
-  description: string | null
-  unit_cost_eur?: number | null
   volume_m3?: number | null
   alert_threshold: number
   qty_current: number

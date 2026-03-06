@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getFastUser } from '@/lib/supabase/fast-auth'
+import { getFastUser, getFastTenantId } from '@/lib/supabase/fast-auth'
+import { createClient } from '@/lib/supabase/server'
 
 const SENDCLOUD_API_URL = 'https://panel.sendcloud.sc'
 
@@ -14,6 +15,20 @@ export async function GET(
     }
 
     const { id } = await params
+    const tenantId = await getFastTenantId() || user.tenant_id
+
+    // Verify this parcel belongs to the user's tenant
+    const supabase = await createClient()
+    const { data: shipment } = await supabase
+      .from('shipments')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('sendcloud_id', id)
+      .single()
+
+    if (!shipment) {
+      return NextResponse.json({ error: 'Expédition non trouvée' }, { status: 404 })
+    }
 
     // Get Sendcloud credentials from environment
     const apiKey = process.env.SENDCLOUD_API_KEY

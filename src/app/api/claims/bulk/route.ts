@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth, getCurrentUser } from '@/lib/supabase/auth'
+import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
 
 type BulkAction = 'en_analyse' | 'close' | 'refuse' | 'delete'
 
@@ -11,7 +11,7 @@ interface BulkRequest {
 
 export async function POST(request: NextRequest) {
   try {
-    await requireAuth()
+    const tenantId = await requireTenant()
     const profile = await getCurrentUser()
     const supabase = await createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
         const { error } = await db
           .from('claims')
           .update({ status: 'en_analyse' })
+          .eq('tenant_id', tenantId)
           .in('id', ids)
           .eq('status', 'ouverte')
 
@@ -57,6 +58,7 @@ export async function POST(request: NextRequest) {
             decided_at: new Date().toISOString(),
             decided_by: profile?.id,
           })
+          .eq('tenant_id', tenantId)
           .in('id', ids)
 
         if (error) throw error
@@ -72,6 +74,7 @@ export async function POST(request: NextRequest) {
             decided_at: new Date().toISOString(),
             decided_by: profile?.id,
           })
+          .eq('tenant_id', tenantId)
           .in('id', ids)
 
         if (error) throw error
@@ -83,6 +86,7 @@ export async function POST(request: NextRequest) {
         const { error } = await db
           .from('claims')
           .delete()
+          .eq('tenant_id', tenantId)
           .in('id', ids)
           .eq('status', 'ouverte')
 

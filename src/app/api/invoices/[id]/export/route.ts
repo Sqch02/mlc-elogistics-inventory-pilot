@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/supabase/auth'
+import { requireTenant } from '@/lib/supabase/auth'
 import { generateFECEntries, generateFECFile, generateFECFilename } from '@/lib/utils/export-fec'
 import { generateSageEntries, generateSageCSV, generateSageFilename, validateSageBalance } from '@/lib/utils/export-sage'
 import { getServerFeatures } from '@/lib/config/features'
@@ -43,7 +43,7 @@ export async function GET(
       )
     }
 
-    await requireAuth()
+    const tenantId = await requireTenant()
     const supabase = await createClient()
     const { id } = await params
 
@@ -82,6 +82,7 @@ export async function GET(
           total_ttc
         )
       `)
+      .eq('tenant_id', tenantId)
       .eq('id', id)
       .single()
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
+import { sanitizeSearchInput } from '@/lib/utils/sanitize'
 
 // GET: List inbound restock entries
 export async function GET(request: NextRequest) {
@@ -23,7 +24,10 @@ export async function GET(request: NextRequest) {
     }
 
     if (search) {
-      query = query.or(`note.ilike.%${search}%,supplier.ilike.%${search}%,batch_reference.ilike.%${search}%`)
+      const sanitizedSearch = sanitizeSearchInput(search)
+      if (sanitizedSearch) {
+        query = query.or(`note.ilike.%${sanitizedSearch}%,supplier.ilike.%${sanitizedSearch}%,batch_reference.ilike.%${sanitizedSearch}%`)
+      }
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
