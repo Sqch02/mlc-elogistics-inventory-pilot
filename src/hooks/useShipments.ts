@@ -37,7 +37,7 @@ export interface Shipment {
   weight_grams: number
   order_ref: string | null
   tracking: string | null
-  pricing_status: 'ok' | 'missing' | 'error'
+  pricing_status: 'ok' | 'missing'
   computed_cost_eur: number | null
   total_value: number | null
   currency: string | null
