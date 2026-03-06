@@ -8,6 +8,7 @@ export interface SKU {
   sku_code: string
   name: string
   weight_grams: number | null
+  volume_m3: number | null
   alert_threshold: number
   qty_current: number
   stock_updated_at: string | null
@@ -36,6 +37,7 @@ export function useCreateSku() {
       sku_code: string
       name: string
       weight_grams?: number
+      volume_m3?: number
       alert_threshold?: number
       qty_initial?: number
     }) => {
@@ -70,6 +72,7 @@ export function useUpdateSku() {
       sku_code?: string
       name?: string
       weight_grams?: number
+      volume_m3?: number
       alert_threshold?: number
     }) => {
       const response = await fetch(`/api/skus/${id}`, {

@@ -12,6 +12,7 @@ export interface Product {
   name: string
   description: string | null
   unit_cost_eur?: number | null
+  volume_m3?: number | null
   alert_threshold: number
   qty_current: number
   consumption_30d: number
@@ -28,6 +29,7 @@ export interface ProductStats {
   totalStock: number
   totalConsumption30d: number
   criticalCount: number
+  totalVolume_m3: number
 }
 
 async function fetchProducts(filters: ProductFilters): Promise<{ skus: Product[]; stats: ProductStats }> {
@@ -47,6 +49,7 @@ async function fetchProducts(filters: ProductFilters): Promise<{ skus: Product[]
     totalStock: skus.reduce((sum, s) => sum + (s.qty_current || 0), 0),
     totalConsumption30d: skus.reduce((sum, s) => sum + (s.consumption_30d || 0), 0),
     criticalCount: skus.filter(s => s.status === 'critical' || s.status === 'rupture').length,
+    totalVolume_m3: skus.reduce((sum, s) => sum + ((s.qty_current || 0) * (s.volume_m3 || 0)), 0),
   }
 
   return { skus, stats }
