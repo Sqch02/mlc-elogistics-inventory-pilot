@@ -53,12 +53,20 @@ export async function POST(request: NextRequest) {
     const tenantId = await requireTenant()
     const supabase = await getServerDb()
 
-    const { month, storage_m3 = 0, reception_quarters = 0 } = await request.json()
+    const body = await request.json()
+    const { storage_m3 = 0, reception_quarters = 0 } = body
 
-    // Validate month format (YYYY-MM)
-    if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+    // Support both: { date_from, date_to } (new) or { month } (legacy)
+    let month: string
+    if (body.date_from && body.date_to) {
+      // Derive month from date_to
+      const toDate = new Date(body.date_to)
+      month = `${toDate.getFullYear()}-${String(toDate.getMonth() + 1).padStart(2, '0')}`
+    } else if (body.month && /^\d{4}-\d{2}$/.test(body.month)) {
+      month = body.month
+    } else {
       return NextResponse.json(
-        { success: false, message: 'Format mois invalide (YYYY-MM)' },
+        { success: false, message: 'date_from/date_to ou month requis' },
         { status: 400 }
       )
     }
@@ -93,10 +101,18 @@ export async function POST(request: NextRequest) {
       vat_rate_pct: invoiceSettings.default_vat_rate || 20.00,
     }
 
-    // Parse month dates
+    // Parse date range
     const [year, monthNum] = month.split('-').map(Number)
-    const startOfMonth = new Date(year, monthNum - 1, 1)
-    const endOfMonth = new Date(year, monthNum, 0, 23, 59, 59, 999)
+    let startOfMonth: Date
+    let endOfMonth: Date
+
+    if (body.date_from && body.date_to) {
+      startOfMonth = new Date(body.date_from + 'T00:00:00.000Z')
+      endOfMonth = new Date(body.date_to + 'T23:59:59.999Z')
+    } else {
+      startOfMonth = new Date(year, monthNum - 1, 1)
+      endOfMonth = new Date(year, monthNum, 0, 23, 59, 59, 999)
+    }
 
     // Get all shipments for the month (with pagination to bypass 1000 limit)
     const allShipments: Shipment[] = []

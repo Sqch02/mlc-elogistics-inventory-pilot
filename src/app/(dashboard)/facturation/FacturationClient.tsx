@@ -5,18 +5,17 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { FileText, Receipt, Euro, AlertTriangle, CheckCircle, Loader2, MoreHorizontal, Download, Trash2, Send, CreditCard, FileDown, ChevronDown, ChevronUp, Package, Truck, Fuel, RotateCcw, Cpu, Warehouse, Calculator } from 'lucide-react'
-import { useInvoices, useGenerateInvoice, useUpdateInvoiceStatus, useDeleteInvoice, Invoice } from '@/hooks/useInvoices'
+import { FileText, Receipt, Euro, AlertTriangle, CheckCircle, Loader2, MoreHorizontal, Download, Trash2, Send, CreditCard, FileDown, ChevronDown, ChevronUp, Package, Truck, Fuel, RotateCcw, Cpu, Warehouse, Calculator, Eye } from 'lucide-react'
+import { useInvoices, useGenerateInvoice, useInvoicePreview, useUpdateInvoiceStatus, useDeleteInvoice, Invoice, PreviewShipment } from '@/hooks/useInvoices'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ExportInvoicesButton, AccountingExportButton } from './FacturationActions'
 import { useTenant } from '@/components/providers/TenantProvider'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { downloadInvoicePDF, formatInvoiceNumber, type InvoicePDFData } from '@/lib/utils/invoice-pdf'
 import { toast } from 'sonner'
-import { formatCarrierName } from '@/lib/utils'
+import { formatCarrierName, formatDate as formatDateUtil, formatEuro } from '@/lib/utils'
 
 interface CompanySettings {
   company_name: string
@@ -64,12 +63,14 @@ const STATUS_LABELS: Record<InvoiceStatus, string> = {
 }
 
 export function FacturationClient() {
-  const [selectedMonth, setSelectedMonth] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [statusFilter, setStatusFilter] = useState<InvoiceStatus>('all')
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null)
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null)
   const [expandedInvoices, setExpandedInvoices] = useState<Set<string>>(new Set())
+  const [previewOpen, setPreviewOpen] = useState(false)
 
   const { isClient } = useTenant()
   const { data, isLoading, isFetching } = useInvoices()
@@ -82,6 +83,7 @@ export function FacturationClient() {
       .catch(() => {})
   }, [])
   const generateMutation = useGenerateInvoice()
+  const previewMutation = useInvoicePreview()
   const updateStatusMutation = useUpdateInvoiceStatus()
   const deleteMutation = useDeleteInvoice()
 
@@ -99,21 +101,17 @@ export function FacturationClient() {
     totalPending: 0,
   }
 
-  // Generate last 12 months options (use Set to ensure uniqueness)
-  const monthOptions = Array.from({ length: 12 }, (_, i) => {
-    const date = new Date()
-    date.setDate(1) // Set to first of month to avoid day overflow
-    date.setMonth(date.getMonth() - i)
-    const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-    const label = date.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
-    return { value, label }
-  }).filter((opt, index, self) =>
-    index === self.findIndex(o => o.value === opt.value)
-  )
+  const handlePreview = () => {
+    if (dateFrom && dateTo) {
+      previewMutation.mutate({ date_from: dateFrom, date_to: dateTo })
+      setPreviewOpen(true)
+    }
+  }
 
   const handleGenerate = () => {
-    if (selectedMonth) {
-      generateMutation.mutate(selectedMonth)
+    if (dateFrom && dateTo) {
+      generateMutation.mutate({ date_from: dateFrom, date_to: dateTo })
+      setPreviewOpen(false)
     }
   }
 
@@ -297,27 +295,31 @@ export function FacturationClient() {
         <div className="flex items-center gap-2">
           {!isClient && <ExportInvoicesButton />}
           {!isClient && (
-            <>
-              <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Choisir un mois" />
-                </SelectTrigger>
-                <SelectContent>
-                  {monthOptions.map(opt => (
-                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                placeholder="Du"
+              />
+              <span className="text-muted-foreground text-sm">→</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              />
               <Button
                 variant="default"
                 size="sm"
-                onClick={handleGenerate}
-                disabled={!selectedMonth || generateMutation.isPending}
+                onClick={handlePreview}
+                disabled={!dateFrom || !dateTo || previewMutation.isPending}
               >
-                {generateMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
-                Générer
+                {previewMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
+                Aperçu
               </Button>
-            </>
+            </div>
           )}
         </div>
       </div>
@@ -645,6 +647,136 @@ export function FacturationClient() {
           </div>
         )}
       </Card>
+
+      {/* Preview Dialog */}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>
+              Aperçu facture — {dateTo ? new Date(dateTo).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) : ''}
+            </DialogTitle>
+            <DialogDescription>
+              Du {dateFrom ? new Date(dateFrom + 'T12:00:00').toLocaleDateString('fr-FR') : ''} au {dateTo ? new Date(dateTo + 'T12:00:00').toLocaleDateString('fr-FR') : ''}
+            </DialogDescription>
+          </DialogHeader>
+
+          {previewMutation.isPending ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : previewMutation.data ? (
+            <div className="flex-1 overflow-hidden flex flex-col space-y-4">
+              {/* Stats summary */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-muted/50 rounded-lg p-3">
+                  <p className="text-xs text-muted-foreground">Expéditions</p>
+                  <p className="text-xl font-bold">{previewMutation.data.shipment_count.toLocaleString('fr-FR')}</p>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-3">
+                  <p className="text-xs text-muted-foreground">Total estimé</p>
+                  <p className="text-xl font-bold">{formatEuro(previewMutation.data.estimated_total)}</p>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-3">
+                  <p className="text-xs text-muted-foreground">Retours</p>
+                  <p className="text-xl font-bold">{previewMutation.data.returns_count}</p>
+                </div>
+                <div className={`rounded-lg p-3 ${previewMutation.data.missing_pricing > 0 ? 'bg-amber-50' : 'bg-muted/50'}`}>
+                  <p className="text-xs text-muted-foreground">Sans tarif</p>
+                  <p className={`text-xl font-bold ${previewMutation.data.missing_pricing > 0 ? 'text-amber-600' : ''}`}>
+                    {previewMutation.data.missing_pricing}
+                  </p>
+                </div>
+              </div>
+
+              {/* Shipments tables */}
+              <div className="flex-1 overflow-y-auto space-y-4 min-h-0">
+                {/* First shipments */}
+                <div>
+                  <h4 className="text-sm font-medium mb-2 text-muted-foreground">
+                    Premières expéditions
+                  </h4>
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/50">
+                          <TableHead className="text-xs">Date</TableHead>
+                          <TableHead className="text-xs">Réf. commande</TableHead>
+                          <TableHead className="text-xs">Transporteur</TableHead>
+                          <TableHead className="text-xs text-right">Poids</TableHead>
+                          <TableHead className="text-xs text-right">Coût</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {previewMutation.data.first_shipments.map((s: PreviewShipment) => (
+                          <TableRow key={s.id} className="text-sm">
+                            <TableCell className="py-1.5 text-xs">{formatDateUtil(s.shipped_at)}</TableCell>
+                            <TableCell className="py-1.5 text-xs font-mono">{s.order_ref || '-'}</TableCell>
+                            <TableCell className="py-1.5 text-xs">{formatCarrierName(s.carrier)}</TableCell>
+                            <TableCell className="py-1.5 text-xs text-right">{s.weight_grams >= 1000 ? `${(s.weight_grams / 1000).toFixed(1)}kg` : `${s.weight_grams}g`}</TableCell>
+                            <TableCell className="py-1.5 text-xs text-right">{s.computed_cost_eur ? `${Number(s.computed_cost_eur).toFixed(2)} €` : <span className="text-amber-500">manq.</span>}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+
+                {previewMutation.data.shipment_count > 100 && (
+                  <p className="text-center text-xs text-muted-foreground py-2">
+                    ... {(previewMutation.data.shipment_count - 100 - previewMutation.data.last_shipments.length).toLocaleString('fr-FR')} expéditions masquées ...
+                  </p>
+                )}
+
+                {/* Last shipments */}
+                {previewMutation.data.last_shipments.length > 0 && previewMutation.data.shipment_count > 100 && (
+                  <div>
+                    <h4 className="text-sm font-medium mb-2 text-muted-foreground">
+                      Dernières expéditions
+                    </h4>
+                    <div className="border rounded-lg overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/50">
+                            <TableHead className="text-xs">Date</TableHead>
+                            <TableHead className="text-xs">Réf. commande</TableHead>
+                            <TableHead className="text-xs">Transporteur</TableHead>
+                            <TableHead className="text-xs text-right">Poids</TableHead>
+                            <TableHead className="text-xs text-right">Coût</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {previewMutation.data.last_shipments.map((s: PreviewShipment) => (
+                            <TableRow key={s.id} className="text-sm">
+                              <TableCell className="py-1.5 text-xs">{formatDateUtil(s.shipped_at)}</TableCell>
+                              <TableCell className="py-1.5 text-xs font-mono">{s.order_ref || '-'}</TableCell>
+                              <TableCell className="py-1.5 text-xs">{formatCarrierName(s.carrier)}</TableCell>
+                              <TableCell className="py-1.5 text-xs text-right">{s.weight_grams >= 1000 ? `${(s.weight_grams / 1000).toFixed(1)}kg` : `${s.weight_grams}g`}</TableCell>
+                              <TableCell className="py-1.5 text-xs text-right">{s.computed_cost_eur ? `${Number(s.computed_cost_eur).toFixed(2)} €` : <span className="text-amber-500">manq.</span>}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPreviewOpen(false)}>
+              Fermer
+            </Button>
+            <Button
+              onClick={handleGenerate}
+              disabled={generateMutation.isPending || !previewMutation.data}
+            >
+              {generateMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+              Générer la facture ({previewMutation.data?.shipment_count.toLocaleString('fr-FR') || 0} expéditions)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

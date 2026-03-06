@@ -93,15 +93,57 @@ export function useInvoices() {
   })
 }
 
+export interface PreviewShipment {
+  id: string
+  shipped_at: string
+  order_ref: string | null
+  carrier: string
+  weight_grams: number
+  computed_cost_eur: number | null
+  pricing_status: string
+  tracking: string | null
+}
+
+export interface InvoicePreview {
+  shipment_count: number
+  returns_count: number
+  missing_pricing: number
+  estimated_total: number
+  first_shipments: PreviewShipment[]
+  last_shipments: PreviewShipment[]
+  date_from: string
+  date_to: string
+}
+
+export function useInvoicePreview() {
+  return useMutation({
+    mutationFn: async ({ date_from, date_to }: { date_from: string; date_to: string }): Promise<InvoicePreview> => {
+      const response = await fetch('/api/invoices/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date_from, date_to }),
+      })
+      if (!response.ok) {
+        const err = await response.json()
+        throw new Error(err.error || 'Erreur lors du chargement de l\'aperçu')
+      }
+      return response.json()
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Erreur lors du chargement de l\'aperçu')
+    },
+  })
+}
+
 export function useGenerateInvoice() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (month: string) => {
+    mutationFn: async ({ date_from, date_to }: { date_from: string; date_to: string }) => {
       const response = await fetch('/api/invoices/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ month }),
+        body: JSON.stringify({ date_from, date_to }),
       })
       if (!response.ok) throw new Error('Erreur lors de la génération de la facture')
       const data = await response.json()
