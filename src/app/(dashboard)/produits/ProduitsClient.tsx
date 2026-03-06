@@ -14,7 +14,7 @@ import {
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { Package, TrendingDown, AlertTriangle, Warehouse, Search, X, Download, Loader2, Plus, MoreHorizontal, Pencil, Trash2, PackagePlus, History, ArrowUpRight, ArrowDownRight, Clock, Upload, BarChart3 } from 'lucide-react'
+import { Package, TrendingDown, AlertTriangle, Warehouse, Search, X, Download, Loader2, Plus, MoreHorizontal, Pencil, Trash2, PackagePlus, History, ArrowUpRight, ArrowDownRight, Clock, Upload, BarChart3, Box } from 'lucide-react'
 import { useProducts, ProductFilters } from '@/hooks/useProducts'
 import { useSkus, useCreateSku, useUpdateSku, useDeleteSku, useAdjustStock, useSkuMovements, SKU, StockMovement } from '@/hooks/useSkus'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
@@ -64,6 +64,7 @@ interface ProductFormData {
   name: string
   alert_threshold: number
   qty_initial: number
+  volume_m3: string
 }
 
 interface MonthlyVolumeData {
@@ -78,6 +79,7 @@ const defaultFormData: ProductFormData = {
   name: '',
   alert_threshold: 10,
   qty_initial: 0,
+  volume_m3: '',
 }
 
 export function ProduitsClient() {
@@ -110,7 +112,7 @@ export function ProduitsClient() {
   const adjustStockMutation = useAdjustStock()
 
   const skus = data?.skus || []
-  const stats = data?.stats || { totalSkus: 0, totalStock: 0, totalConsumption30d: 0, criticalCount: 0 }
+  const stats = data?.stats || { totalSkus: 0, totalStock: 0, totalConsumption30d: 0, criticalCount: 0, totalVolume_m3: 0 }
 
   // Find full SKU data for editing
   const getFullSku = (skuCode: string) => {
@@ -165,6 +167,7 @@ export function ProduitsClient() {
       name: formData.name,
       alert_threshold: formData.alert_threshold,
       qty_initial: formData.qty_initial,
+      volume_m3: formData.volume_m3 ? parseFloat(formData.volume_m3) : undefined,
     })
     setCreateOpen(false)
     setFormData(defaultFormData)
@@ -180,6 +183,7 @@ export function ProduitsClient() {
         name: sku.name,
         alert_threshold: sku.alert_threshold,
         qty_initial: sku.qty_current,
+        volume_m3: sku.volume_m3 ? String(sku.volume_m3) : '',
       })
       setEditOpen(true)
     }
@@ -192,6 +196,7 @@ export function ProduitsClient() {
       sku_code: formData.sku_code,
       name: formData.name,
       alert_threshold: formData.alert_threshold,
+      volume_m3: formData.volume_m3 ? parseFloat(formData.volume_m3) : undefined,
     })
     setEditOpen(false)
     setSelectedSku(null)
@@ -309,7 +314,7 @@ export function ProduitsClient() {
       </div>
 
       {/* KPI Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card>
           <CardContent className="p-4 flex items-center justify-between">
             <div className="space-y-1">
@@ -353,6 +358,17 @@ export function ProduitsClient() {
             </div>
             <div className={`p-2 rounded-lg ${stats.criticalCount > 0 ? 'bg-error/10 text-error' : 'bg-success/10 text-success'}`}>
               <AlertTriangle className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground font-medium uppercase">Volume Stock</p>
+              <p className="text-2xl font-bold">{stats.totalVolume_m3.toFixed(2)} m³</p>
+            </div>
+            <div className="p-2 bg-primary/10 rounded-lg text-primary">
+              <Box className="h-5 w-5" />
             </div>
           </CardContent>
         </Card>
@@ -543,6 +559,18 @@ export function ProduitsClient() {
                 />
               </div>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="volume_m3">Volume unitaire (m³)</Label>
+              <Input
+                id="volume_m3"
+                type="number"
+                step="any"
+                min="0"
+                placeholder="0.000118"
+                value={formData.volume_m3}
+                onChange={(e) => setFormData({ ...formData, volume_m3: e.target.value })}
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Annuler</Button>
@@ -588,6 +616,18 @@ export function ProduitsClient() {
                 min="0"
                 value={formData.alert_threshold}
                 onChange={(e) => setFormData({ ...formData, alert_threshold: parseInt(e.target.value) || 0 })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit_volume_m3">Volume unitaire (m³)</Label>
+              <Input
+                id="edit_volume_m3"
+                type="number"
+                step="any"
+                min="0"
+                placeholder="0.000118"
+                value={formData.volume_m3}
+                onChange={(e) => setFormData({ ...formData, volume_m3: e.target.value })}
               />
             </div>
           </div>
