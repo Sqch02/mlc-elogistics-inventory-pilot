@@ -13,7 +13,7 @@ import {
   AlertTriangle, Search, X, Download, Loader2, Plus, Eye, Edit2, Clock,
   CheckCircle, XCircle, FileText, ChevronDown, ChevronUp, Euro, Upload, Filter, RefreshCw, ExternalLink
 } from 'lucide-react'
-import { cn, formatCarrierName } from '@/lib/utils'
+import { cn, formatCarrierName, formatDate } from '@/lib/utils'
 import {
   useClaims, useUpdateClaim, useCreateClaim, useClaimHistory,
   ClaimFilters, Claim, ClaimStatus, ClaimType, ClaimPriority, IndemnitySource,
@@ -22,15 +22,6 @@ import {
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { ImportPreviewDialog } from '@/components/forms/ImportPreviewDialog'
 import { useTenant } from '@/components/providers/TenantProvider'
-
-function formatDate(dateStr: string | null) {
-  if (!dateStr) return '-'
-  return new Date(dateStr).toLocaleDateString('fr-FR', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  })
-}
 
 function getStatusBadge(status: ClaimStatus, indemnitySource?: IndemnitySource | null) {
   const variants: Record<ClaimStatus, 'warning' | 'blue' | 'success' | 'error' | 'muted'> = {

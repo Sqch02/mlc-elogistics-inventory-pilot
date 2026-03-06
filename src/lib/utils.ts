@@ -18,6 +18,23 @@ const CARRIER_DISPLAY_NAMES: Record<string, string> = {
   pending: 'En attente',
 }
 
+export function formatDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return '-'
+  return new Date(dateStr).toLocaleDateString('fr-FR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+export function formatEuro(value: number): string {
+  return new Intl.NumberFormat('fr-FR', {
+    style: 'currency',
+    currency: 'EUR',
+    minimumFractionDigits: 2,
+  }).format(value)
+}
+
 export function formatCarrierName(carrier: string | null | undefined): string {
   if (!carrier) return 'Inconnu'
   const known = CARRIER_DISPLAY_NAMES[carrier.toLowerCase()]

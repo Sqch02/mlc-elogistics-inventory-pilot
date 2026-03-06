@@ -13,20 +13,11 @@ import {
   PackagePlus, Search, Plus, Loader2, CheckCircle, XCircle,
   Clock, Package, Truck, Filter, Trash2, Eye, Layers,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, formatDate } from '@/lib/utils'
 import { useInbound, useCreateInbound, useInboundAction, useDeleteInbound, InboundEntry, INBOUND_STATUS_LABELS } from '@/hooks/useInbound'
 import { useSkus } from '@/hooks/useSkus'
 import { useTenant } from '@/components/providers/TenantProvider'
 import { toast } from 'sonner'
-
-function formatDate(dateStr: string | null) {
-  if (!dateStr) return '-'
-  return new Date(dateStr).toLocaleDateString('fr-FR', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  })
-}
 
 function getStatusBadge(status: string) {
   const variants: Record<string, 'warning' | 'success' | 'error' | 'muted' | 'blue'> = {

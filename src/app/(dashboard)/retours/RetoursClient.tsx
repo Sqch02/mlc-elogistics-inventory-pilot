@@ -30,16 +30,7 @@ import {
 } from '@/hooks/useReturns'
 import { useTenant } from '@/components/providers/TenantProvider'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
-import { formatCarrierName } from '@/lib/utils'
-
-function formatDate(dateStr: string | null) {
-  if (!dateStr) return '-'
-  return new Date(dateStr).toLocaleDateString('fr-FR', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  })
-}
+import { formatCarrierName, formatDate } from '@/lib/utils'
 
 function getStatusBadge(status: ReturnStatus) {
   const variants: Record<ReturnStatus, 'success' | 'warning' | 'error' | 'info' | 'muted' | 'blue' | 'cyan' | 'purple' | 'indigo'> = {

@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { Badge } from '@/components/ui/badge'
 import { Truck, AlertTriangle } from 'lucide-react'
-import { formatCarrierName } from '@/lib/utils'
+import { formatCarrierName, formatEuro } from '@/lib/utils'
 
 interface CarrierStats {
   carrier: string
@@ -33,14 +33,6 @@ const CARRIER_COLORS: Record<string, string> = {
 }
 
 export function CarrierPerformance({ data, totalCarriers }: CarrierPerformanceProps) {
-  const formatEuro = (value: number) => {
-    return new Intl.NumberFormat('fr-FR', {
-      style: 'currency',
-      currency: 'EUR',
-      minimumFractionDigits: 2,
-    }).format(value)
-  }
-
   const getCarrierName = (carrier: string) => formatCarrierName(carrier)
 
   const getCarrierColor = (carrier: string) => {
