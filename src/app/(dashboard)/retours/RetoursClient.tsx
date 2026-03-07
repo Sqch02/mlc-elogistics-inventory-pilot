@@ -409,7 +409,7 @@ export function RetoursClient() {
   }
 
   return (
-    <div className="space-y-4 lg:space-y-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-2 sm:gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -746,7 +746,7 @@ export function RetoursClient() {
 
 function RetoursLoadingSkeleton() {
   return (
-    <div className="space-y-4 lg:space-y-6">
+    <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div className="space-y-2">
           <Skeleton className="h-7 lg:h-8 w-36 lg:w-48" />

@@ -65,6 +65,7 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
 function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   return (
     <th
+      scope="col"
       className={cn(
         "h-11 px-4 text-left align-middle",
         "font-semibold text-muted-foreground text-xs uppercase tracking-wider",

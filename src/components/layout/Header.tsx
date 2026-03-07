@@ -101,7 +101,7 @@ export function Header({ user }: HeaderProps) {
         {/* User menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="relative h-9 w-9 sm:h-10 sm:w-10 rounded-full">
+            <Button variant="ghost" className="relative h-9 w-9 sm:h-10 sm:w-10 rounded-full" aria-label="Menu utilisateur">
               <Avatar className="h-9 w-9 sm:h-10 sm:w-10">
                 <AvatarFallback className="text-xs sm:text-sm">{initials}</AvatarFallback>
               </Avatar>

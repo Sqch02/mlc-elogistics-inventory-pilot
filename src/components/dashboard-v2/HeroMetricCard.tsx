@@ -140,6 +140,8 @@ export function HeroMetricCard({
               animate={{ opacity: 1 }}
               transition={{ delay: delay + 0.5 }}
               className="w-32 h-12"
+              aria-label={`Tendance ${label} sur 7 jours`}
+              role="img"
             >
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={sparklineData}>

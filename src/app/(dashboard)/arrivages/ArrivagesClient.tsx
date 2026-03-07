@@ -130,7 +130,7 @@ export function ArrivagesClient() {
       {/* KPI Cards */}
       <div className="grid grid-cols-3 gap-4">
         <Card className="shadow-sm cursor-pointer" onClick={() => setStatusFilter('pending')}>
-          <CardContent className="p-4">
+          <CardContent className="p-3 lg:p-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground font-medium uppercase">En attente</p>
@@ -144,7 +144,7 @@ export function ArrivagesClient() {
         </Card>
 
         <Card className="shadow-sm cursor-pointer" onClick={() => setStatusFilter('accepted')}>
-          <CardContent className="p-4">
+          <CardContent className="p-3 lg:p-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground font-medium uppercase">Acceptes</p>
@@ -158,7 +158,7 @@ export function ArrivagesClient() {
         </Card>
 
         <Card className="shadow-sm cursor-pointer" onClick={() => setStatusFilter('rejected')}>
-          <CardContent className="p-4">
+          <CardContent className="p-3 lg:p-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground font-medium uppercase">Rejetes</p>

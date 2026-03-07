@@ -642,7 +642,7 @@ export function ExpeditionsClient() {
   }
 
   return (
-    <div className="space-y-4 lg:space-y-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-2 sm:gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -761,7 +761,8 @@ export function ExpeditionsClient() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col gap-3 bg-white p-3 lg:p-4 rounded-2xl border border-border shadow-sm">
+      <Card className="shadow-sm border-border">
+        <CardContent className="p-3 lg:p-4 flex flex-col gap-3">
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -880,7 +881,8 @@ export function ExpeditionsClient() {
             <span className="sm:hidden">Export</span>
           </Button>
         </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* Table */}
       <Card className="shadow-sm border-border overflow-hidden">
@@ -926,7 +928,8 @@ export function ExpeditionsClient() {
 
       {/* Pagination */}
       {pagination.totalPages > 1 && (
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white p-3 lg:p-4 rounded-2xl border border-border shadow-sm">
+        <Card className="shadow-sm border-border">
+          <CardContent className="p-3 lg:p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="text-sm text-muted-foreground">
             Page {pagination.page} sur {pagination.totalPages} ({pagination.total} expéditions)
           </div>
@@ -991,7 +994,8 @@ export function ExpeditionsClient() {
               <ChevronsRight className="h-4 w-4" />
             </Button>
           </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Claim Creation Dialog */}
@@ -1221,7 +1225,7 @@ export function ExpeditionsClient() {
 
 function ExpeditionsLoadingSkeleton() {
   return (
-    <div className="space-y-4 lg:space-y-6">
+    <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div className="space-y-2">
           <Skeleton className="h-7 lg:h-8 w-36 lg:w-48" />

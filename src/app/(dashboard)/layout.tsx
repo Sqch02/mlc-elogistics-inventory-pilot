@@ -1,5 +1,6 @@
 import { Sidebar } from '@/components/layout/Sidebar'
 import { QueryProvider } from '@/components/providers/QueryProvider'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { getFastUser } from '@/lib/supabase/fast-auth'
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
@@ -35,10 +36,12 @@ export default async function DashboardLayout({
       <Sidebar userRole={user.role} isHubView={isHubView} />
       <div className="flex-1 flex flex-col overflow-hidden lg:ml-[260px]">
         <DashboardShell user={user}>
-          <main className="flex-1 overflow-y-auto bg-background p-4 lg:p-6">
+          <main id="main-content" className="flex-1 overflow-y-auto bg-background p-4 lg:p-6" aria-live="polite">
             <div className="max-w-[1280px] mx-auto w-full">
               <QueryProvider>
-                {children}
+                <ErrorBoundary>
+                  {children}
+                </ErrorBoundary>
               </QueryProvider>
             </div>
           </main>

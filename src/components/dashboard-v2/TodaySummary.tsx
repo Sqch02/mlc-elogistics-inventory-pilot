@@ -134,6 +134,7 @@ export function TodaySummary() {
                 size="icon"
                 className="h-7 w-7"
                 onClick={goToPrevDay}
+                aria-label="Jour précédent"
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
@@ -150,6 +151,7 @@ export function TodaySummary() {
                 className="h-7 w-7"
                 onClick={goToNextDay}
                 disabled={isToday(selectedDate)}
+                aria-label="Jour suivant"
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>

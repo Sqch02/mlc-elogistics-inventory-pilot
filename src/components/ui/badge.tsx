@@ -10,25 +10,25 @@ const badgeVariants = cva(
     variants: {
       variant: {
         default:
-          "border-transparent bg-primary/10 text-primary",
+          "border-transparent bg-primary/15 text-primary",
         secondary:
-          "border-transparent bg-secondary/10 text-secondary",
+          "border-transparent bg-secondary/15 text-secondary",
         destructive:
-          "border-transparent bg-destructive/10 text-destructive",
+          "border-transparent bg-destructive/15 text-destructive",
         outline:
           "border-border text-muted-foreground bg-background",
         success:
-          "border-transparent bg-success/10 text-success",
+          "border-transparent bg-success/15 text-success",
         warning:
-          "border-transparent bg-warning/10 text-warning",
+          "border-transparent bg-warning/15 text-[#8B7118]",
         error:
-          "border-transparent bg-error/10 text-error",
+          "border-transparent bg-error/15 text-error",
         muted:
           "border-transparent bg-muted text-muted-foreground",
         info:
-          "border-transparent bg-primary/10 text-primary",
+          "border-transparent bg-primary/15 text-primary",
         gold:
-          "border-transparent bg-[#C9A227]/10 text-[#C9A227]",
+          "border-transparent bg-[#C9A227]/15 text-[#8B7118]",
         // Shipping status colors
         blue:
           "border-transparent bg-blue-500/15 text-blue-600",

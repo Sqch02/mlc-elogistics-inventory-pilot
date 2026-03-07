@@ -336,6 +336,7 @@ export function CreateShipmentDialog({ open, onOpenChange }: CreateShipmentDialo
                       size="icon"
                       className="h-9 w-9 text-muted-foreground hover:text-error"
                       onClick={() => removeItem(index)}
+                      aria-label="Supprimer l'article"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>

@@ -3,6 +3,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { formatEuro } from '@/lib/utils'
 
 interface MonthlyData {
   month: string
@@ -25,14 +26,9 @@ function TrendIcon({ value }: { value: number }) {
   return <Minus className="h-4 w-4 text-gray-400" />
 }
 
-function formatEuro(value: number) {
-  return new Intl.NumberFormat('fr-FR', {
-    style: 'currency',
-    currency: 'EUR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value)
-}
+// Chart colors matching CSS design tokens
+const CHART_PRIMARY = '#1E3A5F'   // var(--color-primary)
+const CHART_SECONDARY = '#2A4A73' // var(--color-secondary)
 
 export function CostTrendChart({ data, percentChange, shipmentsPercentChange }: CostTrendChartProps) {
   // Format month labels (YYYY-MM -> Jan, Feb, etc.)
@@ -113,20 +109,20 @@ export function CostTrendChart({ data, percentChange, shipmentsPercentChange }: 
                 type="monotone"
                 dataKey="costK"
                 name="Coût"
-                stroke="#1E3A5F"
+                stroke={CHART_PRIMARY}
                 strokeWidth={2}
-                dot={{ fill: '#1E3A5F', strokeWidth: 2 }}
-                activeDot={{ r: 6, fill: '#1E3A5F' }}
+                dot={{ fill: CHART_PRIMARY, strokeWidth: 2 }}
+                activeDot={{ r: 6, fill: CHART_PRIMARY }}
               />
               <Line
                 yAxisId="shipments"
                 type="monotone"
                 dataKey="shipments"
                 name="Expéditions"
-                stroke="#008080"
+                stroke={CHART_SECONDARY}
                 strokeWidth={2}
                 strokeDasharray="5 5"
-                dot={{ fill: '#008080', strokeWidth: 2 }}
+                dot={{ fill: CHART_SECONDARY, strokeWidth: 2 }}
               />
             </LineChart>
           </ResponsiveContainer>

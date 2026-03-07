@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import dynamic from 'next/dynamic'
 import { motion } from 'framer-motion'
 import { Package, Banknote, Award, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
@@ -8,17 +9,33 @@ import { useDashboard } from '@/hooks/useDashboard'
 import { useAnalytics } from '@/hooks/useAnalytics'
 import { DashboardHeader } from './DashboardHeader'
 import { SecondaryKpiCard } from './SecondaryKpiCard'
-import { AreaShipmentsChart } from './AreaShipmentsChart'
 import { BillingArcCard } from './BillingArcCard'
 import { AlertsTimeline } from './AlertsTimeline'
 import { StockHealthPanel } from './StockHealthPanel'
-import { ProductsAnalytics } from './ProductsAnalytics'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CostTrendChart } from '@/components/dashboard/CostTrendChart'
-import { CarrierPerformance } from '@/components/dashboard/CarrierPerformance'
 import { TodaySummary } from './TodaySummary'
 import { useTenant } from '@/components/providers/TenantProvider'
 import { HubDashboard } from './HubDashboard'
+
+const AreaShipmentsChart = dynamic(
+  () => import('./AreaShipmentsChart').then(m => ({ default: m.AreaShipmentsChart })),
+  { ssr: false, loading: () => <div className="h-[300px] animate-pulse bg-muted rounded-lg" /> }
+)
+
+const CostTrendChart = dynamic(
+  () => import('@/components/dashboard/CostTrendChart').then(m => ({ default: m.CostTrendChart })),
+  { ssr: false, loading: () => <div className="h-[350px] animate-pulse bg-muted rounded-lg" /> }
+)
+
+const CarrierPerformance = dynamic(
+  () => import('@/components/dashboard/CarrierPerformance').then(m => ({ default: m.CarrierPerformance })),
+  { ssr: false, loading: () => <div className="h-[350px] animate-pulse bg-muted rounded-lg" /> }
+)
+
+const ProductsAnalytics = dynamic(
+  () => import('./ProductsAnalytics').then(m => ({ default: m.ProductsAnalytics })),
+  { ssr: false, loading: () => <div className="h-[400px] animate-pulse bg-muted rounded-lg" /> }
+)
 
 // Loading skeleton for the dashboard
 function DashboardSkeleton() {

@@ -143,6 +143,7 @@ export function UploadCSV({
                 accept={accept}
                 onChange={handleFileChange}
                 className="hidden"
+                aria-label="Sélectionner un fichier CSV"
               />
             </label>
           ) : (
@@ -161,6 +162,7 @@ export function UploadCSV({
                 size="icon"
                 onClick={handleRemoveFile}
                 disabled={uploading}
+                aria-label="Supprimer le fichier"
               >
                 <X className="h-4 w-4" />
               </Button>

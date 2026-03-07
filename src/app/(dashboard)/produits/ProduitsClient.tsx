@@ -316,7 +316,7 @@ export function ProduitsClient() {
       {/* KPI Row */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card>
-          <CardContent className="p-4 flex items-center justify-between">
+          <CardContent className="p-3 lg:p-4 flex items-center justify-between">
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground font-medium uppercase">Total SKUs</p>
               <p className="text-2xl font-bold">{stats.totalSkus}</p>
@@ -327,7 +327,7 @@ export function ProduitsClient() {
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4 flex items-center justify-between">
+          <CardContent className="p-3 lg:p-4 flex items-center justify-between">
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground font-medium uppercase">Stock total</p>
               <p className="text-2xl font-bold">{stats.totalStock.toLocaleString()}</p>
@@ -338,7 +338,7 @@ export function ProduitsClient() {
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4 flex items-center justify-between">
+          <CardContent className="p-3 lg:p-4 flex items-center justify-between">
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground font-medium uppercase">Conso 30j</p>
               <p className="text-2xl font-bold">{stats.totalConsumption30d.toLocaleString()}</p>
@@ -349,7 +349,7 @@ export function ProduitsClient() {
           </CardContent>
         </Card>
         <Card className={stats.criticalCount > 0 ? 'border-error/50' : ''}>
-          <CardContent className="p-4 flex items-center justify-between">
+          <CardContent className="p-3 lg:p-4 flex items-center justify-between">
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground font-medium uppercase">Critiques</p>
               <p className={`text-2xl font-bold ${stats.criticalCount > 0 ? 'text-error' : 'text-success'}`}>
@@ -362,7 +362,7 @@ export function ProduitsClient() {
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4 flex items-center justify-between">
+          <CardContent className="p-3 lg:p-4 flex items-center justify-between">
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground font-medium uppercase">Volume Stock</p>
               <p className="text-2xl font-bold">{stats.totalVolume_m3.toFixed(2)} m³</p>

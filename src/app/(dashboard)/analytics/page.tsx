@@ -1,15 +1,13 @@
 'use client'
 
 import { useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { DateRangePicker } from '@/components/ui/date-range-picker'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CostTrendChart } from '@/components/dashboard/CostTrendChart'
-import { CarrierPerformance } from '@/components/dashboard/CarrierPerformance'
-import { SkuSalesChart } from '@/components/dashboard/SkuSalesChart'
 import {
   TrendingUp,
   TrendingDown,
@@ -22,6 +20,21 @@ import {
 } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
 import { useTenant } from '@/components/providers/TenantProvider'
+
+const CostTrendChart = dynamic(
+  () => import('@/components/dashboard/CostTrendChart').then(m => ({ default: m.CostTrendChart })),
+  { ssr: false, loading: () => <div className="h-[300px] animate-pulse bg-muted rounded-lg" /> }
+)
+
+const CarrierPerformance = dynamic(
+  () => import('@/components/dashboard/CarrierPerformance').then(m => ({ default: m.CarrierPerformance })),
+  { ssr: false, loading: () => <div className="h-[300px] animate-pulse bg-muted rounded-lg" /> }
+)
+
+const SkuSalesChart = dynamic(
+  () => import('@/components/dashboard/SkuSalesChart').then(m => ({ default: m.SkuSalesChart })),
+  { ssr: false, loading: () => <div className="h-[300px] animate-pulse bg-muted rounded-lg" /> }
+)
 
 interface AnalyticsData {
   costTrend: {

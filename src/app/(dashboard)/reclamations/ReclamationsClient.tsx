@@ -462,7 +462,7 @@ export function ReclamationsClient() {
   }
 
   return (
-    <div className="space-y-4 lg:space-y-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-2 sm:gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -610,7 +610,8 @@ export function ReclamationsClient() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col gap-3 bg-white p-3 lg:p-4 rounded-2xl border border-border shadow-sm">
+      <Card className="shadow-sm border-border">
+        <CardContent className="p-3 lg:p-4 flex flex-col gap-3">
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -712,7 +713,8 @@ export function ReclamationsClient() {
             Export
           </Button>
         </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* Table */}
       <Card className="shadow-sm border-border overflow-hidden">
@@ -1029,7 +1031,7 @@ function HistoryDialog({ open, onOpenChange, claimId }: { open: boolean; onOpenC
 
 function ReclamationsLoadingSkeleton() {
   return (
-    <div className="space-y-4 lg:space-y-6">
+    <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div className="space-y-2">
           <Skeleton className="h-7 lg:h-8 w-36 lg:w-48" />

@@ -94,6 +94,7 @@ function SidebarContent({ pathname, onClose, onLogout, userRole, isHubView }: Si
           size="icon"
           className="lg:hidden hover:bg-muted"
           onClick={onClose}
+          aria-label="Fermer le menu"
         >
           <X className="h-5 w-5" />
         </Button>
@@ -205,6 +206,7 @@ export function Sidebar({ onMobileToggle, userRole, isHubView }: SidebarProps) {
         size="icon"
         className="fixed top-3 left-3 z-50 lg:hidden bg-white shadow-md border border-border/50 hover:bg-muted"
         onClick={handleOpen}
+        aria-label="Ouvrir le menu"
       >
         <Menu className="h-5 w-5" />
       </Button>
@@ -229,8 +231,7 @@ export function Sidebar({ onMobileToggle, userRole, isHubView }: SidebarProps) {
 
       {/* Desktop sidebar */}
       <aside
-        className="hidden lg:flex flex-col h-screen bg-white border-r border-border/50 shrink-0 fixed top-0 left-0 bottom-0 w-[260px] z-40"
-        style={{ boxShadow: '1px 0 3px rgba(0, 0, 0, 0.02)' }}
+        className="hidden lg:flex flex-col h-screen bg-white border-r border-border/50 shrink-0 fixed top-0 left-0 bottom-0 w-[260px] z-40 shadow-sm"
       >
         <SidebarContent pathname={pathname} onClose={handleClose} onLogout={handleLogout} userRole={userRole} isHubView={isHubView} />
       </aside>
