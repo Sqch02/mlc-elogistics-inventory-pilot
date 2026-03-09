@@ -219,7 +219,7 @@ export function FacturationClient() {
     }
   }
 
-  const handleDownloadPDF = (invoice: Invoice) => {
+  const handleDownloadPDF = async (invoice: Invoice) => {
     if (!companySettings || !companySettings.company_name) {
       toast.error('Veuillez configurer les informations société dans Paramètres > Société')
       return
@@ -288,7 +288,7 @@ export function FacturationClient() {
       missingPricingCount: invoice.missing_pricing_count,
     }
 
-    downloadInvoicePDF(pdfData, `facture_${invoiceNumber}.pdf`)
+    await downloadInvoicePDF(pdfData, `facture_${invoiceNumber}.pdf`)
     toast.success('PDF téléchargé')
   }
 
