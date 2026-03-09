@@ -100,11 +100,9 @@ export function SecondaryKpiCard({
       </div>
 
       {/* Value */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: delay + 0.1 }}
-        className="space-y-1"
+      <div
+        className="space-y-1 animate-fade-in"
+        style={{ animationDelay: `${delay + 0.1}s` }}
       >
         <p className="text-2xl font-semibold text-foreground tracking-tight">
           {value}
@@ -113,7 +111,7 @@ export function SecondaryKpiCard({
         {subValue && (
           <p className="text-xs text-muted-foreground/70">{subValue}</p>
         )}
-      </motion.div>
+      </div>
     </motion.div>
   )
 }

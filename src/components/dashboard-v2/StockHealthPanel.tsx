@@ -1,5 +1,6 @@
 'use client'
 
+import { memo } from 'react'
 import { motion } from 'framer-motion'
 import { Package, Eye, ArrowRight, TrendingDown, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -49,7 +50,7 @@ function ProgressBar({ value, max = 30, status, delay }: {
   )
 }
 
-function StockItem({ item, index, delay }: {
+const StockItem = memo(function StockItem({ item, index, delay }: {
   item: StockHealthItem
   index: number
   delay: number
@@ -67,11 +68,9 @@ function StockItem({ item, index, delay }: {
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, x: -10 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: delay + index * 0.05, duration: 0.3 }}
-      className="py-2.5 border-b border-border/40 last:border-0"
+    <div
+      className="py-2.5 border-b border-border/40 last:border-0 animate-fade-in-left"
+      style={{ animationDelay: `${delay + index * 0.05}s` }}
     >
       <div className="flex items-center justify-between mb-1.5">
         <div className="flex items-center gap-2 min-w-0">
@@ -104,9 +103,9 @@ function StockItem({ item, index, delay }: {
         status={status}
         delay={delay + index * 0.05 + 0.1}
       />
-    </motion.div>
+    </div>
   )
-}
+})
 
 export function StockHealthPanel({ items, criticalCount, delay = 0 }: StockHealthPanelProps) {
   const sortedItems = [...items].sort((a, b) => a.daysRemaining - b.daysRemaining)
@@ -119,11 +118,9 @@ export function StockHealthPanel({ items, criticalCount, delay = 0 }: StockHealt
   const healthy = items.filter(i => i.daysRemaining >= 30).length
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.5 }}
-      className="bg-card rounded-2xl border border-border/60 p-5 shadow-sm h-full flex flex-col"
+    <div
+      className="bg-card rounded-2xl border border-border/60 p-5 shadow-sm h-full flex flex-col animate-fade-in"
+      style={{ animationDelay: `${delay}s` }}
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
@@ -168,11 +165,9 @@ export function StockHealthPanel({ items, criticalCount, delay = 0 }: StockHealt
             ))}
           </div>
         ) : (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: delay + 0.3 }}
-            className="flex flex-col items-center justify-center py-6 text-center"
+          <div
+            className="flex flex-col items-center justify-center py-6 text-center animate-fade-in"
+            style={{ animationDelay: `${delay + 0.3}s` }}
           >
             <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center mb-2">
               <Package className="h-5 w-5 text-emerald-500" />
@@ -180,7 +175,7 @@ export function StockHealthPanel({ items, criticalCount, delay = 0 }: StockHealt
             <p className="text-xs text-muted-foreground">
               Stocks OK
             </p>
-          </motion.div>
+          </div>
         )}
       </div>
 
@@ -216,6 +211,6 @@ export function StockHealthPanel({ items, criticalCount, delay = 0 }: StockHealt
           </Link>
         )}
       </div>
-    </motion.div>
+    </div>
   )
 }

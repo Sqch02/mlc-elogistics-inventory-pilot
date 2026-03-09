@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Package, Boxes, TrendingUp, ArrowRight, Calendar, BarChart3, CalendarDays } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -49,7 +49,7 @@ function formatDateDisplay(dateStr: string): string {
   return date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-function ProductRow({
+const ProductRow = memo(function ProductRow({
   item,
   index,
   delay,
@@ -122,7 +122,7 @@ function ProductRow({
       </motion.div>
     </Link>
   )
-}
+})
 
 export function ProductsAnalytics({ delay = 0 }: ProductsAnalyticsProps) {
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodKey>('3m')

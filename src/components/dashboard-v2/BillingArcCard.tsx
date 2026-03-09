@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
 import { Receipt, AlertTriangle, Download, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -63,11 +62,9 @@ export function BillingArcCard({
   const arcOffset = arcCircumference * (1 - arcProgress)
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.5 }}
-      className="bg-card rounded-2xl border border-border/60 p-6 shadow-sm"
+    <div
+      className="bg-card rounded-2xl border border-border/60 p-6 shadow-sm animate-fade-in"
+      style={{ animationDelay: `${delay}s` }}
     >
       {/* Header with status */}
       <div className="flex items-center justify-between mb-4">
@@ -110,30 +107,26 @@ export function BillingArcCard({
         </svg>
 
         {/* Center label */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: delay + 0.5 }}
-          className="absolute bottom-0 left-1/2 transform -translate-x-1/2 text-center"
+        <div
+          className="absolute bottom-0 left-1/2 transform -translate-x-1/2 text-center animate-fade-in"
+          style={{ animationDelay: `${delay + 0.5}s` }}
         >
           <span className="text-2xl font-bold text-foreground">
             {Math.round(monthProgress * 100)}%
           </span>
           <span className="block text-xs text-muted-foreground">du mois</span>
-        </motion.div>
+        </div>
       </div>
 
       {/* Warning banner if missing pricing */}
       {billing.missingPricingCount > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: delay + 0.3 }}
+        <div
           className={cn(
-            "mt-4 p-3 rounded-lg",
+            "mt-4 p-3 rounded-lg animate-fade-in",
             "bg-warning/5 border border-warning/20",
             "flex items-start gap-2"
           )}
+          style={{ animationDelay: `${delay + 0.3}s` }}
         >
           <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
           <div>
@@ -144,15 +137,13 @@ export function BillingArcCard({
               Complétez les tarifs avant de générer la facture
             </p>
           </div>
-        </motion.div>
+        </div>
       )}
 
       {/* Action buttons */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: delay + 0.4 }}
-        className="mt-4 pt-4 border-t border-border/40 flex gap-2"
+      <div
+        className="mt-4 pt-4 border-t border-border/40 flex gap-2 animate-fade-in"
+        style={{ animationDelay: `${delay + 0.4}s` }}
       >
         {billing.status === 'pending' ? (
           <Button
@@ -175,7 +166,7 @@ export function BillingArcCard({
             </Button>
           </>
         )}
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   )
 }

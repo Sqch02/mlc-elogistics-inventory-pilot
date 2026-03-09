@@ -118,11 +118,9 @@ export function StockWatchlist({ items, delay = 0 }: StockWatchlistProps) {
   const hasMore = items.length > 6
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.5 }}
-      className="bg-card rounded-2xl border border-border/60 p-6 shadow-sm h-full"
+    <div
+      className="bg-card rounded-2xl border border-border/60 p-6 shadow-sm h-full animate-fade-in"
+      style={{ animationDelay: `${delay}s` }}
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
@@ -152,11 +150,9 @@ export function StockWatchlist({ items, delay = 0 }: StockWatchlistProps) {
           ))}
         </div>
       ) : (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: delay + 0.3 }}
-          className="flex flex-col items-center justify-center py-8 text-center"
+        <div
+          className="flex flex-col items-center justify-center py-8 text-center animate-fade-in"
+          style={{ animationDelay: `${delay + 0.3}s` }}
         >
           <div className="w-12 h-12 rounded-full bg-success/10 flex items-center justify-center mb-3">
             <Package className="h-6 w-6 text-success" />
@@ -164,16 +160,14 @@ export function StockWatchlist({ items, delay = 0 }: StockWatchlistProps) {
           <p className="text-sm text-muted-foreground">
             Tous les stocks sont sains
           </p>
-        </motion.div>
+        </div>
       )}
 
       {/* View all link */}
       {hasMore && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: delay + 0.6 }}
-          className="mt-4 pt-4 border-t border-border/40"
+        <div
+          className="mt-4 pt-4 border-t border-border/40 animate-fade-in"
+          style={{ animationDelay: `${delay + 0.6}s` }}
         >
           <Link
             href="/produits?status=critical"
@@ -186,8 +180,8 @@ export function StockWatchlist({ items, delay = 0 }: StockWatchlistProps) {
             Voir tous les {items.length} SKUs
             <ArrowRight className="h-4 w-4" />
           </Link>
-        </motion.div>
+        </div>
       )}
-    </motion.div>
+    </div>
   )
 }

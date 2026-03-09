@@ -29,9 +29,18 @@ function createMockGetClient(rulesData: unknown[] = []) {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
       order: vi.fn().mockReturnThis(),
-      then: (resolve: (value: unknown) => void) => resolve({ data: rulesData, error: null }),
+      range: vi.fn().mockResolvedValue({ data: rulesData, error: null, count: rulesData.length }),
     }),
   }
+}
+
+function createGetRequest(params?: Record<string, string>): NextRequest {
+  let url = 'http://localhost:3000/api/pricing'
+  if (params) {
+    const searchParams = new URLSearchParams(params)
+    url += `?${searchParams.toString()}`
+  }
+  return new NextRequest(url)
 }
 
 // Create mock Supabase client for POST operations
@@ -64,29 +73,33 @@ describe('GET /api/pricing', () => {
       { id: 'rule-2', carrier: 'colissimo', weight_min_grams: 500, weight_max_grams: 1000, price_eur: 7.50 },
     ]))
 
-    const response = await GET()
+    const response = await GET(createGetRequest())
     const data = await response.json()
 
     expect(response.status).toBe(200)
     expect(data.rules).toBeDefined()
     expect(Array.isArray(data.rules)).toBe(true)
     expect(data.rules).toHaveLength(2)
+    expect(data.total).toBe(2)
+    expect(data.page).toBe(1)
+    expect(data.limit).toBe(500)
   })
 
   it('should return empty array when no rules exist', async () => {
     mockGetServerDb.mockResolvedValue(createMockGetClient([]))
 
-    const response = await GET()
+    const response = await GET(createGetRequest())
     const data = await response.json()
 
     expect(response.status).toBe(200)
     expect(data.rules).toEqual([])
+    expect(data.total).toBe(0)
   })
 
   it('should require tenant authentication', async () => {
     mockGetServerDb.mockResolvedValue(createMockGetClient([]))
 
-    await GET()
+    await GET(createGetRequest())
 
     expect(mockRequireTenant).toHaveBeenCalled()
   })
@@ -97,15 +110,28 @@ describe('GET /api/pricing', () => {
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
         order: vi.fn().mockReturnThis(),
-        then: (resolve: (value: unknown) => void) => resolve({ data: null, error: { message: 'Database error' } }),
+        range: vi.fn().mockResolvedValue({ data: null, error: { message: 'Database error' }, count: null }),
       }),
     })
 
-    const response = await GET()
+    const response = await GET(createGetRequest())
     const data = await response.json()
 
     expect(response.status).toBe(500)
     expect(data.error).toBeDefined()
+  })
+
+  it('should respect page and limit params', async () => {
+    mockGetServerDb.mockResolvedValue(createMockGetClient([
+      { id: 'rule-3', carrier: 'dhl', weight_min_grams: 0, weight_max_grams: 500, price_eur: 9.00 },
+    ]))
+
+    const response = await GET(createGetRequest({ page: '2', limit: '10' }))
+    const data = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(data.page).toBe(2)
+    expect(data.limit).toBe(10)
   })
 })
 

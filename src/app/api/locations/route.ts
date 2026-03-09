@@ -1,8 +1,8 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
 import { getFastTenantId } from '@/lib/supabase/fast-auth'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const tenantId = await getFastTenantId()
     if (!tenantId) {
@@ -10,7 +10,13 @@ export async function GET() {
     }
     const supabase = await getServerDb()
 
-    const { data: locations, error } = await supabase
+    const searchParams = request.nextUrl.searchParams
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
+    const limit = Math.min(2000, Math.max(1, parseInt(searchParams.get('limit') || '1000', 10)))
+    const from = (page - 1) * limit
+    const to = from + limit - 1
+
+    const { data: locations, error, count } = await supabase
       .from('locations')
       .select(`
         id,
@@ -29,12 +35,13 @@ export async function GET() {
           assigned_at,
           sku:skus(sku_code, name, stock_snapshots(qty_current))
         )
-      `)
+      `, { count: 'exact' })
       .eq('tenant_id', tenantId)
       .order('zone_code')
       .order('row_number')
       .order('col_number')
       .order('height_level', { ascending: false })
+      .range(from, to)
 
     if (error) {
       throw error
@@ -47,7 +54,12 @@ export async function GET() {
       assignment: loc.assignment?.[0] || null,
     }))
 
-    return NextResponse.json({ locations: formattedLocations }, {
+    return NextResponse.json({
+      locations: formattedLocations || [],
+      total: count ?? (locations?.length || 0),
+      page,
+      limit,
+    }, {
       headers: {
         'Cache-Control': 'private, no-store'
       }

@@ -24,9 +24,18 @@ function createMockGetClient(locationsData: unknown[] = []) {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
       order: vi.fn().mockReturnThis(),
-      then: (resolve: (value: unknown) => void) => resolve({ data: locationsData, error: null }),
+      range: vi.fn().mockResolvedValue({ data: locationsData, error: null, count: locationsData.length }),
     }),
   }
+}
+
+function createGetRequest(params?: Record<string, string>): NextRequest {
+  let url = 'http://localhost:3000/api/locations'
+  if (params) {
+    const searchParams = new URLSearchParams(params)
+    url += `?${searchParams.toString()}`
+  }
+  return new NextRequest(url)
 }
 
 // Create mock Supabase client for POST operations
@@ -56,7 +65,7 @@ describe('GET /api/locations', () => {
   it('should return 401 if not authenticated', async () => {
     mockGetFastTenantId.mockResolvedValue(null)
 
-    const response = await GET()
+    const response = await GET(createGetRequest())
     const data = await response.json()
 
     expect(response.status).toBe(401)
@@ -70,23 +79,27 @@ describe('GET /api/locations', () => {
       { id: 'loc-2', code: 'A-01-02', label: 'Zone A', active: true, assignment: [] },
     ]))
 
-    const response = await GET()
+    const response = await GET(createGetRequest())
     const data = await response.json()
 
     expect(response.status).toBe(200)
     expect(data.locations).toBeDefined()
     expect(Array.isArray(data.locations)).toBe(true)
+    expect(data.total).toBe(2)
+    expect(data.page).toBe(1)
+    expect(data.limit).toBe(1000)
   })
 
   it('should return empty array when no locations exist', async () => {
     mockGetFastTenantId.mockResolvedValue('test-tenant-id')
     mockGetServerDb.mockResolvedValue(createMockGetClient([]))
 
-    const response = await GET()
+    const response = await GET(createGetRequest())
     const data = await response.json()
 
     expect(response.status).toBe(200)
     expect(data.locations).toEqual([])
+    expect(data.total).toBe(0)
   })
 
   it('should flatten assignment to single object', async () => {
@@ -99,7 +112,7 @@ describe('GET /api/locations', () => {
       },
     ]))
 
-    const response = await GET()
+    const response = await GET(createGetRequest())
     const data = await response.json()
 
     expect(response.status).toBe(200)
@@ -115,11 +128,11 @@ describe('GET /api/locations', () => {
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
         order: vi.fn().mockReturnThis(),
-        then: (resolve: (value: unknown) => void) => resolve({ data: null, error: { message: 'DB error' } }),
+        range: vi.fn().mockResolvedValue({ data: null, error: { message: 'DB error' }, count: null }),
       }),
     })
 
-    const response = await GET()
+    const response = await GET(createGetRequest())
     const data = await response.json()
 
     expect(response.status).toBe(500)
@@ -130,9 +143,9 @@ describe('GET /api/locations', () => {
     mockGetFastTenantId.mockResolvedValue('test-tenant-id')
     mockGetServerDb.mockResolvedValue(createMockGetClient([]))
 
-    const response = await GET()
+    const response = await GET(createGetRequest())
 
-    expect(response.headers.get('Cache-Control')).toBe('private, max-age=60, stale-while-revalidate=300')
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store')
   })
 })
 

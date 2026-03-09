@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, memo } from 'react'
 import { cn } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -173,7 +173,7 @@ interface AisleViewProps {
   onCreateLocation?: (code: string) => void
 }
 
-function AisleView({ aisle, locationsByRack, maxColsByRack, onLocationClick, onCreateLocation }: AisleViewProps) {
+const AisleView = memo(function AisleView({ aisle, locationsByRack, maxColsByRack, onLocationClick, onCreateLocation }: AisleViewProps) {
   const topRackData = locationsByRack.get(aisle.topRack)
   const bottomRackData = aisle.bottomRack ? locationsByRack.get(aisle.bottomRack) : null
   const topMaxCols = maxColsByRack.get(aisle.topRack) || 0
@@ -220,7 +220,7 @@ function AisleView({ aisle, locationsByRack, maxColsByRack, onLocationClick, onC
       </div>
     </Card>
   )
-}
+})
 
 interface RackViewProps {
   rackLetter: string
@@ -231,7 +231,7 @@ interface RackViewProps {
   isReversed: boolean
 }
 
-function RackView({ rackLetter, rackData, maxCols, onLocationClick, onCreateLocation, isReversed }: RackViewProps) {
+const RackView = memo(function RackView({ rackLetter, rackData, maxCols, onLocationClick, onCreateLocation, isReversed }: RackViewProps) {
   return (
     <div className="space-y-0">
       {LEVELS.map((level, levelIdx) => {
@@ -324,7 +324,7 @@ function RackView({ rackLetter, rackData, maxCols, onLocationClick, onCreateLoca
       </div>
     </div>
   )
-}
+})
 
 function WarehouseMapSkeleton() {
   return (

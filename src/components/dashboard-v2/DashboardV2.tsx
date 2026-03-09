@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import dynamic from 'next/dynamic'
-import { motion } from 'framer-motion'
 import { Package, Banknote, Award, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { useDashboard } from '@/hooks/useDashboard'
@@ -134,12 +133,7 @@ export function DashboardV2() {
   const criticalStockCount = Number(data.kpis.criticalStock.value) || 0
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.3 }}
-      className="space-y-6"
-    >
+    <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <DashboardHeader
         currentMonth={selectedMonth}
@@ -256,6 +250,6 @@ export function DashboardV2() {
 
       {/* Section 5: Alerts */}
       <AlertsTimeline alerts={data.alerts} delay={0.7} />
-    </motion.div>
+    </div>
   )
 }

@@ -14,16 +14,25 @@ const createClaimSchema = z.object({
   priority: z.enum(['low', 'normal', 'high', 'urgent']).optional().default('normal'),
 })
 
-// Fetch all claims with pagination to bypass 1000 row limit
-async function fetchAllClaims(tenantId: string) {
-  const adminClient = createAdminClient()
-  const allClaims: unknown[] = []
-  const pageSize = 1000
-  let offset = 0
-  let hasMore = true
+export async function GET(request: NextRequest) {
+  try {
+    const tenantId = await requireTenant()
+    const adminClient = createAdminClient()
 
-  while (hasMore) {
-    const { data, error } = await adminClient
+    const searchParams = request.nextUrl.searchParams
+    const status = searchParams.get('status')
+    const claim_type = searchParams.get('claim_type')
+    const priority = searchParams.get('priority')
+    const search = searchParams.get('search')
+    const from = searchParams.get('from')
+    const to = searchParams.get('to')
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
+    const limit = Math.min(1000, Math.max(1, parseInt(searchParams.get('limit') || '500', 10)))
+    const rangeFrom = (page - 1) * limit
+    const rangeTo = rangeFrom + limit - 1
+
+    // Build query with server-side filters
+    let query = adminClient
       .from('claims')
       .select(`
         *,
@@ -35,79 +44,114 @@ async function fetchAllClaims(tenantId: string) {
           tracking_url,
           country_code
         )
-      `)
+      `, { count: 'exact' })
       .eq('tenant_id', tenantId)
-      .order('opened_at', { ascending: false })
-      .range(offset, offset + pageSize - 1)
 
-    if (error) throw error
-
-    if (data && data.length > 0) {
-      allClaims.push(...data)
-      offset += pageSize
-      hasMore = data.length === pageSize
-    } else {
-      hasMore = false
-    }
-  }
-
-  return allClaims
-}
-
-export async function GET(request: NextRequest) {
-  try {
-    const tenantId = await requireTenant()
-
-    const searchParams = request.nextUrl.searchParams
-    const status = searchParams.get('status')
-    const claim_type = searchParams.get('claim_type')
-    const priority = searchParams.get('priority')
-    const search = searchParams.get('search')
-    const from = searchParams.get('from')
-    const to = searchParams.get('to')
-
-    // Fetch all claims using pagination
-    const rawClaims = await fetchAllClaims(tenantId)
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let claims = rawClaims as any[]
-
-    // Apply filters
+    // Apply status filter (supports comma-separated multiple statuses)
     if (status) {
-      // Support multiple statuses separated by comma
       const statuses = status.split(',')
-      claims = claims.filter((c: { status: string }) => statuses.includes(c.status))
+      if (statuses.length === 1) {
+        query = query.eq('status', statuses[0])
+      } else {
+        query = query.in('status', statuses)
+      }
     }
 
     if (claim_type) {
-      claims = claims.filter((c: { claim_type: string }) => c.claim_type === claim_type)
+      query = query.eq('claim_type', claim_type)
     }
 
     if (priority) {
-      claims = claims.filter((c: { priority: string }) => c.priority === priority)
+      query = query.eq('priority', priority)
     }
 
     if (from) {
-      claims = claims.filter((c: { opened_at: string }) => c.opened_at >= from)
+      query = query.gte('opened_at', from)
     }
 
     if (to) {
-      claims = claims.filter((c: { opened_at: string }) => c.opened_at <= to)
+      query = query.lte('opened_at', to)
     }
 
-    // Filter by search text (order_ref, description, tracking)
+    // Text search: use ilike on claim fields, or on the order_ref directly
+    // Note: shipment join fields can't be filtered server-side with PostgREST easily,
+    // so we apply text search on claim-level fields server-side and keep a lightweight
+    // client-side pass for shipment-level fields only when search is provided
     if (search) {
-      const searchLower = search.toLowerCase()
-      claims = claims.filter((c: { order_ref?: string; description?: string; shipments?: { order_ref?: string; carrier?: string; tracking?: string } }) =>
-        c.order_ref?.toLowerCase().includes(searchLower) ||
-        c.description?.toLowerCase().includes(searchLower) ||
-        c.shipments?.order_ref?.toLowerCase().includes(searchLower) ||
-        c.shipments?.carrier?.toLowerCase().includes(searchLower) ||
-        c.shipments?.tracking?.toLowerCase().includes(searchLower)
+      query = query.or(
+        `order_ref.ilike.%${search}%,description.ilike.%${search}%`
       )
     }
 
-    return NextResponse.json({ claims })
+    const { data: claims, error, count } = await query
+      .order('opened_at', { ascending: false })
+      .range(rangeFrom, rangeTo)
+
+    if (error) throw error
+
+    // Lightweight client-side pass for shipment-level text search
+    // Only needed when search targets carrier/tracking which live on the joined shipment
+    const filteredClaims = claims || []
+    if (search && filteredClaims.length === 0) {
+      // If the server-side or() returned nothing, try searching shipment fields
+      // Re-query without the or() filter and apply client-side search on shipment fields
+      let fallbackQuery = adminClient
+        .from('claims')
+        .select(`
+          *,
+          shipments:shipment_id (
+            sendcloud_id,
+            order_ref,
+            carrier,
+            tracking,
+            tracking_url,
+            country_code
+          )
+        `, { count: 'exact' })
+        .eq('tenant_id', tenantId)
+
+      if (status) {
+        const statuses = status.split(',')
+        if (statuses.length === 1) {
+          fallbackQuery = fallbackQuery.eq('status', statuses[0])
+        } else {
+          fallbackQuery = fallbackQuery.in('status', statuses)
+        }
+      }
+      if (claim_type) fallbackQuery = fallbackQuery.eq('claim_type', claim_type)
+      if (priority) fallbackQuery = fallbackQuery.eq('priority', priority)
+      if (from) fallbackQuery = fallbackQuery.gte('opened_at', from)
+      if (to) fallbackQuery = fallbackQuery.lte('opened_at', to)
+
+      const { data: allForSearch, error: fallbackError } = await fallbackQuery
+        .order('opened_at', { ascending: false })
+        .range(0, 999)
+
+      if (!fallbackError && allForSearch) {
+        const searchLower = search.toLowerCase()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const matched = allForSearch.filter((c: any) =>
+          c.shipments?.order_ref?.toLowerCase().includes(searchLower) ||
+          c.shipments?.carrier?.toLowerCase().includes(searchLower) ||
+          c.shipments?.tracking?.toLowerCase().includes(searchLower)
+        )
+        // Apply pagination to matched results
+        const sliced = matched.slice(0, limit)
+        return NextResponse.json({
+          claims: sliced,
+          total: matched.length,
+          page: 1,
+          limit,
+        })
+      }
+    }
+
+    return NextResponse.json({
+      claims: filteredClaims,
+      total: count ?? filteredClaims.length,
+      page,
+      limit,
+    })
   } catch (error) {
     console.error('Get claims error:', error)
     return NextResponse.json(

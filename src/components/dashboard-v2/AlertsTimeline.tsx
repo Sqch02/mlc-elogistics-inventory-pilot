@@ -1,5 +1,6 @@
 'use client'
 
+import { memo } from 'react'
 import { motion } from 'framer-motion'
 import { Package, DollarSign, Truck, AlertTriangle, CheckCircle, ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -42,7 +43,7 @@ const alertConfig = {
   }
 }
 
-function AlertItem({ alert, index, isLast, delay }: {
+const AlertItem = memo(function AlertItem({ alert, index, isLast, delay }: {
   alert: DashboardAlert
   index: number
   isLast: boolean
@@ -53,11 +54,9 @@ function AlertItem({ alert, index, isLast, delay }: {
   const isCritical = alert.type === 'stock_critique' || alert.type === 'sync_echec'
 
   return (
-    <motion.div
-      initial={{ opacity: 0, x: -20 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: delay + index * 0.1, duration: 0.4 }}
-      className="relative flex gap-4"
+    <div
+      className="relative flex gap-4 animate-fade-in-left"
+      style={{ animationDelay: `${delay + index * 0.1}s` }}
     >
       {/* Timeline line */}
       {!isLast && (
@@ -104,10 +103,9 @@ function AlertItem({ alert, index, isLast, delay }: {
 
         {/* Action link */}
         {alert.actionLink && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: delay + index * 0.1 + 0.2 }}
+          <div
+            className="animate-fade-in"
+            style={{ animationDelay: `${delay + index * 0.1 + 0.2}s` }}
           >
             <Link
               href={alert.actionLink}
@@ -120,22 +118,20 @@ function AlertItem({ alert, index, isLast, delay }: {
               {alert.actionLabel || 'Voir'}
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
-          </motion.div>
+          </div>
         )}
       </div>
-    </motion.div>
+    </div>
   )
-}
+})
 
 export function AlertsTimeline({ alerts, delay = 0 }: AlertsTimelineProps) {
   const hasAlerts = alerts.length > 0
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.5 }}
-      className="bg-card rounded-2xl border border-border/60 p-6 shadow-sm h-full"
+    <div
+      className="bg-card rounded-2xl border border-border/60 p-6 shadow-sm h-full animate-fade-in"
+      style={{ animationDelay: `${delay}s` }}
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
@@ -182,11 +178,9 @@ export function AlertsTimeline({ alerts, delay = 0 }: AlertsTimelineProps) {
           ))}
         </div>
       ) : (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: delay + 0.3 }}
-          className="flex flex-col items-center justify-center py-8 text-center"
+        <div
+          className="flex flex-col items-center justify-center py-8 text-center animate-fade-in"
+          style={{ animationDelay: `${delay + 0.3}s` }}
         >
           <motion.div
             initial={{ scale: 0 }}
@@ -200,8 +194,8 @@ export function AlertsTimeline({ alerts, delay = 0 }: AlertsTimelineProps) {
           <p className="text-sm text-muted-foreground">
             Aucune action requise pour le moment
           </p>
-        </motion.div>
+        </div>
       )}
-    </motion.div>
+    </div>
   )
 }

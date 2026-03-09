@@ -55,27 +55,24 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Get user profile with tenant info for role and active checks
-  let profile: { role: string; tenant_id: string } | null = null
+  // Get user profile with tenant info in a single query (join profiles + tenants)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let profile: { role: string; tenant_id: string; tenant: any } | null = null
   if (user) {
     const { data } = await supabase
       .from('profiles')
-      .select('role, tenant_id')
+      .select('role, tenant_id, tenant:tenants!tenant_id(is_active)')
       .eq('id', user.id)
       .single()
     profile = data
   }
 
   // Check if tenant is active (skip for super_admin)
+  // Supabase returns the joined tenant as an object (FK guarantees single row)
   if (user && profile && profile.role !== 'super_admin' && !isPublicRoute) {
-    const { data: tenant } = await supabase
-      .from('tenants')
-      .select('is_active')
-      .eq('id', profile.tenant_id)
-      .single()
-
-    // If tenant is inactive, redirect to login with error
-    if (tenant && tenant.is_active === false) {
+    const tenant = profile.tenant
+    const isActive = Array.isArray(tenant) ? tenant[0]?.is_active : tenant?.is_active
+    if (isActive === false) {
       // Sign out the user
       await supabase.auth.signOut()
       const url = request.nextUrl.clone()
