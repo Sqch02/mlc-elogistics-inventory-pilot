@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { Package, Eye, ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -110,8 +111,10 @@ function StockItem({ item, index, delay }: {
 }
 
 export function StockWatchlist({ items, delay = 0 }: StockWatchlistProps) {
-  const sortedItems = [...items].sort((a, b) => a.daysRemaining - b.daysRemaining)
-  const displayItems = sortedItems.slice(0, 6)
+  const displayItems = useMemo(
+    () => [...items].sort((a, b) => a.daysRemaining - b.daysRemaining).slice(0, 6),
+    [items]
+  )
   const hasMore = items.length > 6
 
   return (

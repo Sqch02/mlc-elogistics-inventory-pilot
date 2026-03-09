@@ -1,5 +1,4 @@
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
+import type jsPDF from 'jspdf'
 
 export interface InvoicePDFData {
   invoiceNumber: string
@@ -86,7 +85,9 @@ export async function loadLogoDataUrl(): Promise<string | undefined> {
   }
 }
 
-export function generateInvoicePDF(data: InvoicePDFData): jsPDF {
+export async function generateInvoicePDF(data: InvoicePDFData): Promise<jsPDF> {
+  const { default: jsPDF } = await import('jspdf')
+  const { default: autoTable } = await import('jspdf-autotable')
   const doc = new jsPDF()
   const pageWidth = doc.internal.pageSize.getWidth()
   const pageHeight = doc.internal.pageSize.getHeight()
@@ -453,7 +454,7 @@ export async function downloadInvoicePDF(data: InvoicePDFData, filename: string)
   if (!data.logoDataUrl) {
     data.logoDataUrl = await loadLogoDataUrl()
   }
-  const doc = generateInvoicePDF(data)
+  const doc = await generateInvoicePDF(data)
   doc.save(filename)
 }
 

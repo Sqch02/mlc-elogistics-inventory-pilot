@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     }
 
     const content = await file.text()
-    const { data: rawData, errors: parseErrors } = parseCSV<Record<string, string>>(content)
+    const { data: rawData, errors: parseErrors } = await parseCSV<Record<string, string>>(content)
 
     if (parseErrors.length > 0) {
       return NextResponse.json({

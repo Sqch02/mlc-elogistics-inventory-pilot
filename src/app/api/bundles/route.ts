@@ -111,23 +111,30 @@ export async function POST(request: NextRequest) {
 
     if (bundleError) throw bundleError
 
-    // Validate all component SKUs exist first
+    // Batch-fetch all component SKUs in a single query
+    const componentSkuCodes = components.map((comp: { sku_code: string }) => comp.sku_code)
+    const { data: componentSkus } = await supabase
+      .from('skus')
+      .select('id, sku_code')
+      .eq('tenant_id', tenantId)
+      .in('sku_code', componentSkuCodes)
+
+    const skuCodeToId = new Map<string, string>()
+    componentSkus?.forEach((sku: { id: string; sku_code: string }) => {
+      skuCodeToId.set(sku.sku_code, sku.id)
+    })
+
+    // Validate all component SKUs exist
     const missingSkus: string[] = []
     const validComponents: Array<{ sku_id: string; qty: number }> = []
 
     for (const comp of components) {
-      const { data: componentSku } = await supabase
-        .from('skus')
-        .select('id')
-        .eq('tenant_id', tenantId)
-        .eq('sku_code', comp.sku_code)
-        .single()
-
-      if (!componentSku) {
+      const skuId = skuCodeToId.get(comp.sku_code)
+      if (!skuId) {
         missingSkus.push(comp.sku_code)
       } else {
         validComponents.push({
-          sku_id: componentSku.id,
+          sku_id: skuId,
           qty: comp.qty || 1
         })
       }
@@ -143,15 +150,18 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
-    // Add validated components
-    for (const comp of validComponents) {
-      await supabase.from('bundle_components').insert({
-        tenant_id: tenantId,
-        bundle_id: bundle.id,
-        component_sku_id: comp.sku_id,
-        qty_component: comp.qty,
-      })
-    }
+    // Insert all components in a single batch
+    const componentInserts = validComponents.map((comp) => ({
+      tenant_id: tenantId,
+      bundle_id: bundle.id,
+      component_sku_id: comp.sku_id,
+      qty_component: comp.qty,
+    }))
+    const { error: componentsError } = await supabase
+      .from('bundle_components')
+      .insert(componentInserts)
+
+    if (componentsError) throw componentsError
 
     return NextResponse.json({
       success: true,

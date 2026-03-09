@@ -46,7 +46,7 @@ export async function calculateSKUMetrics(
   const date30dAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
   const date90dAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
 
-  // Get SKUs with stock (LEFT JOIN to include SKUs without stock snapshots)
+  // Run all 4 queries in parallel
   let skuQuery = supabase
     .from('skus')
     .select(`
@@ -62,42 +62,49 @@ export async function calculateSKUMetrics(
     skuQuery = skuQuery.eq('id', skuId)
   }
 
-  const { data: skus, error: skuError } = await skuQuery
+  const [skuResult, bundlesResult, shipmentItemsResult, restocksResult] = await Promise.all([
+    skuQuery,
+    supabase
+      .from('bundles')
+      .select(`
+        bundle_sku_id,
+        bundle_components(component_sku_id, qty_component)
+      `)
+      .eq('tenant_id', tenantId),
+    supabase
+      .from('shipment_items')
+      .select(`
+        sku_id,
+        qty,
+        shipments!inner(shipped_at)
+      `)
+      .eq('tenant_id', tenantId)
+      .gte('shipments.shipped_at', date90dAgo.toISOString()),
+    supabase
+      .from('inbound_restock')
+      .select('sku_id, qty')
+      .eq('tenant_id', tenantId)
+      .eq('received', false)
+      .gte('eta_date', now.toISOString().split('T')[0]),
+  ])
+
+  const { data: skus, error: skuError } = skuResult
 
   if (skuError || !skus) {
     console.error('Error fetching SKUs:', skuError)
     return []
   }
 
-  // Get bundles for consumption decomposition
-  const { data: bundles } = await supabase
-    .from('bundles')
-    .select(`
-      bundle_sku_id,
-      bundle_components(component_sku_id, qty_component)
-    `)
-    .eq('tenant_id', tenantId)
-
+  // Build bundle map for consumption decomposition
   const bundleMap = new Map<string, Array<{ component_sku_id: string; qty_component: number }>>()
-  const bundlesList = bundles as BundleData[] | null
+  const bundlesList = bundlesResult.data as BundleData[] | null
   bundlesList?.forEach((bundle: BundleData) => {
     bundleMap.set(bundle.bundle_sku_id, bundle.bundle_components)
   })
 
-  // Get shipment items for last 90 days
-  const { data: shipmentItems } = await supabase
-    .from('shipment_items')
-    .select(`
-      sku_id,
-      qty,
-      shipments!inner(shipped_at)
-    `)
-    .eq('tenant_id', tenantId)
-    .gte('shipments.shipped_at', date90dAgo.toISOString())
-
-  // Build consumption map
+  // Build consumption map from shipment items
   const consumptionMap = new Map<string, { last30d: number; last90d: number }>()
-  const itemsList = shipmentItems as ShipmentItemData[] | null
+  const itemsList = shipmentItemsResult.data as ShipmentItemData[] | null
   let earliestShipmentDate: Date | null = null
 
   itemsList?.forEach((item: ShipmentItemData) => {
@@ -132,16 +139,9 @@ export async function calculateSKUMetrics(
     })
   })
 
-  // Get pending restocks
-  const { data: restocks } = await supabase
-    .from('inbound_restock')
-    .select('sku_id, qty')
-    .eq('tenant_id', tenantId)
-    .eq('received', false)
-    .gte('eta_date', now.toISOString().split('T')[0])
-
+  // Build restock map
   const restockMap = new Map<string, number>()
-  const restocksList = restocks as RestockData[] | null
+  const restocksList = restocksResult.data as RestockData[] | null
   restocksList?.forEach((r: RestockData) => {
     restockMap.set(r.sku_id, (restockMap.get(r.sku_id) || 0) + r.qty)
   })

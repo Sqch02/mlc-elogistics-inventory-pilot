@@ -14,7 +14,7 @@ export function useDashboard(month?: string) {
   return useQuery({
     queryKey: ['dashboard', month],
     queryFn: () => fetchDashboard(month),
-    staleTime: 60 * 1000, // 1 minute
+    staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 5 * 60 * 1000, // 5 minutes
   })
 }

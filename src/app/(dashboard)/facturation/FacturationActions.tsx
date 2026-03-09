@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
-import { formatCarrierName } from '@/lib/utils'
+import { formatCarrierName, formatEuro } from '@/lib/utils'
 
 export function GenerateInvoiceButton() {
   const router = useRouter()
@@ -175,11 +175,6 @@ function formatWeightBracket(minGrams: number, maxGrams: number): string {
   return `<${Math.round(maxGrams / 1000)}kg`
 }
 
-
-// Format number with French locale (comma as decimal separator)
-function formatEuro(value: number): string {
-  return value.toFixed(2).replace('.', ',')
-}
 
 export function ExportInvoicesButton() {
   const [isExporting, setIsExporting] = useState(false)

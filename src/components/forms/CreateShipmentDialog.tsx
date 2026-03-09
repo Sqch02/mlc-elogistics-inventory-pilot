@@ -19,6 +19,7 @@ interface CreateShipmentDialogProps {
 }
 
 interface ShipmentItem {
+  id: string
   sku_code: string
   qty: number
 }
@@ -66,7 +67,7 @@ export function CreateShipmentDialog({ open, onOpenChange }: CreateShipmentDialo
   }
 
   const addItem = () => {
-    setItems(prev => [...prev, { sku_code: '', qty: 1 }])
+    setItems(prev => [...prev, { id: crypto.randomUUID(), sku_code: '', qty: 1 }])
   }
 
   const updateItem = (index: number, field: keyof ShipmentItem, value: string | number) => {
@@ -304,7 +305,7 @@ export function CreateShipmentDialog({ open, onOpenChange }: CreateShipmentDialo
             {showItems && (
               <div className="space-y-3 p-4 rounded-lg bg-muted/50">
                 {items.map((item, index) => (
-                  <div key={index} className="flex items-center gap-3">
+                  <div key={item.id} className="flex items-center gap-3">
                     <div className="flex-1">
                       <Select
                         value={item.sku_code}

@@ -259,44 +259,6 @@
     transform: scale(0.98);
   }
 
-  /* Page enter animation */
-  .page-enter {
-    animation: pageEnter 0.3s ease-out;
-  }
-
-  @keyframes pageEnter {
-    from {
-      opacity: 0;
-      transform: translateY(8px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  /* Stagger animation for lists */
-  .stagger-enter > * {
-    animation: staggerItem 0.3s ease-out backwards;
-  }
-
-  .stagger-enter > *:nth-child(1) { animation-delay: 0.05s; }
-  .stagger-enter > *:nth-child(2) { animation-delay: 0.1s; }
-  .stagger-enter > *:nth-child(3) { animation-delay: 0.15s; }
-  .stagger-enter > *:nth-child(4) { animation-delay: 0.2s; }
-  .stagger-enter > *:nth-child(5) { animation-delay: 0.25s; }
-  .stagger-enter > *:nth-child(6) { animation-delay: 0.3s; }
-
-  @keyframes staggerItem {
-    from {
-      opacity: 0;
-      transform: translateY(12px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
 }
 
 @layer utilities {

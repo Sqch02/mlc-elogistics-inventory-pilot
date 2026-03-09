@@ -1,4 +1,4 @@
-import Papa from 'papaparse'
+import type Papa from 'papaparse'
 
 export interface CSVParseResult<T> {
   data: T[]
@@ -6,14 +6,15 @@ export interface CSVParseResult<T> {
   meta: Papa.ParseMeta
 }
 
-export function parseCSV<T>(
+export async function parseCSV<T>(
   content: string,
   options?: {
     header?: boolean
     skipEmptyLines?: boolean
     transformHeader?: (header: string) => string
   }
-): CSVParseResult<T> {
+): Promise<CSVParseResult<T>> {
+  const Papa = (await import('papaparse')).default
   const errors: string[] = []
 
   const result = Papa.parse<T>(content, {
