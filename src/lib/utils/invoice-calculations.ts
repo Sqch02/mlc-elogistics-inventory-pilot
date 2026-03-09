@@ -189,3 +189,82 @@ export function calculateInvoiceTotals(lines: InvoiceLineCalculation[]): Invoice
 export function roundCurrency(value: number): number {
   return Math.round(value * 100) / 100
 }
+
+// --- Destination Zone Mapping ---
+
+const EU_COUNTRIES = new Set([
+  'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'DE',
+  'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'MT', 'NL', 'PL', 'PT',
+  'RO', 'SK', 'SI', 'ES', 'SE',
+])
+
+const DOMTOM_CODES = new Set(['GP', 'MQ', 'RE', 'GF', 'YT', 'NC', 'PF', 'PM', 'WF', 'BL', 'MF'])
+
+const RELAY_CARRIERS = new Set(['mondial_relay', 'mondialrelay', 'mondial relay'])
+
+export type DestinationZone = 'FR' | 'BE' | 'CH' | 'LU' | 'DOM-TOM' | 'EU' | 'WORLD'
+export type DeliveryType = 'DOMICILE' | 'POINT RELAIS'
+
+const ZONE_LABELS: Record<DestinationZone, string> = {
+  'FR': 'FR',
+  'BE': 'BELGIQUE',
+  'CH': 'SUISSE',
+  'LU': 'LUXEMBOURG',
+  'DOM-TOM': 'DOM-TOM',
+  'EU': 'EU',
+  'WORLD': 'WORLD',
+}
+
+/**
+ * Map a country code to a destination zone
+ */
+export function getDestinationZone(countryCode: string | null): DestinationZone {
+  if (!countryCode) return 'FR'
+  const code = countryCode.toUpperCase()
+
+  if (code === 'FR') return 'FR'
+  if (code === 'BE') return 'BE'
+  if (code === 'CH') return 'CH'
+  if (code === 'LU') return 'LU'
+  if (DOMTOM_CODES.has(code)) return 'DOM-TOM'
+  if (EU_COUNTRIES.has(code)) return 'EU'
+  return 'WORLD'
+}
+
+/**
+ * Determine delivery type from carrier name and service point
+ */
+export function getDeliveryType(carrier: string, servicePointId?: string | null): DeliveryType {
+  if (servicePointId) return 'POINT RELAIS'
+  if (RELAY_CARRIERS.has(carrier.toLowerCase())) return 'POINT RELAIS'
+  return 'DOMICILE'
+}
+
+/**
+ * Get the display label for a destination zone
+ */
+export function getZoneLabel(zone: DestinationZone): string {
+  return ZONE_LABELS[zone] || zone
+}
+
+/**
+ * Format weight bracket for display
+ */
+export function formatWeightBracket(minGrams: number, maxGrams: number): string {
+  if (maxGrams >= 30000) return `${minGrams >= 1000 ? `${minGrams / 1000}kg` : `${minGrams}g`}+`
+  const minLabel = minGrams >= 1000 ? `${minGrams / 1000}kg` : `${minGrams}g`
+  const maxLabel = maxGrams >= 1000 ? `${maxGrams / 1000}kg` : `${maxGrams}g`
+  return `${minLabel} - ${maxLabel}`
+}
+
+/**
+ * Build shipping line description for zone-based grouping
+ */
+export function buildShippingDescription(
+  zone: DestinationZone,
+  deliveryType: DeliveryType,
+  weightBracket: string
+): string {
+  const zoneLabel = getZoneLabel(zone)
+  return `${deliveryType} ${zoneLabel} ${weightBracket}`
+}

@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
 import { requireTenant } from '@/lib/supabase/auth'
+import {
+  getDestinationZone,
+  getDeliveryType,
+  formatWeightBracket,
+  buildShippingDescription,
+} from '@/lib/utils/invoice-calculations'
 
 interface TenantSettings {
   invoice_prefix: string | null
@@ -14,6 +20,8 @@ interface Shipment {
   weight_grams: number
   pricing_status: string
   computed_cost_eur: number | null
+  country_code: string | null
+  service_point_id: string | null
 }
 
 interface PricingRule {
@@ -123,7 +131,7 @@ export async function POST(request: NextRequest) {
     while (hasMore) {
       const { data: shipmentPage, error: shipmentsError } = await supabase
         .from('shipments')
-        .select('id, carrier, weight_grams, pricing_status, computed_cost_eur, status_message')
+        .select('id, carrier, weight_grams, pricing_status, computed_cost_eur, status_message, country_code, service_point_id')
         .eq('tenant_id', tenantId)
         .eq('is_return', false)
         .not('status_message', 'in', '("On Hold","Cancelled","Cancelled - customer","Unfulfilled")')
@@ -161,16 +169,18 @@ export async function POST(request: NextRequest) {
       .select('carrier, weight_min_grams, weight_max_grams, price_eur')
       .eq('tenant_id', tenantId)
 
-    // Group shipments by carrier and weight tier
+    // Group shipments by destination zone + delivery type + weight bracket
     const shippingGroups = new Map<
       string,
       {
-        carrier: string
+        zone: string
+        deliveryType: string
         weight_min_grams: number
         weight_max_grams: number
         shipment_count: number
         total_eur: number
         unit_price_eur: number
+        description: string
       }
     >()
 
@@ -195,7 +205,10 @@ export async function POST(request: NextRequest) {
         return
       }
 
-      const key = `${shipment.carrier}|${rule.weight_min_grams}|${rule.weight_max_grams}`
+      const zone = getDestinationZone(shipment.country_code)
+      const deliveryType = getDeliveryType(shipment.carrier, shipment.service_point_id)
+      const weightBracket = formatWeightBracket(rule.weight_min_grams, rule.weight_max_grams)
+      const key = `${zone}|${deliveryType}|${rule.weight_min_grams}|${rule.weight_max_grams}`
       const existing = shippingGroups.get(key)
 
       if (existing) {
@@ -203,12 +216,14 @@ export async function POST(request: NextRequest) {
         existing.total_eur += Number(shipment.computed_cost_eur)
       } else {
         shippingGroups.set(key, {
-          carrier: shipment.carrier,
+          zone,
+          deliveryType,
           weight_min_grams: rule.weight_min_grams,
           weight_max_grams: rule.weight_max_grams,
           shipment_count: 1,
           total_eur: Number(shipment.computed_cost_eur),
           unit_price_eur: rule.price_eur,
+          description: buildShippingDescription(zone, deliveryType as 'DOMICILE' | 'POINT RELAIS', weightBracket),
         })
       }
 
@@ -378,18 +393,14 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // 4. Shipping lines (by carrier/weight)
+    // 4. Shipping lines (by zone/delivery type/weight)
     Array.from(shippingGroups.values()).forEach((group) => {
-      const weightLabel = group.weight_max_grams >= 1000
-        ? `${group.weight_max_grams / 1000}kg`
-        : `${group.weight_max_grams}g`
-
       lines.push({
         tenant_id: tenantId,
         invoice_id: invoiceId,
         line_type: 'shipping',
-        description: `Prépa & Expédition - ${group.carrier} ${weightLabel}`,
-        carrier: group.carrier,
+        description: group.description,
+        carrier: `${group.zone}|${group.deliveryType}`,
         weight_min_grams: group.weight_min_grams,
         weight_max_grams: group.weight_max_grams,
         shipment_count: group.shipment_count,

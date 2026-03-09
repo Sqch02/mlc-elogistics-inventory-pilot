@@ -226,23 +226,37 @@ export function FacturationClient() {
     }
 
     const year = parseInt(invoice.month.split('-')[0])
-    // Generate invoice number based on order in list or use a simple counter
-    const invoiceIndex = invoices.findIndex(inv => inv.id === invoice.id) + 1
-    const invoiceNumber = formatInvoiceNumber(
+    const monthNum = parseInt(invoice.month.split('-')[1])
+
+    // Use stored invoice number if available, otherwise generate one
+    const invoiceNumber = invoice.invoice_number || formatInvoiceNumber(
       companySettings.invoice_prefix || 'FAC',
       year,
-      invoiceIndex
+      invoices.findIndex(inv => inv.id === invoice.id) + 1
     )
 
-    const totalHT = Number(invoice.total_eur)
+    // Use new fields if available, otherwise calculate from total_eur
+    const totalHT = invoice.subtotal_ht ? Number(invoice.subtotal_ht) : Number(invoice.total_eur)
     const tvaRate = 20
-    const tva = totalHT * (tvaRate / 100)
-    const totalTTC = totalHT + tva
+    const tva = invoice.vat_amount ? Number(invoice.vat_amount) : totalHT * (tvaRate / 100)
+    const totalTTC = invoice.total_ttc ? Number(invoice.total_ttc) : totalHT + tva
+
+    // Derive date range from month
+    const lastDay = new Date(year, monthNum, 0).getDate()
+    const dateFrom = `${invoice.month}-01`
+    const dateTo = `${invoice.month}-${String(lastDay).padStart(2, '0')}`
+
+    const shipmentCount = invoice.invoice_lines
+      .filter(l => l.line_type === 'shipping')
+      .reduce((sum, l) => sum + l.shipment_count, 0)
 
     const pdfData: InvoicePDFData = {
       invoiceNumber,
       month: invoice.month,
       createdAt: invoice.created_at,
+      dateFrom,
+      dateTo,
+      shipmentCount,
       company: {
         name: companySettings.company_name,
         address: companySettings.company_address,

@@ -20,6 +20,7 @@ export interface InvoiceLine {
 export interface Invoice {
   id: string
   month: string
+  invoice_number: string | null
   total_eur: number
   subtotal_ht: number | null
   vat_amount: number | null
