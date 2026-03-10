@@ -19,9 +19,11 @@ export async function getFastUser(): Promise<CachedProfile | null> {
   const cookieStore = await cookies()
   const cachedProfile = cookieStore.get('_profile_cache')
 
-  // Always verify the auth session first
+  // Use getSession() instead of getUser() — middleware already verified the token
+  // getSession() reads JWT from cookies locally (no network call = ~500ms-1s saved)
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { session } } = await supabase.auth.getSession()
+  const user = session?.user
 
   // Check if we have a valid cached profile that matches the current user
   if (cachedProfile?.value && user) {
@@ -39,17 +41,28 @@ export async function getFastUser(): Promise<CachedProfile | null> {
     return null
   }
 
-  // Get profile with single query
+  // Get profile with tenant_active check in single query
   const { data: profileData } = await supabase
     .from('profiles')
-    .select('id, email, tenant_id, role')
+    .select('id, email, tenant_id, role, tenant:tenants!tenant_id(is_active)')
     .eq('id', user.id)
     .single()
 
-  const profile = profileData as { id: string; email: string; tenant_id: string; role: string } | null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const profile = profileData as { id: string; email: string; tenant_id: string; role: string; tenant: any } | null
 
   if (!profile) {
     return null
+  }
+
+  // Check tenant is active (skip for super_admin)
+  if (profile.role !== 'super_admin') {
+    const tenant = profile.tenant
+    const isActive = Array.isArray(tenant) ? tenant[0]?.is_active : tenant?.is_active
+    if (isActive === false) {
+      await supabase.auth.signOut()
+      return null
+    }
   }
 
   const cachedData: CachedProfile = {

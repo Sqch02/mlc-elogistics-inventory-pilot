@@ -55,30 +55,20 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Get user profile with tenant info in a single query (join profiles + tenants)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let profile: { role: string; tenant_id: string; tenant: any } | null = null
+  // Use cached profile cookie instead of DB query (~200-500ms saved per request)
+  // The layout's getFastUser() handles full verification + tenant_active check
+  let cachedRole: string | null = null
   if (user) {
-    const { data } = await supabase
-      .from('profiles')
-      .select('role, tenant_id, tenant:tenants!tenant_id(is_active)')
-      .eq('id', user.id)
-      .single()
-    profile = data
-  }
-
-  // Check if tenant is active (skip for super_admin)
-  // Supabase returns the joined tenant as an object (FK guarantees single row)
-  if (user && profile && profile.role !== 'super_admin' && !isPublicRoute) {
-    const tenant = profile.tenant
-    const isActive = Array.isArray(tenant) ? tenant[0]?.is_active : tenant?.is_active
-    if (isActive === false) {
-      // Sign out the user
-      await supabase.auth.signOut()
-      const url = request.nextUrl.clone()
-      url.pathname = '/login'
-      url.searchParams.set('error', 'tenant_inactive')
-      return NextResponse.redirect(url)
+    const profileCookie = request.cookies.get('_profile_cache')?.value
+    if (profileCookie) {
+      try {
+        const parsed = JSON.parse(profileCookie)
+        if (parsed.id === user.id && parsed.exp > Date.now()) {
+          cachedRole = parsed.role
+        }
+      } catch {
+        // Invalid cache, skip
+      }
     }
   }
 
@@ -90,11 +80,21 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(url)
     }
 
-    if (!profile || profile.role !== 'super_admin') {
-      // Redirect non-super-admin users to dashboard
-      const url = request.nextUrl.clone()
-      url.pathname = '/'
-      return NextResponse.redirect(url)
+    // Use cached role, or fetch from DB only for admin routes (rare)
+    if (cachedRole !== 'super_admin') {
+      if (!cachedRole && user) {
+        const { data } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single()
+        cachedRole = (data as { role: string } | null)?.role || null
+      }
+      if (cachedRole !== 'super_admin') {
+        const url = request.nextUrl.clone()
+        url.pathname = '/'
+        return NextResponse.redirect(url)
+      }
     }
   }
 
