@@ -79,13 +79,32 @@ export async function POST(request: NextRequest) {
       0
     )
 
-    // Count returns
+    // Count return shipments (from shipments table, is_return = true)
     const { count: returnsCount } = await supabase
-      .from('returns')
+      .from('shipments')
       .select('*', { count: 'exact', head: true })
       .eq('tenant_id', tenantId)
-      .gte('created_at', startDate.toISOString())
-      .lte('created_at', endDate.toISOString())
+      .eq('is_return', true)
+      .not('status_message', 'in', '("On Hold","Cancelled","Cancelled - customer","Unfulfilled")')
+      .gte('shipped_at', startDate.toISOString())
+      .lte('shipped_at', endDate.toISOString())
+
+    // Get return shipments cost (priced like outbound)
+    const { data: returnCostData } = await supabase
+      .from('shipments')
+      .select('computed_cost_eur')
+      .eq('tenant_id', tenantId)
+      .eq('is_return', true)
+      .not('status_message', 'in', '("On Hold","Cancelled","Cancelled - customer","Unfulfilled")')
+      .not('pricing_status', 'eq', 'missing')
+      .gte('shipped_at', startDate.toISOString())
+      .lte('shipped_at', endDate.toISOString())
+      .limit(20000)
+
+    const returnsTotal = (returnCostData || []).reduce(
+      (sum: number, s: { computed_cost_eur: number | null }) => sum + (Number(s.computed_cost_eur) || 0),
+      0
+    )
 
     // Get first 100 shipments for preview table
     const { data: shipments } = await supabase
@@ -115,7 +134,7 @@ export async function POST(request: NextRequest) {
       shipment_count: totalShipments || 0,
       returns_count: returnsCount || 0,
       missing_pricing: missingPricing || 0,
-      estimated_total: Math.round(estimatedTotal * 100) / 100,
+      estimated_total: Math.round((estimatedTotal + returnsTotal) * 100) / 100,
       first_shipments: (shipments || []) as PreviewShipment[],
       last_shipments: ((lastShipments || []) as PreviewShipment[]).reverse(),
       date_from,

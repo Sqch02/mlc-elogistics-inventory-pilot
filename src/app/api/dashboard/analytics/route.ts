@@ -353,17 +353,77 @@ export async function GET(request: Request) {
       } as never
     )
 
-    if (skuSalesError) {
-      console.error('[Analytics] SKU sales RPC error:', skuSalesError)
-    }
+    let skuSalesAll: SkuSalesData[] = []
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const skuSalesAll = ((skuSalesRaw || []) as any[]).map((row: { sku_id: string; sku_code: string; name: string; quantity_sold: number }) => ({
-      sku_id: row.sku_id,
-      sku_code: row.sku_code,
-      name: row.name,
-      quantity_sold: Number(row.quantity_sold),
-    }))
+    if (skuSalesError || !skuSalesRaw) {
+      console.error('[Analytics] SKU sales RPC error, using fallback query:', skuSalesError)
+
+      // Fallback: query shipment_items joined with skus and shipments
+      const allItems: { sku_id: string; qty: number; skus: { sku_code: string; name: string }; shipments: { shipped_at: string } }[] = []
+      const pageSize = 1000
+      let offset = 0
+      let hasMore = true
+
+      while (hasMore) {
+        const { data, error } = await adminClient
+          .from('shipment_items')
+          .select('sku_id, qty, skus!inner(sku_code, name), shipments!inner(shipped_at)')
+          .eq('tenant_id', tenantId)
+          .gte('shipments.shipped_at' as never, startDate.toISOString())
+          .lte('shipments.shipped_at' as never, endDate.toISOString())
+          .range(offset, offset + pageSize - 1)
+
+        if (error) {
+          console.error('[Analytics] SKU sales fallback query error:', error)
+          break
+        }
+        if (data && data.length > 0) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          allItems.push(...(data as any[]))
+          offset += pageSize
+          hasMore = data.length === pageSize
+        } else {
+          hasMore = false
+        }
+      }
+
+      // Aggregate: group by sku_id, sum qty
+      const salesMap = new Map<string, { sku_code: string; name: string; quantity_sold: number }>()
+      for (const item of allItems) {
+        if (!item.sku_id) continue
+        const existing = salesMap.get(item.sku_id)
+        if (existing) {
+          existing.quantity_sold += Number(item.qty) || 0
+        } else {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const skuInfo = item.skus as any
+          salesMap.set(item.sku_id, {
+            sku_code: skuInfo?.sku_code || '',
+            name: skuInfo?.name || '',
+            quantity_sold: Number(item.qty) || 0,
+          })
+        }
+      }
+
+      // Sort by quantity_sold descending
+      skuSalesAll = Array.from(salesMap.entries())
+        .map(([sku_id, info]) => ({
+          sku_id,
+          sku_code: info.sku_code,
+          name: info.name,
+          quantity_sold: info.quantity_sold,
+        }))
+        .sort((a, b) => b.quantity_sold - a.quantity_sold)
+    } else {
+      // RPC returned data
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      skuSalesAll = ((skuSalesRaw || []) as any[]).map((row: { sku_id: string; sku_code: string; name: string; quantity_sold: number }) => ({
+        sku_id: row.sku_id,
+        sku_code: row.sku_code,
+        name: row.name,
+        quantity_sold: Number(row.quantity_sold),
+      }))
+    }
 
     const skuSalesData: SkuSalesData[] = skuSalesAll.slice(0, 10)
     const totalSkusSold = skuSalesAll.length

@@ -303,7 +303,7 @@ export async function POST(
               rule.carrier.toLowerCase() === parcel.carrier.toLowerCase() &&
               rule.destination === destination &&
               rule.weight_min_grams <= parcel.weight_grams &&
-              rule.weight_max_grams > parcel.weight_grams
+              rule.weight_max_grams >= parcel.weight_grams
           )
 
           if (matchingRule) {

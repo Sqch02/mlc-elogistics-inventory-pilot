@@ -98,7 +98,7 @@ export async function findPricingRule(
     .ilike('carrier', carrier)
     .eq('destination', destination)
     .lte('weight_min_grams', weightGrams)
-    .gt('weight_max_grams', weightGrams)
+    .gte('weight_max_grams', weightGrams)
     .limit(1)
     .single()
 
@@ -182,7 +182,7 @@ export async function recalculateAllPricing(tenantId: string): Promise<{
         r.carrier.toLowerCase() === shipment.carrier.toLowerCase() &&
         r.destination === destination &&
         r.weight_min_grams <= shipment.weight_grams &&
-        r.weight_max_grams > shipment.weight_grams
+        r.weight_max_grams >= shipment.weight_grams
     )
 
     const status = rule ? 'ok' : 'missing'

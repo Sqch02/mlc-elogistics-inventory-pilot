@@ -68,9 +68,9 @@ export function matchShipmentToRule(
     // Carrier must match (case-insensitive)
     if (rule.carrier.toLowerCase() !== carrierLower) return false
 
-    // Weight must be in range [min, max)
+    // Weight must be in range [min, max]
     if (shipment.weight_grams < rule.weight_min_grams) return false
-    if (shipment.weight_grams >= rule.weight_max_grams) return false
+    if (shipment.weight_grams > rule.weight_max_grams) return false
 
     // Destination matching
     if (rule.destination === null) {

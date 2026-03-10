@@ -96,20 +96,32 @@ describe('Pricing Matcher', () => {
       expect(result.price).toBe(5.37)
     })
 
-    it('should match correct weight tier', () => {
-      const shipment: Shipment = {
-        id: 'ship-3',
+    it('should match correct weight tier (max inclusive)', () => {
+      // 500g matches 0-500g tier (max is inclusive)
+      const shipment500: Shipment = {
+        id: 'ship-3a',
         carrier: 'colissimo',
-        weight_grams: 500, // Exactly at boundary - should go to next tier
+        weight_grams: 500,
         country_code: 'FR',
         service_point_id: null,
       }
+      const result500 = matchShipmentToRule(shipment500, sampleRules)
+      expect(result500.matched).toBe(true)
+      expect(result500.price).toBe(5.37)
+      expect(result500.rule?.id).toBe('1')
 
-      const result = matchShipmentToRule(shipment, sampleRules)
-
-      expect(result.matched).toBe(true)
-      expect(result.price).toBe(6.18) // 500-1000g tier
-      expect(result.rule?.id).toBe('2')
+      // 501g goes to next tier
+      const shipment501: Shipment = {
+        id: 'ship-3b',
+        carrier: 'colissimo',
+        weight_grams: 501,
+        country_code: 'FR',
+        service_point_id: null,
+      }
+      const result501 = matchShipmentToRule(shipment501, sampleRules)
+      expect(result501.matched).toBe(true)
+      expect(result501.price).toBe(6.18)
+      expect(result501.rule?.id).toBe('2')
     })
 
     it('should match relay shipments to relay rules', () => {

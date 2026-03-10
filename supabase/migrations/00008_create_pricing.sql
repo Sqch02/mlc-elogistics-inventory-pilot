@@ -25,11 +25,11 @@ CREATE INDEX IF NOT EXISTS idx_pricing_rules_carrier ON pricing_rules(tenant_id,
 
 COMMENT ON TABLE pricing_rules IS 'Transport pricing grid by carrier and weight tier';
 COMMENT ON COLUMN pricing_rules.weight_min_grams IS 'Minimum weight (inclusive) in grams';
-COMMENT ON COLUMN pricing_rules.weight_max_grams IS 'Maximum weight (exclusive) in grams';
+COMMENT ON COLUMN pricing_rules.weight_max_grams IS 'Maximum weight (inclusive) in grams';
 COMMENT ON COLUMN pricing_rules.price_eur IS 'Price in EUR for this tier';
 
 -- Function to find price for a shipment
--- Rule: weight_min_grams <= weight < weight_max_grams
+-- Rule: weight_min_grams <= weight <= weight_max_grams
 CREATE OR REPLACE FUNCTION get_shipping_price(
     p_tenant_id UUID,
     p_carrier TEXT,
@@ -43,7 +43,7 @@ BEGIN
     WHERE tenant_id = p_tenant_id
       AND carrier = p_carrier
       AND weight_min_grams <= p_weight_grams
-      AND weight_max_grams > p_weight_grams
+      AND weight_max_grams >= p_weight_grams
     LIMIT 1;
 
     RETURN v_price;

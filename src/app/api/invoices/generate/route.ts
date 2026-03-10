@@ -36,8 +36,6 @@ interface BillingConfig {
   storage_fee_per_m3: number
   reception_fee_per_15min: number
   fuel_surcharge_pct: number
-  return_fee_eur: number
-  free_returns_pct: number
   vat_rate_pct: number
 }
 
@@ -99,14 +97,12 @@ export async function POST(request: NextRequest) {
       default_vat_rate: 20.00,
     }
 
-    const config: BillingConfig = billingConfig || {
-      software_fee_eur: 49.00,
-      storage_fee_per_m3: 25.00,
-      reception_fee_per_15min: 30.00,
-      fuel_surcharge_pct: 4.00,
-      return_fee_eur: 0.90,
-      free_returns_pct: 0.50,
-      vat_rate_pct: invoiceSettings.default_vat_rate || 20.00,
+    const config: BillingConfig = {
+      software_fee_eur: billingConfig?.software_fee_eur ?? 49.00,
+      storage_fee_per_m3: billingConfig?.storage_fee_per_m3 ?? 25.00,
+      reception_fee_per_15min: billingConfig?.reception_fee_per_15min ?? 30.00,
+      fuel_surcharge_pct: billingConfig?.fuel_surcharge_pct ?? 4.00,
+      vat_rate_pct: billingConfig?.vat_rate_pct ?? invoiceSettings.default_vat_rate ?? 20.00,
     }
 
     // Parse date range
@@ -122,7 +118,7 @@ export async function POST(request: NextRequest) {
       endOfMonth = new Date(year, monthNum, 0, 23, 59, 59, 999)
     }
 
-    // Get all shipments for the month (with pagination to bypass 1000 limit)
+    // Get all outbound shipments for the period (with pagination to bypass 1000 limit)
     const allShipments: Shipment[] = []
     const pageSize = 1000
     let page = 0
@@ -153,15 +149,37 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Get returns count for the month
-    const { count: returnsCount } = await supabase
-      .from('returns')
-      .select('*', { count: 'exact', head: true })
-      .eq('tenant_id', tenantId)
-      .gte('created_at', startOfMonth.toISOString())
-      .lte('created_at', endOfMonth.toISOString())
+    // Get all return shipments for the period (same schema, is_return = true)
+    const returnShipments: Shipment[] = []
+    page = 0
+    hasMore = true
 
-    const totalReturns = returnsCount || 0
+    while (hasMore) {
+      const { data: returnPage, error: returnsError } = await supabase
+        .from('shipments')
+        .select('id, carrier, weight_grams, pricing_status, computed_cost_eur, status_message, country_code, service_point_id')
+        .eq('tenant_id', tenantId)
+        .eq('is_return', true)
+        .not('status_message', 'in', '("On Hold","Cancelled","Cancelled - customer","Unfulfilled")')
+        .gte('shipped_at', startOfMonth.toISOString())
+        .lte('shipped_at', endOfMonth.toISOString())
+        .range(page * pageSize, (page + 1) * pageSize - 1)
+        .order('shipped_at')
+
+      if (returnsError) {
+        throw returnsError
+      }
+
+      if (returnPage && returnPage.length > 0) {
+        returnShipments.push(...(returnPage as Shipment[]))
+        hasMore = returnPage.length === pageSize
+        page++
+      } else {
+        hasMore = false
+      }
+    }
+
+    const totalReturns = returnShipments.length
 
     // Get pricing rules for grouping
     const { data: pricingRules } = await supabase
@@ -187,7 +205,8 @@ export async function POST(request: NextRequest) {
     let missingPricingCount = 0
     let shippingTotalEur = 0
 
-    allShipments.forEach((shipment: Shipment) => {
+    // Helper to process a shipment into shipping groups
+    function processShipment(shipment: Shipment, isReturn: boolean) {
       if (shipment.pricing_status === 'missing' || !shipment.computed_cost_eur) {
         missingPricingCount++
         return
@@ -197,7 +216,7 @@ export async function POST(request: NextRequest) {
         (r: PricingRule) =>
           r.carrier.toLowerCase() === shipment.carrier.toLowerCase() &&
           r.weight_min_grams <= shipment.weight_grams &&
-          r.weight_max_grams > shipment.weight_grams
+          r.weight_max_grams >= shipment.weight_grams
       )
 
       if (!rule) {
@@ -208,8 +227,12 @@ export async function POST(request: NextRequest) {
       const zone = getDestinationZone(shipment.country_code)
       const deliveryType = getDeliveryType(shipment.carrier, shipment.service_point_id)
       const weightBracket = formatWeightBracket(rule.weight_min_grams, rule.weight_max_grams)
-      const key = `${zone}|${deliveryType}|${rule.weight_min_grams}|${rule.weight_max_grams}`
+      const prefix = isReturn ? 'RETOUR|' : ''
+      const key = `${prefix}${zone}|${deliveryType}|${rule.weight_min_grams}|${rule.weight_max_grams}`
       const existing = shippingGroups.get(key)
+
+      const baseDescription = buildShippingDescription(zone, deliveryType as 'DOMICILE' | 'POINT RELAIS', weightBracket)
+      const description = isReturn ? `RETOUR ${baseDescription}` : baseDescription
 
       if (existing) {
         existing.shipment_count++
@@ -223,12 +246,18 @@ export async function POST(request: NextRequest) {
           shipment_count: 1,
           total_eur: Number(shipment.computed_cost_eur),
           unit_price_eur: rule.price_eur,
-          description: buildShippingDescription(zone, deliveryType as 'DOMICILE' | 'POINT RELAIS', weightBracket),
+          description,
         })
       }
 
       shippingTotalEur += Number(shipment.computed_cost_eur)
-    })
+    }
+
+    // Process outbound shipments
+    allShipments.forEach((shipment) => processShipment(shipment, false))
+
+    // Process return shipments (same pricing logic, grouped with "RETOUR " prefix)
+    returnShipments.forEach((shipment) => processShipment(shipment, true))
 
     // Calculate all invoice line totals
     const vatRate = config.vat_rate_pct / 100
@@ -245,22 +274,16 @@ export async function POST(request: NextRequest) {
     const receptionFee = reception_quarters * config.reception_fee_per_15min
     const receptionVat = receptionFee * vatRate
 
-    // 4. Shipping total (already calculated)
+    // 4. Shipping total (already calculated - includes both outbound and returns)
     const shippingVat = shippingTotalEur * vatRate
 
-    // 5. Fuel surcharge (4% of shipping)
+    // 5. Fuel surcharge (% of total shipping including returns)
     const fuelSurcharge = shippingTotalEur * (config.fuel_surcharge_pct / 100)
     const fuelSurchargeVat = fuelSurcharge * vatRate
 
-    // 6. Returns (with free returns deduction)
-    const freeReturnsCount = Math.floor(allShipments.length * (config.free_returns_pct / 100))
-    const billableReturns = Math.max(0, totalReturns - freeReturnsCount)
-    const returnsFee = billableReturns * config.return_fee_eur
-    const returnsVat = returnsFee * vatRate
-
     // Calculate totals
-    const subtotalHt = softwareFee + storageFee + receptionFee + shippingTotalEur + fuelSurcharge + returnsFee
-    const totalVat = softwareVat + storageVat + receptionVat + shippingVat + fuelSurchargeVat + returnsVat
+    const subtotalHt = softwareFee + storageFee + receptionFee + shippingTotalEur + fuelSurcharge
+    const totalVat = softwareVat + storageVat + receptionVat + shippingVat + fuelSurchargeVat
     const totalTtc = subtotalHt + totalVat
 
     // Check if invoice already exists for this month
@@ -286,7 +309,7 @@ export async function POST(request: NextRequest) {
           storage_m3: storage_m3,
           reception_quarters: reception_quarters,
           returns_count: totalReturns,
-          free_returns_count: freeReturnsCount,
+          free_returns_count: 0,
           status: 'draft',
         })
         .eq('id', existingInvoice.id)
@@ -319,7 +342,7 @@ export async function POST(request: NextRequest) {
           storage_m3: storage_m3,
           reception_quarters: reception_quarters,
           returns_count: totalReturns,
-          free_returns_count: freeReturnsCount,
+          free_returns_count: 0,
           status: 'draft',
         })
         .select('id')
@@ -393,12 +416,13 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // 4. Shipping lines (by zone/delivery type/weight)
+    // 4. Shipping lines (by zone/delivery type/weight) - includes both outbound and return lines
     Array.from(shippingGroups.values()).forEach((group) => {
+      const isReturnLine = group.description.startsWith('RETOUR ')
       lines.push({
         tenant_id: tenantId,
         invoice_id: invoiceId,
-        line_type: 'shipping',
+        line_type: isReturnLine ? 'returns' : 'shipping',
         description: group.description,
         carrier: `${group.zone}|${group.deliveryType}`,
         weight_min_grams: group.weight_min_grams,
@@ -429,28 +453,6 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // 6. Returns line (if applicable)
-    if (totalReturns > 0) {
-      const returnsDescription = freeReturnsCount > 0
-        ? `Retour Client - ${freeReturnsCount} offerts (${config.free_returns_pct}%), ${billableReturns} facturés`
-        : `Retour Client - ${billableReturns} facturés`
-
-      lines.push({
-        tenant_id: tenantId,
-        invoice_id: invoiceId,
-        line_type: 'returns',
-        description: returnsDescription,
-        carrier: null,
-        weight_min_grams: null,
-        weight_max_grams: null,
-        shipment_count: totalReturns,
-        quantity: billableReturns,
-        unit_price_eur: config.return_fee_eur,
-        total_eur: returnsFee,
-        vat_amount: returnsVat,
-      })
-    }
-
     // Insert all lines
     if (lines.length > 0) {
       const { error: linesError } = await supabase.from('invoice_lines').insert(lines)
@@ -459,6 +461,11 @@ export async function POST(request: NextRequest) {
         throw new Error('Erreur lors de la création des lignes de facture')
       }
     }
+
+    // Calculate returns total from the return shipping lines for the breakdown
+    const returnsTotalEur = Array.from(shippingGroups.values())
+      .filter(g => g.description.startsWith('RETOUR '))
+      .reduce((sum, g) => sum + g.total_eur, 0)
 
     return NextResponse.json({
       success: true,
@@ -472,15 +479,14 @@ export async function POST(request: NextRequest) {
         shipment_count: allShipments.length,
         missing_pricing_count: missingPricingCount,
         returns_count: totalReturns,
-        free_returns_count: freeReturnsCount,
         line_count: lines.length,
         breakdown: {
           software: softwareFee,
           storage: storageFee,
           reception: receptionFee,
-          shipping: shippingTotalEur,
+          shipping: shippingTotalEur - returnsTotalEur,
           fuel_surcharge: fuelSurcharge,
-          returns: returnsFee,
+          returns: returnsTotalEur,
         },
       },
     })

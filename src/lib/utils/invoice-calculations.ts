@@ -8,8 +8,6 @@ export interface BillingConfig {
   storage_fee_per_m3: number
   reception_fee_per_15min: number
   fuel_surcharge_pct: number
-  return_fee_eur: number
-  free_returns_pct: number
   vat_rate_pct: number
 }
 
@@ -18,8 +16,6 @@ export const DEFAULT_BILLING_CONFIG: BillingConfig = {
   storage_fee_per_m3: 25.00,
   reception_fee_per_15min: 30.00,
   fuel_surcharge_pct: 4.00,
-  return_fee_eur: 0.90,
-  free_returns_pct: 0.50,
   vat_rate_pct: 20.00,
 }
 
@@ -127,45 +123,6 @@ export function calculateFuelSurcharge(
     total_eur: total,
     vat_amount: vat,
   }
-}
-
-/**
- * Calculate returns fee line
- */
-export function calculateReturnsFee(
-  totalReturns: number,
-  totalShipments: number,
-  config: BillingConfig
-): InvoiceLineCalculation | null {
-  if (totalReturns <= 0) return null
-
-  const freeReturnsCount = Math.floor(totalShipments * (config.free_returns_pct / 100))
-  const billableReturns = Math.max(0, totalReturns - freeReturnsCount)
-  const total = billableReturns * config.return_fee_eur
-  const vat = total * (config.vat_rate_pct / 100)
-
-  const description = freeReturnsCount > 0
-    ? `Retour Client - ${freeReturnsCount} offerts (${config.free_returns_pct}%), ${billableReturns} facturés`
-    : `Retour Client - ${billableReturns} facturés`
-
-  return {
-    line_type: 'returns',
-    description,
-    quantity: billableReturns,
-    unit_price_eur: config.return_fee_eur,
-    total_eur: total,
-    vat_amount: vat,
-  }
-}
-
-/**
- * Calculate free returns count
- */
-export function calculateFreeReturnsCount(
-  totalShipments: number,
-  freeReturnsPct: number
-): number {
-  return Math.floor(totalShipments * (freeReturnsPct / 100))
 }
 
 /**

@@ -5,8 +5,6 @@ import {
   calculateStorageFee,
   calculateReceptionFee,
   calculateFuelSurcharge,
-  calculateReturnsFee,
-  calculateFreeReturnsCount,
   calculateInvoiceTotals,
   roundCurrency,
   DEFAULT_BILLING_CONFIG,
@@ -114,54 +112,6 @@ describe('Invoice Calculations', () => {
     })
   })
 
-  describe('calculateReturnsFee', () => {
-    it('should calculate returns with free returns deduction', () => {
-      // 1000 shipments, 0.5% free = 5 free returns
-      // 10 total returns - 5 free = 5 billable at 0.90€ each
-      const result = calculateReturnsFee(10, 1000, config)
-
-      expect(result).not.toBeNull()
-      expect(result!.line_type).toBe('returns')
-      expect(result!.quantity).toBe(5) // billable returns
-      expect(result!.unit_price_eur).toBe(0.90)
-      expect(result!.total_eur).toBe(4.50) // 5 * 0.90
-      expect(result!.vat_amount).toBe(0.90) // 4.50 * 0.20
-    })
-
-    it('should return zero billable if returns <= free returns', () => {
-      // 1000 shipments, 0.5% free = 5 free returns
-      // 3 total returns - all free
-      const result = calculateReturnsFee(3, 1000, config)
-
-      expect(result).not.toBeNull()
-      expect(result!.quantity).toBe(0)
-      expect(result!.total_eur).toBe(0)
-    })
-
-    it('should return null for zero returns', () => {
-      expect(calculateReturnsFee(0, 1000, config)).toBeNull()
-    })
-
-    it('should never have negative billable returns', () => {
-      const result = calculateReturnsFee(2, 1000, config) // 2 returns, 5 free
-
-      expect(result!.quantity).toBeGreaterThanOrEqual(0)
-      expect(result!.total_eur).toBeGreaterThanOrEqual(0)
-    })
-  })
-
-  describe('calculateFreeReturnsCount', () => {
-    it('should calculate 0.5% of shipments', () => {
-      expect(calculateFreeReturnsCount(1000, 0.5)).toBe(5)
-      expect(calculateFreeReturnsCount(200, 0.5)).toBe(1)
-      expect(calculateFreeReturnsCount(100, 0.5)).toBe(0) // floor(0.5)
-    })
-
-    it('should floor the result', () => {
-      expect(calculateFreeReturnsCount(350, 0.5)).toBe(1) // floor(1.75)
-    })
-  })
-
   describe('calculateInvoiceTotals', () => {
     it('should sum all line totals correctly', () => {
       const lines = [
@@ -208,11 +158,12 @@ describe('Invoice Calculations', () => {
   })
 
   describe('Full Invoice Calculation Flow', () => {
-    it('should calculate a complete invoice with all line types', () => {
+    it('should calculate a complete invoice with all line types (returns priced like outbound)', () => {
       // Simulate a real invoice scenario
-      const shippingTotal = 5000.00 // €5000 in shipping
-      const totalShipments = 1000
-      const totalReturns = 10
+      // Returns are now priced using the same carrier/weight pricing rules as outbound
+      const outboundShippingTotal = 5000.00
+      const returnShippingTotal = 150.00 // returns billed at actual shipping cost
+      const shippingTotal = outboundShippingTotal + returnShippingTotal
       const storage_m3 = 5
       const reception_quarters = 2
 
@@ -220,10 +171,11 @@ describe('Invoice Calculations', () => {
         calculateSoftwareFee(config),
         calculateStorageFee(storage_m3, config),
         calculateReceptionFee(reception_quarters, config),
-        // Shipping would be added separately with carrier/weight groups
-        { line_type: 'shipping', description: 'Shipping', quantity: totalShipments, unit_price_eur: 5, total_eur: shippingTotal, vat_amount: shippingTotal * 0.20 },
+        // Outbound shipping lines
+        { line_type: 'shipping', description: 'DOMICILE FR 0g - 500g', quantity: 1000, unit_price_eur: 5, total_eur: outboundShippingTotal, vat_amount: outboundShippingTotal * 0.20 },
+        // Return shipping lines (same pricing as outbound, prefixed with RETOUR)
+        { line_type: 'returns', description: 'RETOUR DOMICILE FR 0g - 500g', quantity: 30, unit_price_eur: 5, total_eur: returnShippingTotal, vat_amount: returnShippingTotal * 0.20 },
         calculateFuelSurcharge(shippingTotal, config),
-        calculateReturnsFee(totalReturns, totalShipments, config),
       ].filter(Boolean) as Array<{ line_type: string; description: string; quantity: number; unit_price_eur: number; total_eur: number; vat_amount: number }>
 
       const totals = calculateInvoiceTotals(lines)
@@ -233,25 +185,25 @@ describe('Invoice Calculations', () => {
       const storageLine = lines.find(l => l.line_type === 'storage')
       const receptionLine = lines.find(l => l.line_type === 'reception')
       const shippingLine = lines.find(l => l.line_type === 'shipping')
-      const fuelLine = lines.find(l => l.line_type === 'fuel_surcharge')
       const returnsLine = lines.find(l => l.line_type === 'returns')
+      const fuelLine = lines.find(l => l.line_type === 'fuel_surcharge')
 
       expect(softwareLine!.total_eur).toBe(49.00)
       expect(storageLine!.total_eur).toBe(125.00) // 5 * 25
       expect(receptionLine!.total_eur).toBe(60.00) // 2 * 30
       expect(shippingLine!.total_eur).toBe(5000.00)
-      expect(fuelLine!.total_eur).toBe(200.00) // 5000 * 0.04
-      expect(returnsLine!.total_eur).toBe(4.50) // (10-5) * 0.90
+      expect(returnsLine!.total_eur).toBe(150.00) // returns at actual shipping cost
+      expect(fuelLine!.total_eur).toBe(206.00) // (5000 + 150) * 0.04
 
-      // Total HT: 49 + 125 + 60 + 5000 + 200 + 4.50 = 5438.50
-      expect(totals.subtotal_ht).toBe(5438.50)
+      // Total HT: 49 + 125 + 60 + 5000 + 150 + 206 = 5590
+      expect(totals.subtotal_ht).toBe(5590.00)
 
       // VAT 20% of each
-      // 9.80 + 25 + 12 + 1000 + 40 + 0.90 = 1087.70
-      expect(totals.vat_amount).toBe(1087.70)
+      // 9.80 + 25 + 12 + 1000 + 30 + 41.20 = 1118
+      expect(totals.vat_amount).toBe(1118.00)
 
       // TTC
-      expect(totals.total_ttc).toBe(6526.20)
+      expect(totals.total_ttc).toBe(6708.00)
     })
 
     it('should handle invoice with only software and shipping', () => {
