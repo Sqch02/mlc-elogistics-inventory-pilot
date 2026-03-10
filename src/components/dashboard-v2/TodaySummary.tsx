@@ -11,7 +11,6 @@ import {
   AlertCircle, BoxIcon, CalendarDays, ChevronLeft, ChevronRight
 } from 'lucide-react'
 import Link from 'next/link'
-import { motion } from 'framer-motion'
 import { useTenant } from '@/components/providers/TenantProvider'
 
 interface TodayData {
@@ -116,10 +115,7 @@ export function TodaySummary() {
   const hasCriticalStock = data.stock.critical.length > 0
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4 }}
+    <div className="animate-fade-in"
     >
       <Card className={`border-2 ${hasUrgentItems ? 'border-amber-300 bg-amber-50/50' : 'border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10'}`}>
         <CardHeader className="pb-3">
@@ -295,6 +291,6 @@ export function TodaySummary() {
           )}
         </CardContent>
       </Card>
-    </motion.div>
+    </div>
   )
 }

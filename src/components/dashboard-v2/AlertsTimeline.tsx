@@ -1,7 +1,6 @@
 'use client'
 
 import { memo } from 'react'
-import { motion } from 'framer-motion'
 import { Package, DollarSign, Truck, AlertTriangle, CheckCircle, ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
@@ -182,14 +181,12 @@ export function AlertsTimeline({ alerts, delay = 0 }: AlertsTimelineProps) {
           className="flex flex-col items-center justify-center py-8 text-center animate-fade-in"
           style={{ animationDelay: `${delay + 0.3}s` }}
         >
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ delay: delay + 0.4, type: 'spring', stiffness: 200 }}
-            className="w-16 h-16 rounded-full bg-success/10 flex items-center justify-center mb-4"
+          <div
+            className="w-16 h-16 rounded-full bg-success/10 flex items-center justify-center mb-4 animate-fade-in"
+            style={{ animationDelay: `${delay + 0.4}s` }}
           >
             <CheckCircle className="h-8 w-8 text-success" />
-          </motion.div>
+          </div>
           <h4 className="font-medium text-foreground mb-1">Tout est en ordre</h4>
           <p className="text-sm text-muted-foreground">
             Aucune action requise pour le moment

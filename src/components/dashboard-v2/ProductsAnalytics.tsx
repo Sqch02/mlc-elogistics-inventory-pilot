@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useMemo, memo } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { Package, Boxes, TrendingUp, ArrowRight, Calendar, BarChart3, CalendarDays } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
@@ -66,11 +65,9 @@ const ProductRow = memo(function ProductRow({
 
   return (
     <Link href={`/expeditions?search=${encodeURIComponent(item.sku_code)}`}>
-      <motion.div
-        initial={{ opacity: 0, x: -10 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ delay: delay + index * 0.03 }}
-        className="group py-2.5 border-b border-border/30 last:border-0 hover:bg-primary/5 -mx-2 px-2 rounded-lg transition-colors cursor-pointer"
+      <div
+        className="group py-2.5 border-b border-border/30 last:border-0 hover:bg-primary/5 -mx-2 px-2 rounded-lg transition-colors cursor-pointer animate-fade-in-left"
+        style={{ animationDelay: `${delay + index * 0.03}s` }}
       >
         <div className="flex items-center gap-3">
           {/* Rank badge */}
@@ -97,11 +94,9 @@ const ProductRow = memo(function ProductRow({
 
             {/* Progress bar */}
             <div className="h-2 bg-muted/50 rounded-full overflow-hidden">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${barWidth}%` }}
-                transition={{ delay: delay + index * 0.03 + 0.1, duration: 0.5, ease: 'easeOut' }}
-                className={cn("h-full rounded-full", color)}
+              <div
+                style={{ width: `${barWidth}%`, animationDelay: `${delay + index * 0.03 + 0.1}s` }}
+                className={cn("h-full rounded-full progress-fill", color)}
               />
             </div>
 
@@ -119,7 +114,7 @@ const ProductRow = memo(function ProductRow({
             <ArrowRight className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
           </div>
         </div>
-      </motion.div>
+      </div>
     </Link>
   )
 })
@@ -181,11 +176,9 @@ export function ProductsAnalytics({ delay = 0 }: ProductsAnalyticsProps) {
   const maxVolume = activeItems.length > 0 ? activeItems[0].volume : 0
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.5 }}
-      className="bg-card rounded-2xl border border-border/60 shadow-sm h-full flex flex-col"
+    <div
+      className="bg-card rounded-2xl border border-border/60 shadow-sm h-full flex flex-col animate-fade-in"
+      style={{ animationDelay: `${delay}s` }}
     >
       {/* Header with period selector */}
       <div className="p-5 pb-3 border-b border-border/40">
@@ -225,48 +218,42 @@ export function ProductsAnalytics({ delay = 0 }: ProductsAnalyticsProps) {
         </div>
 
         {/* Custom date range inputs */}
-        <AnimatePresence>
-          {selectedPeriod === 'custom' && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.2 }}
-              className="overflow-hidden"
-            >
-              <div className="flex items-center gap-3 mb-3 p-3 bg-muted/30 rounded-lg">
-                <div className="flex items-center gap-2 flex-1">
-                  <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Du</label>
-                  <input
-                    type="date"
-                    value={customFrom}
-                    onChange={(e) => setCustomFrom(e.target.value)}
-                    max={customTo}
-                    className={cn(
-                      "flex-1 px-3 py-1.5 text-sm rounded-md border border-border/60",
-                      "bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary",
-                      "text-foreground"
-                    )}
-                  />
-                </div>
-                <div className="flex items-center gap-2 flex-1">
-                  <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Au</label>
-                  <input
-                    type="date"
-                    value={customTo}
-                    onChange={(e) => setCustomTo(e.target.value)}
-                    min={customFrom}
-                    className={cn(
-                      "flex-1 px-3 py-1.5 text-sm rounded-md border border-border/60",
-                      "bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary",
-                      "text-foreground"
-                    )}
-                  />
-                </div>
+        {selectedPeriod === 'custom' && (
+          <div
+            className="overflow-hidden animate-fade-in"
+          >
+            <div className="flex items-center gap-3 mb-3 p-3 bg-muted/30 rounded-lg">
+              <div className="flex items-center gap-2 flex-1">
+                <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Du</label>
+                <input
+                  type="date"
+                  value={customFrom}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                  max={customTo}
+                  className={cn(
+                    "flex-1 px-3 py-1.5 text-sm rounded-md border border-border/60",
+                    "bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary",
+                    "text-foreground"
+                  )}
+                />
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+              <div className="flex items-center gap-2 flex-1">
+                <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">Au</label>
+                <input
+                  type="date"
+                  value={customTo}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                  min={customFrom}
+                  className={cn(
+                    "flex-1 px-3 py-1.5 text-sm rounded-md border border-border/60",
+                    "bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary",
+                    "text-foreground"
+                  )}
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Stats row */}
         <div className="grid grid-cols-3 gap-3">
@@ -384,14 +371,10 @@ export function ProductsAnalytics({ delay = 0 }: ProductsAnalyticsProps) {
 
       {/* Items list */}
       <div className="flex-1 px-5 py-3 overflow-y-auto min-h-0">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
-          >
+        <div
+          key={activeTab}
+          className="animate-fade-in"
+        >
             {activeItems.length > 0 ? (
               <div className="space-y-0">
                 {activeItems.slice(0, 10).map((item, index) => (
@@ -419,8 +402,7 @@ export function ProductsAnalytics({ delay = 0 }: ProductsAnalyticsProps) {
                 </p>
               </div>
             )}
-          </motion.div>
-        </AnimatePresence>
+        </div>
       </div>
 
       {/* Footer link */}
@@ -437,6 +419,6 @@ export function ProductsAnalytics({ delay = 0 }: ProductsAnalyticsProps) {
           <ArrowRight className="h-3.5 w-3.5" />
         </Link>
       </div>
-    </motion.div>
+    </div>
   )
 }

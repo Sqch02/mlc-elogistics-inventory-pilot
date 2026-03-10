@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { motion } from 'framer-motion'
 import {
   AreaChart,
   Area,
@@ -35,10 +34,8 @@ function CustomTooltip({ active, payload, label }: {
   const month = date.toLocaleDateString('fr-FR', { month: 'long' })
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="glass rounded-lg px-4 py-3 shadow-lg"
+    <div
+      className="glass rounded-lg px-4 py-3 shadow-lg animate-fade-in"
     >
       <p className="text-sm font-medium text-foreground capitalize">
         {dayName} {dayNum} {month}
@@ -62,7 +59,7 @@ function CustomTooltip({ active, payload, label }: {
           </div>
         ))}
       </div>
-    </motion.div>
+    </div>
   )
 }
 
@@ -81,11 +78,9 @@ export function AreaShipmentsChart({ data, delay = 0 }: AreaShipmentsChartProps)
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.5 }}
-      className="bg-card rounded-2xl border border-border/60 p-6 shadow-sm"
+    <div
+      className="bg-card rounded-2xl border border-border/60 p-6 shadow-sm animate-fade-in"
+      style={{ animationDelay: `${delay}s` }}
     >
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
@@ -215,6 +210,6 @@ export function AreaShipmentsChart({ data, delay = 0 }: AreaShipmentsChartProps)
           </div>
         )}
       </div>
-    </motion.div>
+    </div>
   )
 }

@@ -15,13 +15,13 @@ export default function RootLayout({
   return (
     <html lang="fr">
       <head>
-        {/* Preconnect to Fontshare for faster font loading */}
-        <link rel="preconnect" href="https://api.fontshare.com" crossOrigin="anonymous" />
-        <link rel="preconnect" href="https://cdn.fontshare.com" crossOrigin="anonymous" />
-        {/* Satoshi Font from Fontshare - Premium geometric sans-serif */}
+        {/* Preload critical Satoshi font weight for fastest render */}
         <link
-          href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,600,700&display=swap"
-          rel="stylesheet"
+          rel="preload"
+          href="/fonts/satoshi-400.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
         />
       </head>
       <body className="font-sans antialiased bg-background">

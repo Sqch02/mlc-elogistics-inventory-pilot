@@ -1,6 +1,5 @@
 'use client'
 
-import { motion } from 'framer-motion'
 import { RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { FloatingMonthSelector } from './FloatingMonthSelector'
@@ -42,26 +41,19 @@ export function DashboardHeader({
   const monthTitle = formatMonthTitle(currentMonth)
 
   return (
-    <motion.header
-      initial={{ opacity: 0, y: -20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: 'easeOut' }}
-      className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8"
+    <header
+      className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8 slide-down"
     >
       <div className="space-y-1">
-        <motion.h1
-          className="text-2xl font-semibold text-foreground tracking-tight"
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.1, duration: 0.4 }}
+        <h1
+          className="text-2xl font-semibold text-foreground tracking-tight animate-fade-in-left"
+          style={{ animationDelay: '0.1s' }}
         >
           {greeting}
-        </motion.h1>
-        <motion.p
-          className="text-muted-foreground flex items-center gap-2"
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.2, duration: 0.4 }}
+        </h1>
+        <p
+          className="text-muted-foreground flex items-center gap-2 animate-fade-in-left"
+          style={{ animationDelay: '0.2s' }}
         >
           <span>Vue d&apos;ensemble</span>
           <span className="text-border">•</span>
@@ -90,19 +82,18 @@ export function DashboardHeader({
               </span>
             </>
           )}
-        </motion.p>
+        </p>
       </div>
 
-      <motion.div
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ delay: 0.3, duration: 0.4 }}
+      <div
+        className="animate-fade-in"
+        style={{ animationDelay: '0.3s' }}
       >
         <FloatingMonthSelector
           currentMonth={currentMonth}
           onMonthChange={onMonthChange}
         />
-      </motion.div>
-    </motion.header>
+      </div>
+    </header>
   )
 }

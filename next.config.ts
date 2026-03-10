@@ -3,7 +3,7 @@ import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
   experimental: {
-    optimizePackageImports: ['recharts', 'lucide-react', 'date-fns', 'framer-motion'],
+    optimizePackageImports: ['recharts', 'lucide-react', 'date-fns'],
   },
 };
 

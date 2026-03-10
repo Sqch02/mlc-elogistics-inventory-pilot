@@ -1,7 +1,6 @@
 'use client'
 
 import { memo } from 'react'
-import { motion } from 'framer-motion'
 import { Package, Eye, ArrowRight, TrendingDown, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
@@ -40,11 +39,9 @@ function ProgressBar({ value, max = 30, status, delay }: {
 
   return (
     <div className={cn("h-1.5 rounded-full overflow-hidden", config.bg)}>
-      <motion.div
-        initial={{ width: 0 }}
-        animate={{ width: `${percentage}%` }}
-        transition={{ delay, duration: 0.6, ease: 'easeOut' }}
-        className={cn("h-full rounded-full", config.fill)}
+      <div
+        style={{ width: `${percentage}%`, animationDelay: `${delay}s` }}
+        className={cn("h-full rounded-full progress-fill", config.fill)}
       />
     </div>
   )

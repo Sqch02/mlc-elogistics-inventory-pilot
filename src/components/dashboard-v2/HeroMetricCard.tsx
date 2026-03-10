@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { motion } from 'framer-motion'
 import { Package, TrendingUp, TrendingDown } from 'lucide-react'
 import { AreaChart, Area, ResponsiveContainer } from 'recharts'
 import { cn } from '@/lib/utils'
@@ -71,38 +70,32 @@ export function HeroMetricCard({
   const animatedValue = useCountUp(value, 1500, delay + 200)
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 30 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.5, ease: 'easeOut' }}
+    <div
       className={cn(
         "relative bg-card rounded-2xl border border-border/60",
         "p-6 lg:p-8 shadow-sm overflow-hidden",
-        "mesh-bg border-pulse"
+        "mesh-bg border-pulse animate-fade-in"
       )}
+      style={{ animationDelay: `${delay}s` }}
     >
       {/* Icon badge */}
-      <motion.div
-        initial={{ opacity: 0, scale: 0.8 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ delay: delay + 0.1, duration: 0.3 }}
-        className="glass-dark inline-flex p-3 rounded-xl mb-6"
+      <div
+        className="glass-dark inline-flex p-3 rounded-xl mb-6 animate-fade-in"
+        style={{ animationDelay: `${delay + 0.1}s` }}
       >
         <Package className="h-6 w-6 text-primary" />
-      </motion.div>
+      </div>
 
       {/* Main content */}
       <div className="space-y-4">
         {/* Animated counter */}
         <div className="space-y-1">
-          <motion.p
-            className="text-5xl lg:text-6xl font-bold text-primary tracking-tight tabular-nums"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: delay + 0.2 }}
+          <p
+            className="text-5xl lg:text-6xl font-bold text-primary tracking-tight tabular-nums animate-fade-in"
+            style={{ animationDelay: `${delay + 0.2}s` }}
           >
             {formatNumber(animatedValue)}
-          </motion.p>
+          </p>
           <p className="text-lg text-foreground font-medium">{label}</p>
           {subLabel && (
             <p className="text-sm text-muted-foreground">{subLabel}</p>
@@ -113,16 +106,14 @@ export function HeroMetricCard({
         <div className="flex items-end justify-between gap-4 pt-2">
           {/* Trend badge */}
           {trend && (
-            <motion.div
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: delay + 0.4 }}
+            <div
               className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium",
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium animate-fade-in-left",
                 trend.isPositive
                   ? "bg-success/10 text-success"
                   : "bg-error/10 text-error"
               )}
+              style={{ animationDelay: `${delay + 0.4}s` }}
             >
               {trend.isPositive ? (
                 <TrendingUp className="h-4 w-4" />
@@ -130,18 +121,16 @@ export function HeroMetricCard({
                 <TrendingDown className="h-4 w-4" />
               )}
               <span>{trend.isPositive ? '+' : ''}{trend.value}% vs mois dernier</span>
-            </motion.div>
+            </div>
           )}
 
           {/* Mini sparkline */}
           {sparklineData && sparklineData.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: delay + 0.5 }}
-              className="w-32 h-12"
+            <div
+              className="w-32 h-12 animate-fade-in"
               aria-label={`Tendance ${label} sur 7 jours`}
               role="img"
+              style={{ animationDelay: `${delay + 0.5}s` }}
             >
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={sparklineData}>
@@ -160,13 +149,13 @@ export function HeroMetricCard({
                   />
                 </AreaChart>
               </ResponsiveContainer>
-            </motion.div>
+            </div>
           )}
         </div>
       </div>
 
       {/* Decorative gradient orb */}
       <div className="absolute -top-20 -right-20 w-40 h-40 bg-primary/5 rounded-full blur-3xl pointer-events-none" />
-    </motion.div>
+    </div>
   )
 }

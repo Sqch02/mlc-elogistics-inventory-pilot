@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { motion } from 'framer-motion'
 import {
   BarChart,
   Bar,
@@ -100,11 +99,9 @@ export function ProductsMetricsPanel({ delay = 0 }: ProductsMetricsPanelProps) {
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.5 }}
-      className="space-y-6"
+    <div
+      className="space-y-6 animate-fade-in"
+      style={{ animationDelay: `${delay}s` }}
     >
       {/* Header with period selector */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -169,11 +166,9 @@ export function ProductsMetricsPanel({ delay = 0 }: ProductsMetricsPanelProps) {
       </div>
 
       {/* Monthly evolution chart */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: delay + 0.2, duration: 0.5 }}
-        className="bg-card rounded-2xl border border-border/60 p-6"
+      <div
+        className="bg-card rounded-2xl border border-border/60 p-6 animate-fade-in"
+        style={{ animationDelay: `${delay + 0.2}s` }}
       >
         <h4 className="text-sm font-semibold text-foreground mb-4">Evolution mensuelle</h4>
         <div className="h-[280px]">
@@ -216,16 +211,14 @@ export function ProductsMetricsPanel({ delay = 0 }: ProductsMetricsPanelProps) {
             </BarChart>
           </ResponsiveContainer>
         </div>
-      </motion.div>
+      </div>
 
       {/* Top products and bundles */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Top Products */}
-        <motion.div
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: delay + 0.3, duration: 0.5 }}
-          className="bg-card rounded-2xl border border-border/60 p-6"
+        <div
+          className="bg-card rounded-2xl border border-border/60 p-6 animate-fade-in-left"
+          style={{ animationDelay: `${delay + 0.3}s` }}
         >
           <div className="flex items-center gap-2 mb-4">
             <Package className="h-4 w-4 text-primary" />
@@ -283,14 +276,12 @@ export function ProductsMetricsPanel({ delay = 0 }: ProductsMetricsPanelProps) {
               Aucune donnee pour cette periode
             </div>
           )}
-        </motion.div>
+        </div>
 
         {/* Top Bundles */}
-        <motion.div
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: delay + 0.4, duration: 0.5 }}
-          className="bg-card rounded-2xl border border-border/60 p-6"
+        <div
+          className="bg-card rounded-2xl border border-border/60 p-6 animate-fade-in"
+          style={{ animationDelay: `${delay + 0.4}s` }}
         >
           <div className="flex items-center gap-2 mb-4">
             <Boxes className="h-4 w-4 text-teal-600" />
@@ -341,16 +332,14 @@ export function ProductsMetricsPanel({ delay = 0 }: ProductsMetricsPanelProps) {
               Aucun bundle vendu sur cette periode
             </div>
           )}
-        </motion.div>
+        </div>
       </div>
 
       {/* Detailed table */}
       {data.topProducts.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: delay + 0.5, duration: 0.5 }}
-          className="bg-card rounded-2xl border border-border/60 overflow-hidden"
+        <div
+          className="bg-card rounded-2xl border border-border/60 overflow-hidden animate-fade-in"
+          style={{ animationDelay: `${delay + 0.5}s` }}
         >
           <div className="p-4 border-b border-border/60">
             <h4 className="text-sm font-semibold text-foreground">Detail des ventes</h4>
@@ -387,8 +376,8 @@ export function ProductsMetricsPanel({ delay = 0 }: ProductsMetricsPanelProps) {
               </tbody>
             </table>
           </div>
-        </motion.div>
+        </div>
       )}
-    </motion.div>
+    </div>
   )
 }

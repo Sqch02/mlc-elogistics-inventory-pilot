@@ -1,6 +1,5 @@
 'use client'
 
-import { motion } from 'framer-motion'
 import { Package, Boxes, TrendingUp, ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
@@ -45,11 +44,9 @@ export function ProductsSummary({ delay = 0 }: ProductsSummaryProps) {
   const { summary, topProducts } = data
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.5 }}
-      className="bg-card rounded-2xl border border-border/60 p-5 shadow-sm h-full flex flex-col"
+    <div
+      className="bg-card rounded-2xl border border-border/60 p-5 shadow-sm h-full flex flex-col animate-fade-in"
+      style={{ animationDelay: `${delay}s` }}
     >
       {/* Header */}
       <div className="flex items-center gap-2 mb-4">
@@ -93,21 +90,17 @@ export function ProductsSummary({ delay = 0 }: ProductsSummaryProps) {
         </p>
         <div className="space-y-2">
           {topProducts.slice(0, 5).map((product, index) => (
-            <motion.div
+            <div
               key={product.sku_id}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: delay + 0.1 + index * 0.05 }}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 animate-fade-in-left"
+              style={{ animationDelay: `${delay + 0.1 + index * 0.05}s` }}
             >
               <span className="text-[10px] text-muted-foreground w-4">{index + 1}.</span>
               <div className="flex-1 min-w-0">
                 <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${product.percentage}%` }}
-                    transition={{ delay: delay + 0.2 + index * 0.05, duration: 0.5 }}
-                    className="h-full bg-primary rounded-full"
+                  <div
+                    style={{ width: `${product.percentage}%`, animationDelay: `${delay + 0.2 + index * 0.05}s` }}
+                    className="h-full bg-primary rounded-full progress-fill"
                   />
                 </div>
               </div>
@@ -117,7 +110,7 @@ export function ProductsSummary({ delay = 0 }: ProductsSummaryProps) {
               <span className="text-[10px] text-muted-foreground">
                 {formatNumber(product.volume)}
               </span>
-            </motion.div>
+            </div>
           ))}
         </div>
       </div>
@@ -136,6 +129,6 @@ export function ProductsSummary({ delay = 0 }: ProductsSummaryProps) {
           <ArrowRight className="h-3 w-3" />
         </Link>
       </div>
-    </motion.div>
+    </div>
   )
 }

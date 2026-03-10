@@ -1,7 +1,6 @@
 'use client'
 
 import { useMemo } from 'react'
-import { motion } from 'framer-motion'
 import { Package, Eye, ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
@@ -42,11 +41,9 @@ function ProgressBar({ value, max = 30, status, delay }: {
 
   return (
     <div className={cn("h-2 rounded-full overflow-hidden", config.bg)}>
-      <motion.div
-        initial={{ width: 0 }}
-        animate={{ width: `${percentage}%` }}
-        transition={{ delay, duration: 0.8, ease: 'easeOut' }}
-        className={cn("h-full rounded-full", config.fill, config.glow)}
+      <div
+        style={{ width: `${percentage}%`, animationDelay: `${delay}s` }}
+        className={cn("h-full rounded-full progress-fill", config.fill, config.glow)}
       />
     </div>
   )
@@ -70,16 +67,13 @@ function StockItem({ item, index, delay }: {
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, x: -20 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: delay + index * 0.08, duration: 0.4 }}
-      whileHover={{ x: 4 }}
+    <div
       className={cn(
         "p-3 rounded-lg border border-transparent",
-        "hover:border-border/60 hover:bg-muted/30",
-        "transition-all duration-200 cursor-pointer group"
+        "hover:border-border/60 hover:bg-muted/30 hover:translate-x-1",
+        "transition-all duration-200 cursor-pointer group animate-fade-in-left"
       )}
+      style={{ animationDelay: `${delay + index * 0.08}s` }}
     >
       <div className="flex items-center justify-between mb-2">
         <span className="font-mono text-sm font-medium text-foreground">
@@ -106,7 +100,7 @@ function StockItem({ item, index, delay }: {
         </span>
         <ArrowRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
-    </motion.div>
+    </div>
   )
 }
 

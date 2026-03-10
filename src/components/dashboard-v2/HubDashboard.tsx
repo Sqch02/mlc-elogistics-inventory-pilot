@@ -1,6 +1,5 @@
 'use client'
 
-import { motion } from 'framer-motion'
 import { Package, Banknote, AlertTriangle, Users, Building2, ArrowRight, CheckCircle2, XCircle, Clock } from 'lucide-react'
 import { useHubDashboard, HubTenantMetrics } from '@/hooks/useHubDashboard'
 import { useTenant } from '@/components/providers/TenantProvider'
@@ -141,11 +140,7 @@ export function HubDashboard() {
   const monthLabel = new Date(`${month}-01`).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.3 }}
-      className="space-y-6"
+    <div className="space-y-6 animate-fade-in"
     >
       {/* Header */}
       <div>
@@ -192,10 +187,9 @@ export function HubDashboard() {
       </div>
 
       {/* Table des clients */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3, duration: 0.4 }}
+      <div
+        className="animate-fade-in"
+        style={{ animationDelay: '0.3s' }}
       >
         <Card className="shadow-sm border-border overflow-hidden">
           <CardContent className="p-0">
@@ -232,7 +226,7 @@ export function HubDashboard() {
             )}
           </CardContent>
         </Card>
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   )
 }

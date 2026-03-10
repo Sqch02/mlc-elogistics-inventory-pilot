@@ -1,6 +1,5 @@
 'use client'
 
-import { motion } from 'framer-motion'
 import { LucideIcon, TrendingUp, TrendingDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -56,16 +55,14 @@ export function SecondaryKpiCard({
   const colors = statusColors[status]
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.4, ease: 'easeOut' }}
-      whileHover={{ y: -4, transition: { duration: 0.2 } }}
+    <div
       className={cn(
         "relative bg-card rounded-xl border border-border/60",
-        "p-5 shadow-sm hover:shadow-md transition-shadow duration-200",
+        "p-5 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-200",
+        "animate-fade-in",
         colors.glow
       )}
+      style={{ animationDelay: `${delay}s` }}
     >
       {/* Left accent bar */}
       <div className={cn("absolute left-0 top-4 bottom-4 w-[3px] rounded-full", colors.accent)} />
@@ -78,16 +75,14 @@ export function SecondaryKpiCard({
 
         {/* Trend indicator */}
         {trend && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: delay + 0.2 }}
+          <div
             className={cn(
-              "flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium",
+              "flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium animate-fade-in",
               trend.isPositive
                 ? "bg-success/10 text-success"
                 : "bg-error/10 text-error"
             )}
+            style={{ animationDelay: `${delay + 0.2}s` }}
           >
             {trend.isPositive ? (
               <TrendingUp className="h-3 w-3" />
@@ -95,7 +90,7 @@ export function SecondaryKpiCard({
               <TrendingDown className="h-3 w-3" />
             )}
             <span>{trend.isPositive ? '+' : ''}{trend.value}%</span>
-          </motion.div>
+          </div>
         )}
       </div>
 
@@ -112,6 +107,6 @@ export function SecondaryKpiCard({
           <p className="text-xs text-muted-foreground/70">{subValue}</p>
         )}
       </div>
-    </motion.div>
+    </div>
   )
 }
