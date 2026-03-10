@@ -219,35 +219,58 @@ export async function POST(request: NextRequest) {
           r.weight_max_grams >= shipment.weight_grams
       )
 
-      if (!rule) {
-        missingPricingCount++
-        return
-      }
-
       const zone = getDestinationZone(shipment.country_code)
       const deliveryType = getDeliveryType(shipment.carrier, shipment.service_point_id)
-      const weightBracket = formatWeightBracket(rule.weight_min_grams, rule.weight_max_grams)
       const prefix = isReturn ? 'RETOUR|' : ''
-      const key = `${prefix}${zone}|${deliveryType}|${rule.weight_min_grams}|${rule.weight_max_grams}`
-      const existing = shippingGroups.get(key)
 
-      const baseDescription = buildShippingDescription(zone, deliveryType as 'DOMICILE' | 'POINT RELAIS', weightBracket)
-      const description = isReturn ? `RETOUR ${baseDescription}` : baseDescription
+      if (rule) {
+        // Matched a pricing rule — group by zone/delivery/weight bracket
+        const weightBracket = formatWeightBracket(rule.weight_min_grams, rule.weight_max_grams)
+        const key = `${prefix}${zone}|${deliveryType}|${rule.weight_min_grams}|${rule.weight_max_grams}`
+        const existing = shippingGroups.get(key)
 
-      if (existing) {
-        existing.shipment_count++
-        existing.total_eur += Number(shipment.computed_cost_eur)
+        const baseDescription = buildShippingDescription(zone, deliveryType as 'DOMICILE' | 'POINT RELAIS', weightBracket)
+        const description = isReturn ? `RETOUR ${baseDescription}` : baseDescription
+
+        if (existing) {
+          existing.shipment_count++
+          existing.total_eur += Number(shipment.computed_cost_eur)
+        } else {
+          shippingGroups.set(key, {
+            zone,
+            deliveryType,
+            weight_min_grams: rule.weight_min_grams,
+            weight_max_grams: rule.weight_max_grams,
+            shipment_count: 1,
+            total_eur: Number(shipment.computed_cost_eur),
+            unit_price_eur: rule.price_eur,
+            description,
+          })
+        }
       } else {
-        shippingGroups.set(key, {
-          zone,
-          deliveryType,
-          weight_min_grams: rule.weight_min_grams,
-          weight_max_grams: rule.weight_max_grams,
-          shipment_count: 1,
-          total_eur: Number(shipment.computed_cost_eur),
-          unit_price_eur: rule.price_eur,
-          description,
-        })
+        // Has computed_cost but no matching rule — group as fallback by carrier
+        const carrierName = shipment.carrier || 'inconnu'
+        const key = `${prefix}${zone}|${deliveryType}|MISC|${carrierName.toLowerCase()}`
+        const existing = shippingGroups.get(key)
+
+        const baseDescription = `${deliveryType} ${zone} ${carrierName} (tarif variable)`
+        const description = isReturn ? `RETOUR ${baseDescription}` : baseDescription
+
+        if (existing) {
+          existing.shipment_count++
+          existing.total_eur += Number(shipment.computed_cost_eur)
+        } else {
+          shippingGroups.set(key, {
+            zone,
+            deliveryType,
+            weight_min_grams: 0,
+            weight_max_grams: 0,
+            shipment_count: 1,
+            total_eur: Number(shipment.computed_cost_eur),
+            unit_price_eur: 0,
+            description,
+          })
+        }
       }
 
       shippingTotalEur += Number(shipment.computed_cost_eur)
@@ -417,14 +440,15 @@ export async function POST(request: NextRequest) {
     }
 
     // 4. Shipping lines (by zone/delivery type/weight) - includes both outbound and return lines
-    Array.from(shippingGroups.values()).forEach((group) => {
-      const isReturnLine = group.description.startsWith('RETOUR ')
+    // Use the full group key as carrier to guarantee uniqueness per line
+    Array.from(shippingGroups.entries()).forEach(([key, group]) => {
+      const isReturnLine = key.startsWith('RETOUR|')
       lines.push({
         tenant_id: tenantId,
         invoice_id: invoiceId,
         line_type: isReturnLine ? 'returns' : 'shipping',
         description: group.description,
-        carrier: `${group.zone}|${group.deliveryType}`,
+        carrier: key,
         weight_min_grams: group.weight_min_grams,
         weight_max_grams: group.weight_max_grams,
         shipment_count: group.shipment_count,
@@ -458,7 +482,9 @@ export async function POST(request: NextRequest) {
       const { error: linesError } = await supabase.from('invoice_lines').insert(lines)
       if (linesError) {
         console.error('Failed to insert invoice lines:', linesError)
-        throw new Error('Erreur lors de la création des lignes de facture')
+        // Clean up the invoice if lines fail (avoid orphan invoice with 0 lines)
+        await supabase.from('invoices_monthly').delete().eq('id', invoiceId)
+        throw new Error(`Erreur lors de la création des lignes de facture: ${linesError.message}`)
       }
     }
 

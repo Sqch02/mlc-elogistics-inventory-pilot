@@ -7,8 +7,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { FileText, Receipt, Euro, AlertTriangle, CheckCircle, Loader2, MoreHorizontal, Download, Trash2, Send, CreditCard, FileDown, ChevronDown, ChevronUp, Package, Truck, Fuel, RotateCcw, Cpu, Warehouse, Calculator, Eye } from 'lucide-react'
-import { useInvoices, useGenerateInvoice, useInvoicePreview, useUpdateInvoiceStatus, useDeleteInvoice, Invoice, PreviewShipment } from '@/hooks/useInvoices'
+import { FileText, Receipt, Euro, AlertTriangle, CheckCircle, Loader2, MoreHorizontal, Download, Trash2, Send, CreditCard, FileDown, ChevronDown, ChevronUp, Package, Truck, Fuel, RotateCcw, Cpu, Warehouse, Calculator, Eye, Plus, X, BadgePercent } from 'lucide-react'
+import { useInvoices, useGenerateInvoice, useInvoicePreview, useUpdateInvoiceStatus, useDeleteInvoice, useAddAvoirLine, useDeleteAvoirLine, Invoice, PreviewShipment } from '@/hooks/useInvoices'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ExportInvoicesButton, AccountingExportButton } from './FacturationActions'
 import { useTenant } from '@/components/providers/TenantProvider'
@@ -51,7 +53,18 @@ const lineTypeConfig: Record<string, { icon: React.ElementType; label: string; c
   shipping: { icon: Truck, label: 'Expédition', color: 'text-green-600 bg-green-100' },
   fuel_surcharge: { icon: Fuel, label: 'Carburant', color: 'text-amber-600 bg-amber-100' },
   returns: { icon: RotateCcw, label: 'Retours', color: 'text-gray-600 bg-gray-100' },
+  avoir: { icon: BadgePercent, label: 'Avoir', color: 'text-red-600 bg-red-100' },
 }
+
+// Predefined avoir types
+const AVOIR_TYPES = [
+  { value: 'avoir_technique', label: 'Indemnité suite problème technique' },
+  { value: 'avoir_incident_hme', label: 'Indemnité suite incident HME' },
+  { value: 'avoir_incident_transport', label: 'Indemnité suite incident transport' },
+  { value: 'avoir_reduction_volume', label: 'Réduction sur volume additionnel' },
+  { value: 'avoir_remboursement_surcharge', label: 'Remboursement frais de surcharge carburant' },
+  { value: 'avoir_autre', label: 'Autre avoir' },
+]
 
 type InvoiceStatus = 'all' | 'draft' | 'sent' | 'paid'
 
@@ -71,6 +84,11 @@ export function FacturationClient() {
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null)
   const [expandedInvoices, setExpandedInvoices] = useState<Set<string>>(new Set())
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [avoirDialogOpen, setAvoirDialogOpen] = useState(false)
+  const [avoirInvoiceId, setAvoirInvoiceId] = useState<string | null>(null)
+  const [avoirType, setAvoirType] = useState(AVOIR_TYPES[0].value)
+  const [avoirDescription, setAvoirDescription] = useState('')
+  const [avoirAmount, setAvoirAmount] = useState('')
 
   const { isClient } = useTenant()
   const { data, isLoading, isFetching } = useInvoices()
@@ -86,6 +104,8 @@ export function FacturationClient() {
   const previewMutation = useInvoicePreview()
   const updateStatusMutation = useUpdateInvoiceStatus()
   const deleteMutation = useDeleteInvoice()
+  const addAvoirMutation = useAddAvoirLine()
+  const deleteAvoirMutation = useDeleteAvoirLine()
 
   const allInvoices = data?.invoices || []
   const invoices = statusFilter === 'all'
@@ -122,6 +142,42 @@ export function FacturationClient() {
   const handleDelete = (invoice: Invoice) => {
     setInvoiceToDelete(invoice)
     setDeleteDialogOpen(true)
+  }
+
+  const openAvoirDialog = (invoiceId: string) => {
+    setAvoirInvoiceId(invoiceId)
+    setAvoirType(AVOIR_TYPES[0].value)
+    setAvoirDescription('')
+    setAvoirAmount('')
+    setAvoirDialogOpen(true)
+  }
+
+  const handleAddAvoir = () => {
+    if (!avoirInvoiceId || !avoirAmount) return
+    const amount = parseFloat(avoirAmount.replace(',', '.'))
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Montant invalide')
+      return
+    }
+    const typeLabel = AVOIR_TYPES.find(t => t.value === avoirType)?.label || ''
+    const fullDescription = avoirDescription
+      ? `${typeLabel} :\n${avoirDescription}`
+      : `${typeLabel}`
+
+    addAvoirMutation.mutate({
+      invoiceId: avoirInvoiceId,
+      line_type: 'avoir',
+      description: fullDescription,
+      amount,
+    }, {
+      onSuccess: () => {
+        setAvoirDialogOpen(false)
+      },
+    })
+  }
+
+  const handleDeleteAvoir = (invoiceId: string, lineId: string) => {
+    deleteAvoirMutation.mutate({ invoiceId, lineId })
   }
 
   const confirmDelete = async () => {
@@ -602,34 +658,53 @@ export function FacturationClient() {
                                       <TableHead className="text-xs text-right">Qté</TableHead>
                                       <TableHead className="text-xs text-right">Prix unit.</TableHead>
                                       <TableHead className="text-xs text-right">Total HT</TableHead>
+                                      {inv.status === 'draft' && !isClient && <TableHead className="text-xs w-8"></TableHead>}
                                     </TableRow>
                                   </TableHeader>
                                   <TableBody>
                                     {inv.invoice_lines.map((line, idx) => {
-                                      const config = lineTypeConfig[line.line_type || 'shipping'] || { icon: FileText, label: line.line_type, color: 'text-gray-600 bg-gray-100' }
-                                      const Icon = config.icon
+                                      const ltConfig = lineTypeConfig[line.line_type || 'shipping'] || { icon: FileText, label: line.line_type, color: 'text-gray-600 bg-gray-100' }
+                                      const Icon = ltConfig.icon
+                                      const isAvoir = line.line_type === 'avoir'
                                       return (
-                                        <TableRow key={idx} className="text-sm">
+                                        <TableRow key={idx} className={`text-sm ${isAvoir ? 'bg-red-50/50' : ''}`}>
                                           <TableCell className="py-2">
                                             <div className="flex items-center gap-1.5">
-                                              <div className={`p-1 rounded ${config.color}`}>
+                                              <div className={`p-1 rounded ${ltConfig.color}`}>
                                                 <Icon className="h-3 w-3" />
                                               </div>
-                                              <span className="text-xs">{config.label}</span>
+                                              <span className="text-xs">{ltConfig.label}</span>
                                             </div>
                                           </TableCell>
-                                          <TableCell className="py-2 text-xs text-muted-foreground max-w-[300px] truncate">
-                                            {line.description || (line.carrier ? `${formatCarrierName(line.carrier)} ${line.weight_min_grams}-${line.weight_max_grams}g` : '-')}
+                                          <TableCell className="py-2 text-xs text-muted-foreground max-w-[300px]">
+                                            <span className={isAvoir ? 'whitespace-pre-line' : 'truncate block'}>
+                                              {line.description || (line.carrier ? `${formatCarrierName(line.carrier)} ${line.weight_min_grams}-${line.weight_max_grams}g` : '-')}
+                                            </span>
                                           </TableCell>
                                           <TableCell className="py-2 text-xs text-right">
-                                            {line.quantity || line.shipment_count || 1}
+                                            {isAvoir ? '1' : (line.quantity || line.shipment_count || 1)}
                                           </TableCell>
                                           <TableCell className="py-2 text-xs text-right">
-                                            {Number(line.unit_price_eur || 0).toFixed(2)} €
+                                            {isAvoir ? '0,00 €' : `${Number(line.unit_price_eur || 0).toFixed(2)} €`}
                                           </TableCell>
-                                          <TableCell className="py-2 text-xs text-right font-medium">
+                                          <TableCell className={`py-2 text-xs text-right font-medium ${isAvoir ? 'text-red-600' : ''}`}>
                                             {Number(line.total_eur).toFixed(2)} €
                                           </TableCell>
+                                          {inv.status === 'draft' && !isClient && (
+                                            <TableCell className="py-2 w-8">
+                                              {isAvoir && (
+                                                <Button
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                                                  onClick={() => handleDeleteAvoir(inv.id, line.id)}
+                                                  disabled={deleteAvoirMutation.isPending}
+                                                >
+                                                  <X className="h-3.5 w-3.5" />
+                                                </Button>
+                                              )}
+                                            </TableCell>
+                                          )}
                                         </TableRow>
                                       )
                                     })}
@@ -637,18 +712,36 @@ export function FacturationClient() {
                                     <TableRow className="bg-muted/30 font-medium">
                                       <TableCell colSpan={4} className="py-2 text-right text-xs">Total HT</TableCell>
                                       <TableCell className="py-2 text-right text-xs">{subtotalHt.toFixed(2)} €</TableCell>
+                                      {inv.status === 'draft' && !isClient && <TableCell />}
                                     </TableRow>
                                     <TableRow className="bg-muted/30">
                                       <TableCell colSpan={4} className="py-2 text-right text-xs text-muted-foreground">TVA 20%</TableCell>
                                       <TableCell className="py-2 text-right text-xs text-muted-foreground">{vatAmount.toFixed(2)} €</TableCell>
+                                      {inv.status === 'draft' && !isClient && <TableCell />}
                                     </TableRow>
                                     <TableRow className="bg-primary/5 font-bold">
                                       <TableCell colSpan={4} className="py-2 text-right text-sm">Total TTC</TableCell>
                                       <TableCell className="py-2 text-right text-sm text-primary">{totalTtc.toFixed(2)} €</TableCell>
+                                      {inv.status === 'draft' && !isClient && <TableCell />}
                                     </TableRow>
                                   </TableBody>
                                 </Table>
                               </div>
+
+                              {/* Add avoir button */}
+                              {inv.status === 'draft' && !isClient && (
+                                <div className="flex justify-end">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-red-600 border-red-200 hover:bg-red-50"
+                                    onClick={() => openAvoirDialog(inv.id)}
+                                  >
+                                    <Plus className="mr-1.5 h-3.5 w-3.5" />
+                                    Ajouter un avoir
+                                  </Button>
+                                </div>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -787,6 +880,76 @@ export function FacturationClient() {
             >
               {generateMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
               Générer la facture ({previewMutation.data?.shipment_count.toLocaleString('fr-FR') || 0} expéditions)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Avoir Dialog */}
+      <Dialog open={avoirDialogOpen} onOpenChange={setAvoirDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Ajouter un avoir</DialogTitle>
+            <DialogDescription>
+              Ajouter une ligne de crédit (montant négatif) à la facture
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="avoir-type">Type d&apos;avoir</Label>
+              <select
+                id="avoir-type"
+                value={avoirType}
+                onChange={(e) => setAvoirType(e.target.value)}
+                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                {AVOIR_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="avoir-desc">Détails (optionnel)</Label>
+              <Textarea
+                id="avoir-desc"
+                value={avoirDescription}
+                onChange={(e) => setAvoirDescription(e.target.value)}
+                placeholder={'Ex: Colis indemnisés "endommagés" : 220\nColis indemnisés "perdus" : 26'}
+                rows={3}
+                className="text-sm"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="avoir-amount">Montant de l&apos;avoir (en €)</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">-</span>
+                <input
+                  id="avoir-amount"
+                  type="text"
+                  inputMode="decimal"
+                  value={avoirAmount}
+                  onChange={(e) => setAvoirAmount(e.target.value)}
+                  placeholder="0,00"
+                  className="w-full h-9 rounded-md border border-input bg-background pl-7 pr-8 text-sm"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">€</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Entrez le montant positif. Il sera déduit du total de la facture.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAvoirDialogOpen(false)}>
+              Annuler
+            </Button>
+            <Button
+              onClick={handleAddAvoir}
+              disabled={addAvoirMutation.isPending || !avoirAmount}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {addAvoirMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Ajouter l&apos;avoir
             </Button>
           </DialogFooter>
         </DialogContent>

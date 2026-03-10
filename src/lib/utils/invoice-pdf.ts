@@ -56,6 +56,7 @@ const LINE_TYPE_LABELS: Record<string, string> = {
   shipping: 'Prépa & Exp',
   fuel_surcharge: 'Surcharge',
   returns: 'Retours',
+  avoir: 'Avoir',
 }
 
 // HME brand colors

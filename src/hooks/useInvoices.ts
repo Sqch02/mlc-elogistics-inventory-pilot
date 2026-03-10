@@ -216,3 +216,58 @@ export function useDeleteInvoice() {
     },
   })
 }
+
+export function useAddAvoirLine() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ invoiceId, line_type, description, amount }: {
+      invoiceId: string
+      line_type: string
+      description: string
+      amount: number
+    }) => {
+      const response = await fetch(`/api/invoices/${invoiceId}/lines`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ line_type, description, amount }),
+      })
+      if (!response.ok) {
+        const err = await response.json()
+        throw new Error(err.error || 'Erreur lors de l\'ajout')
+      }
+      return response.json()
+    },
+    onSuccess: () => {
+      toast.success('Avoir ajouté')
+      queryClient.invalidateQueries({ queryKey: ['invoices'] })
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Erreur lors de l\'ajout')
+    },
+  })
+}
+
+export function useDeleteAvoirLine() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ invoiceId, lineId }: { invoiceId: string; lineId: string }) => {
+      const response = await fetch(`/api/invoices/${invoiceId}/lines?lineId=${lineId}`, {
+        method: 'DELETE',
+      })
+      if (!response.ok) {
+        const err = await response.json()
+        throw new Error(err.error || 'Erreur lors de la suppression')
+      }
+      return response.json()
+    },
+    onSuccess: () => {
+      toast.success('Avoir supprimé')
+      queryClient.invalidateQueries({ queryKey: ['invoices'] })
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Erreur lors de la suppression')
+    },
+  })
+}
