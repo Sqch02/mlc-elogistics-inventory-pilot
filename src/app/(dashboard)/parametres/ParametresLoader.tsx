@@ -29,11 +29,19 @@ function PageSkeleton() {
   )
 }
 
-const EmplacementsClient = dynamic(
-  () => import('./EmplacementsClient').then(m => ({ default: m.EmplacementsClient })),
+const LazyParametresClient = dynamic(
+  () => import('./ParametresClient').then(m => ({ default: m.ParametresClient })),
   { ssr: false, loading: () => <PageSkeleton /> }
 )
 
-export default function EmplacementsPage() {
-  return <EmplacementsClient />
+interface UserProfile {
+  id: string
+  email: string
+  tenant_id: string
+  role: string
+  full_name: string | null
+}
+
+export function ParametresLoader({ profile }: { profile: UserProfile }) {
+  return <LazyParametresClient profile={profile} />
 }

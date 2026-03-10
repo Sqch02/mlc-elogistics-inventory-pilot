@@ -15,10 +15,10 @@ export default function RootLayout({
   return (
     <html lang="fr">
       <head>
-        {/* Preload critical Satoshi font weight for fastest render */}
+        {/* Preload Satoshi variable font for fastest render */}
         <link
           rel="preload"
-          href="/fonts/satoshi-400.woff2"
+          href="/fonts/satoshi-variable.woff2"
           as="font"
           type="font/woff2"
           crossOrigin="anonymous"

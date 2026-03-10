@@ -77,19 +77,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get billing config (may not exist, use defaults)
-    const { data: billingConfig } = await supabase
-      .from('tenant_billing_config')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .maybeSingle()
-
-    // Get tenant settings for invoice numbering (may not exist, use defaults)
-    const { data: tenantSettings } = await supabase
-      .from('tenant_settings')
-      .select('invoice_prefix, invoice_next_number, default_vat_rate')
-      .eq('tenant_id', tenantId)
-      .maybeSingle()
+    // Get billing config and tenant settings in parallel (both independent)
+    const [{ data: billingConfig }, { data: tenantSettings }] = await Promise.all([
+      supabase
+        .from('tenant_billing_config')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .maybeSingle(),
+      supabase
+        .from('tenant_settings')
+        .select('invoice_prefix, invoice_next_number, default_vat_rate')
+        .eq('tenant_id', tenantId)
+        .maybeSingle(),
+    ])
 
     const invoiceSettings: TenantSettings = tenantSettings || {
       invoice_prefix: 'FAC',
@@ -118,66 +118,69 @@ export async function POST(request: NextRequest) {
       endOfMonth = new Date(year, monthNum, 0, 23, 59, 59, 999)
     }
 
-    // Get all outbound shipments for the period (with pagination to bypass 1000 limit)
-    const allShipments: Shipment[] = []
+    // Get all outbound and return shipments in parallel (independent pagination loops)
     const pageSize = 1000
-    let page = 0
-    let hasMore = true
 
-    while (hasMore) {
-      const { data: shipmentPage, error: shipmentsError } = await supabase
-        .from('shipments')
-        .select('id, carrier, weight_grams, pricing_status, computed_cost_eur, status_message, country_code, service_point_id')
-        .eq('tenant_id', tenantId)
-        .eq('is_return', false)
-        .not('status_message', 'in', '("On Hold","Cancelled","Cancelled - customer","Unfulfilled")')
-        .gte('shipped_at', startOfMonth.toISOString())
-        .lte('shipped_at', endOfMonth.toISOString())
-        .range(page * pageSize, (page + 1) * pageSize - 1)
-        .order('shipped_at')
-
-      if (shipmentsError) {
-        throw shipmentsError
-      }
-
-      if (shipmentPage && shipmentPage.length > 0) {
-        allShipments.push(...(shipmentPage as Shipment[]))
-        hasMore = shipmentPage.length === pageSize
-        page++
-      } else {
-        hasMore = false
-      }
-    }
-
-    // Get all return shipments for the period (same schema, is_return = true)
-    const returnShipments: Shipment[] = []
-    page = 0
-    hasMore = true
-
-    while (hasMore) {
-      const { data: returnPage, error: returnsError } = await supabase
-        .from('shipments')
-        .select('id, carrier, weight_grams, pricing_status, computed_cost_eur, status_message, country_code, service_point_id')
-        .eq('tenant_id', tenantId)
-        .eq('is_return', true)
-        .not('status_message', 'in', '("On Hold","Cancelled","Cancelled - customer","Unfulfilled")')
-        .gte('shipped_at', startOfMonth.toISOString())
-        .lte('shipped_at', endOfMonth.toISOString())
-        .range(page * pageSize, (page + 1) * pageSize - 1)
-        .order('shipped_at')
-
-      if (returnsError) {
-        throw returnsError
-      }
-
-      if (returnPage && returnPage.length > 0) {
-        returnShipments.push(...(returnPage as Shipment[]))
-        hasMore = returnPage.length === pageSize
-        page++
-      } else {
-        hasMore = false
-      }
-    }
+    const [allShipments, returnShipments] = await Promise.all([
+      // Outbound shipments
+      (async () => {
+        const results: Shipment[] = []
+        let page = 0
+        let hasMore = true
+        while (hasMore) {
+          const { data: shipmentPage, error: shipmentsError } = await supabase
+            .from('shipments')
+            .select('id, carrier, weight_grams, pricing_status, computed_cost_eur, status_message, country_code, service_point_id')
+            .eq('tenant_id', tenantId)
+            .eq('is_return', false)
+            .not('status_message', 'in', '("On Hold","Cancelled","Cancelled - customer","Unfulfilled")')
+            .gte('shipped_at', startOfMonth.toISOString())
+            .lte('shipped_at', endOfMonth.toISOString())
+            .range(page * pageSize, (page + 1) * pageSize - 1)
+            .order('shipped_at')
+          if (shipmentsError) {
+            throw shipmentsError
+          }
+          if (shipmentPage && shipmentPage.length > 0) {
+            results.push(...(shipmentPage as Shipment[]))
+            hasMore = shipmentPage.length === pageSize
+            page++
+          } else {
+            hasMore = false
+          }
+        }
+        return results
+      })(),
+      // Return shipments
+      (async () => {
+        const results: Shipment[] = []
+        let page = 0
+        let hasMore = true
+        while (hasMore) {
+          const { data: returnPage, error: returnsError } = await supabase
+            .from('shipments')
+            .select('id, carrier, weight_grams, pricing_status, computed_cost_eur, status_message, country_code, service_point_id')
+            .eq('tenant_id', tenantId)
+            .eq('is_return', true)
+            .not('status_message', 'in', '("On Hold","Cancelled","Cancelled - customer","Unfulfilled")')
+            .gte('shipped_at', startOfMonth.toISOString())
+            .lte('shipped_at', endOfMonth.toISOString())
+            .range(page * pageSize, (page + 1) * pageSize - 1)
+            .order('shipped_at')
+          if (returnsError) {
+            throw returnsError
+          }
+          if (returnPage && returnPage.length > 0) {
+            results.push(...(returnPage as Shipment[]))
+            hasMore = returnPage.length === pageSize
+            page++
+          } else {
+            hasMore = false
+          }
+        }
+        return results
+      })(),
+    ])
 
     const totalReturns = returnShipments.length
 

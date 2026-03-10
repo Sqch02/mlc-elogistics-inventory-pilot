@@ -25,70 +25,75 @@ export async function GET(request: NextRequest) {
     const prevDayEnd = new Date(prevDayStart)
     prevDayEnd.setHours(23, 59, 59, 999)
 
-    // Today's shipments
-    const { count: shipmentsToday } = await db
-      .from('shipments')
-      .select('id', { count: 'exact', head: true })
-      .eq('tenant_id', tenantId)
-      .eq('is_return', false)
-      .gte('shipped_at', dayStart.toISOString())
-      .lte('shipped_at', dayEnd.toISOString())
-
-    // Today's shipment cost
-    const { data: todayShipments } = await db
-      .from('shipments')
-      .select('computed_cost_eur')
-      .eq('tenant_id', tenantId)
-      .eq('is_return', false)
-      .gte('shipped_at', dayStart.toISOString())
-      .lte('shipped_at', dayEnd.toISOString())
+    // Run all independent queries in parallel
+    const [
+      { count: shipmentsToday },
+      { data: todayShipments },
+      { data: openClaims },
+      { count: claimsToday },
+      { count: claimsYesterday },
+      { count: overdueClaims },
+      { data: stockAlerts },
+    ] = await Promise.all([
+      // Today's shipments count
+      db
+        .from('shipments')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .eq('is_return', false)
+        .gte('shipped_at', dayStart.toISOString())
+        .lte('shipped_at', dayEnd.toISOString()),
+      // Today's shipment costs
+      db
+        .from('shipments')
+        .select('computed_cost_eur')
+        .eq('tenant_id', tenantId)
+        .eq('is_return', false)
+        .gte('shipped_at', dayStart.toISOString())
+        .lte('shipped_at', dayEnd.toISOString()),
+      // Open claims needing attention
+      db
+        .from('claims')
+        .select('id, order_ref, status, priority, resolution_deadline, opened_at')
+        .eq('tenant_id', tenantId)
+        .in('status', ['ouverte', 'en_analyse'])
+        .order('priority', { ascending: true })
+        .order('opened_at', { ascending: true })
+        .limit(5),
+      // Claims opened today
+      db
+        .from('claims')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .gte('opened_at', dayStart.toISOString())
+        .lte('opened_at', dayEnd.toISOString()),
+      // Claims opened yesterday
+      db
+        .from('claims')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .gte('opened_at', prevDayStart.toISOString())
+        .lte('opened_at', prevDayEnd.toISOString()),
+      // Overdue claims
+      db
+        .from('claims')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .in('status', ['ouverte', 'en_analyse'])
+        .lt('resolution_deadline', now.toISOString()),
+      // Critical stock items
+      db
+        .from('stock_snapshots')
+        .select('sku_id, qty_current, skus!inner(sku_code, name, alert_threshold)')
+        .eq('tenant_id', tenantId)
+        .lt('qty_current', 10)
+        .limit(5),
+    ])
 
     const todayCost = (todayShipments || []).reduce(
       (sum: number, s: { computed_cost_eur: number | null }) => sum + (Number(s.computed_cost_eur) || 0),
       0
     )
-
-    // Open claims needing attention
-    const { data: openClaims } = await db
-      .from('claims')
-      .select('id, order_ref, status, priority, resolution_deadline, opened_at')
-      .eq('tenant_id', tenantId)
-      .in('status', ['ouverte', 'en_analyse'])
-      .order('priority', { ascending: true })
-      .order('opened_at', { ascending: true })
-      .limit(5)
-
-    // Claims opened today
-    const { count: claimsToday } = await db
-      .from('claims')
-      .select('id', { count: 'exact', head: true })
-      .eq('tenant_id', tenantId)
-      .gte('opened_at', dayStart.toISOString())
-      .lte('opened_at', dayEnd.toISOString())
-
-    // Claims opened yesterday
-    const { count: claimsYesterday } = await db
-      .from('claims')
-      .select('id', { count: 'exact', head: true })
-      .eq('tenant_id', tenantId)
-      .gte('opened_at', prevDayStart.toISOString())
-      .lte('opened_at', prevDayEnd.toISOString())
-
-    // Overdue claims
-    const { count: overdueClaims } = await db
-      .from('claims')
-      .select('id', { count: 'exact', head: true })
-      .eq('tenant_id', tenantId)
-      .in('status', ['ouverte', 'en_analyse'])
-      .lt('resolution_deadline', now.toISOString())
-
-    // Critical stock items
-    const { data: stockAlerts } = await db
-      .from('stock_snapshots')
-      .select('sku_id, qty_current, skus!inner(sku_code, name, alert_threshold)')
-      .eq('tenant_id', tenantId)
-      .lt('qty_current', 10)
-      .limit(5)
 
     const criticalStock = (stockAlerts || [])
       .filter((s: { qty_current: number; skus: { alert_threshold: number | null } }) =>

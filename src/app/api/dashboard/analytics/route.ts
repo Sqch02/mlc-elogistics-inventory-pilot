@@ -73,41 +73,47 @@ export async function GET(request: Request) {
     let monthlyData: MonthlyData[] = []
 
     if (monthlyError || !monthlyShipments) {
-      // Use direct SQL-like approach with Supabase
-      // Fetch all shipments in the range in one go (paginated)
-      const allShipments: { shipped_at: string; computed_cost_eur: number | null }[] = []
+      // Fetch shipments and claims in parallel (independent queries)
       const pageSize = 1000
-      let offset = 0
-      let hasMore = true
 
-      while (hasMore) {
-        const { data, error } = await adminClient
-          .from('shipments')
-          .select('shipped_at, computed_cost_eur')
-          .eq('tenant_id', tenantId)
-          .eq('is_return', false)
-          .gte('shipped_at', startDate.toISOString())
-          .lte('shipped_at', endDate.toISOString())
-          .range(offset, offset + pageSize - 1)
-
-        if (error) throw error
-        if (data && data.length > 0) {
-          allShipments.push(...data)
-          offset += pageSize
-          hasMore = data.length === pageSize
-        } else {
-          hasMore = false
-        }
-      }
-
-      // Fetch all claims in the range in one go
-      const { data: allClaims } = await adminClient
-        .from('claims')
-        .select('decided_at, indemnity_eur')
-        .eq('tenant_id', tenantId)
-        .eq('status', 'indemnisee')
-        .gte('decided_at', startDate.toISOString())
-        .lte('decided_at', endDate.toISOString())
+      const [allShipments, allClaims] = await Promise.all([
+        // Fetch all shipments in the range (paginated)
+        (async () => {
+          const results: { shipped_at: string; computed_cost_eur: number | null }[] = []
+          let offset = 0
+          let hasMore = true
+          while (hasMore) {
+            const { data, error } = await adminClient
+              .from('shipments')
+              .select('shipped_at, computed_cost_eur')
+              .eq('tenant_id', tenantId)
+              .eq('is_return', false)
+              .gte('shipped_at', startDate.toISOString())
+              .lte('shipped_at', endDate.toISOString())
+              .range(offset, offset + pageSize - 1)
+            if (error) throw error
+            if (data && data.length > 0) {
+              results.push(...data)
+              offset += pageSize
+              hasMore = data.length === pageSize
+            } else {
+              hasMore = false
+            }
+          }
+          return results
+        })(),
+        // Fetch all claims in the range
+        (async () => {
+          const { data } = await adminClient
+            .from('claims')
+            .select('decided_at, indemnity_eur')
+            .eq('tenant_id', tenantId)
+            .eq('status', 'indemnisee')
+            .gte('decided_at', startDate.toISOString())
+            .lte('decided_at', endDate.toISOString())
+          return data
+        })(),
+      ])
 
       // Group shipments by month in-memory
       const shipmentsByMonth = new Map<string, { count: number; cost: number }>()
@@ -164,36 +170,42 @@ export async function GET(request: Request) {
     // ===========================================
     const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
 
-    // Fetch all recent shipments in one paginated pass
-    const recentShipments: { carrier: string; computed_cost_eur: number | null }[] = []
-    {
-      let offset = 0
-      let hasMore = true
-      while (hasMore) {
-        const { data, error } = await adminClient
-          .from('shipments')
-          .select('carrier, computed_cost_eur')
-          .eq('tenant_id', tenantId)
-          .eq('is_return', false)
-          .gte('shipped_at', ninetyDaysAgo.toISOString())
-          .range(offset, offset + 1000 - 1)
-
-        if (error) throw error
-        if (data && data.length > 0) {
-          recentShipments.push(...data)
-          offset += 1000
-          hasMore = data.length === 1000
-        } else {
-          hasMore = false
+    // Fetch recent shipments and claims in parallel (independent queries)
+    const [recentShipments, recentClaims] = await Promise.all([
+      // Recent shipments (paginated)
+      (async () => {
+        const results: { carrier: string; computed_cost_eur: number | null }[] = []
+        let offset = 0
+        let hasMore = true
+        while (hasMore) {
+          const { data, error } = await adminClient
+            .from('shipments')
+            .select('carrier, computed_cost_eur')
+            .eq('tenant_id', tenantId)
+            .eq('is_return', false)
+            .gte('shipped_at', ninetyDaysAgo.toISOString())
+            .range(offset, offset + 1000 - 1)
+          if (error) throw error
+          if (data && data.length > 0) {
+            results.push(...data)
+            offset += 1000
+            hasMore = data.length === 1000
+          } else {
+            hasMore = false
+          }
         }
-      }
-    }
-
-    const { data: recentClaims } = await adminClient
-      .from('claims')
-      .select('shipment_id, shipments!inner(carrier)')
-      .eq('tenant_id', tenantId)
-      .gte('opened_at', ninetyDaysAgo.toISOString())
+        return results
+      })(),
+      // Recent claims
+      (async () => {
+        const { data } = await adminClient
+          .from('claims')
+          .select('shipment_id, shipments!inner(carrier)')
+          .eq('tenant_id', tenantId)
+          .gte('opened_at', ninetyDaysAgo.toISOString())
+        return data
+      })(),
+    ])
 
     // Group by carrier
     const carrierMap = new Map<string, { shipments: number; cost: number; claims: number }>()

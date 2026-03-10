@@ -40,17 +40,18 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const { data: skusData, error } = await query
+    // Fetch SKUs and bundles in parallel (independent queries)
+    const [{ data: skusData, error }, { data: bundles }] = await Promise.all([
+      query,
+      supabase
+        .from('bundles')
+        .select('bundle_sku_id')
+        .eq('tenant_id', tenantId),
+    ])
 
     if (error) {
       throw error
     }
-
-    // Get bundle SKU IDs to exclude them from products list
-    const { data: bundles } = await supabase
-      .from('bundles')
-      .select('bundle_sku_id')
-      .eq('tenant_id', tenantId)
 
     const bundleSkuIds = new Set((bundles || []).map((b: { bundle_sku_id: string }) => b.bundle_sku_id))
 
