@@ -114,6 +114,7 @@ export interface InvoicePreview {
   last_shipments: PreviewShipment[]
   date_from: string
   date_to: string
+  stock_volume_m3?: number
 }
 
 export function useInvoicePreview() {

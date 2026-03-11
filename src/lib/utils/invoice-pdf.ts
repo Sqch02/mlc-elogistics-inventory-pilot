@@ -57,6 +57,14 @@ const LINE_TYPE_LABELS: Record<string, string> = {
   fuel_surcharge: 'Surcharge',
   returns: 'Retours',
   avoir: 'Avoir',
+  avoir_technique: 'Avoir',
+  avoir_incident_hme: 'Avoir',
+  avoir_incident_transport: 'Avoir',
+  avoir_reduction_volume: 'Avoir',
+  avoir_remboursement_surcharge: 'Avoir',
+  avoir_autre: 'Avoir',
+  charge: 'Dépense',
+  charge_custom: 'Dépense',
 }
 
 // HME brand colors

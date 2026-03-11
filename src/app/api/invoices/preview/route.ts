@@ -106,6 +106,17 @@ export async function POST(request: NextRequest) {
       0
     )
 
+    // Calculate current stock volume (m³)
+    const { data: volumeData } = await supabase
+      .from('stock_snapshots')
+      .select('qty_current, skus!inner(volume_m3)')
+      .eq('tenant_id', tenantId)
+
+    const stockVolumeM3 = (volumeData || []).reduce((sum: number, row: { qty_current: number; skus: { volume_m3: number | null } }) => {
+      const vol = row.skus?.volume_m3 || 0
+      return sum + (row.qty_current * vol)
+    }, 0)
+
     // Get first 100 shipments for preview table
     const { data: shipments } = await supabase
       .from('shipments')
@@ -139,6 +150,7 @@ export async function POST(request: NextRequest) {
       last_shipments: ((lastShipments || []) as PreviewShipment[]).reverse(),
       date_from,
       date_to,
+      stock_volume_m3: Math.round(stockVolumeM3 * 100) / 100,
     })
   } catch (error) {
     console.error('Invoice preview error:', error)

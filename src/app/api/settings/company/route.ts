@@ -32,6 +32,13 @@ export async function GET() {
       return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
     }
 
+    // Also fetch tenant (client) info for PDF invoices
+    const { data: tenantData } = await adminClient
+      .from('tenants')
+      .select('name, address, postal_code, city, country, vat_number')
+      .eq('id', tenantId)
+      .single()
+
     return NextResponse.json({
       company_name: data?.company_name || '',
       company_address: data?.company_address || '',
@@ -46,6 +53,12 @@ export async function GET() {
       invoice_bank_details: data?.invoice_bank_details || '',
       invoice_prefix: data?.invoice_prefix || 'FAC',
       invoice_next_number: data?.invoice_next_number || 1,
+      client_name: tenantData?.name || '',
+      client_address: tenantData?.address || '',
+      client_postal_code: tenantData?.postal_code || '',
+      client_city: tenantData?.city || '',
+      client_country: tenantData?.country || '',
+      client_vat_number: tenantData?.vat_number || '',
     })
   } catch (error) {
     console.error('Company settings GET error:', error)

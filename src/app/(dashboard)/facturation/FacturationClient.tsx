@@ -33,12 +33,19 @@ interface CompanySettings {
   invoice_bank_details: string
   invoice_prefix: string
   invoice_next_number: number
+  client_name?: string
+  client_address?: string
+  client_postal_code?: string
+  client_city?: string
+  client_country?: string
+  client_vat_number?: string
 }
 
 function formatMonth(month: string) {
   const [year, monthNum] = month.split('-')
   const date = new Date(parseInt(year), parseInt(monthNum) - 1)
-  return date.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+  const str = date.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+  return str.charAt(0).toUpperCase() + str.slice(1)
 }
 
 function formatDate(dateStr: string) {
@@ -341,7 +348,7 @@ export function FacturationClient() {
     const dateTo = `${invoice.month}-${String(lastDay).padStart(2, '0')}`
 
     const shipmentCount = invoice.invoice_lines
-      .filter(l => l.line_type === 'shipping')
+      .filter(l => l.line_type === 'shipping' || l.line_type === 'returns')
       .reduce((sum, l) => sum + l.shipment_count, 0)
 
     const pdfData: InvoicePDFData = {
@@ -362,6 +369,14 @@ export function FacturationClient() {
         email: companySettings.company_email,
         phone: companySettings.company_phone,
       },
+      client: companySettings.client_name ? {
+        name: companySettings.client_name,
+        address: companySettings.client_address,
+        postalCode: companySettings.client_postal_code,
+        city: companySettings.client_city,
+        country: companySettings.client_country,
+        vatNumber: companySettings.client_vat_number,
+      } : undefined,
       lines: invoice.invoice_lines.map(line => ({
         lineType: line.line_type,
         description: line.description || undefined,
@@ -579,7 +594,10 @@ export function FacturationClient() {
                         <TableCell className="font-medium whitespace-nowrap">
                           {formatMonth(inv.month)}
                           {shipmentCount > 0 && (
-                            <span className="text-muted-foreground text-xs ml-2">({shipmentCount} exp.)</span>
+                            <span className="text-muted-foreground text-xs ml-2">
+                              {shipmentCount} exp.{' '}
+                              <span className="text-purple-600">({(subtotalHt / shipmentCount).toFixed(2)} €/exp.)</span>
+                            </span>
                           )}
                         </TableCell>
                         <TableCell className="text-muted-foreground hidden sm:table-cell">{formatDate(inv.created_at)}</TableCell>
@@ -591,8 +609,8 @@ export function FacturationClient() {
                             {inv.status === 'sent' ? 'Envoyée' : inv.status === 'paid' ? 'Payée' : 'Brouillon'}
                           </Badge>
                           {inv.missing_pricing_count > 0 && (
-                            <Badge variant="warning" className="text-xs ml-1">
-                              {inv.missing_pricing_count} manq.
+                            <Badge variant="warning" className="text-xs ml-1" title={`${inv.missing_pricing_count} expéditions sans règle de tarif — non facturées car aucun prix trouvé pour leur combinaison transporteur/destination/poids`}>
+                              {inv.missing_pricing_count} sans tarif
                             </Badge>
                           )}
                         </TableCell>
@@ -823,7 +841,7 @@ export function FacturationClient() {
           ) : previewMutation.data ? (
             <div className="flex-1 overflow-hidden flex flex-col space-y-4">
               {/* Stats summary */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <div className="bg-muted/50 rounded-lg p-3">
                   <p className="text-xs text-muted-foreground">Expéditions</p>
                   <p className="text-xl font-bold">{previewMutation.data.shipment_count.toLocaleString('fr-FR')}</p>
@@ -836,11 +854,18 @@ export function FacturationClient() {
                   <p className="text-xs text-muted-foreground">Retours</p>
                   <p className="text-xl font-bold">{previewMutation.data.returns_count}</p>
                 </div>
+                <div className="bg-purple-50 rounded-lg p-3">
+                  <p className="text-xs text-muted-foreground">Volume stock</p>
+                  <p className="text-xl font-bold text-purple-600">{(previewMutation.data.stock_volume_m3 || 0).toFixed(2)} m³</p>
+                </div>
                 <div className={`rounded-lg p-3 ${previewMutation.data.missing_pricing > 0 ? 'bg-amber-50' : 'bg-muted/50'}`}>
                   <p className="text-xs text-muted-foreground">Sans tarif</p>
                   <p className={`text-xl font-bold ${previewMutation.data.missing_pricing > 0 ? 'text-amber-600' : ''}`}>
                     {previewMutation.data.missing_pricing}
                   </p>
+                  {previewMutation.data.missing_pricing > 0 && (
+                    <p className="text-[10px] text-amber-600 mt-0.5">non facturées</p>
+                  )}
                 </div>
               </div>
 
