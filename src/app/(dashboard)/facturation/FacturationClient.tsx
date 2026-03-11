@@ -166,7 +166,7 @@ export function FacturationClient() {
 
     addAvoirMutation.mutate({
       invoiceId: avoirInvoiceId,
-      line_type: 'avoir',
+      line_type: avoirType,
       description: fullDescription,
       amount,
     }, {

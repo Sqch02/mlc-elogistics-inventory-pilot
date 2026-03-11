@@ -7,6 +7,7 @@ import {
   formatWeightBracket,
   buildShippingDescription,
 } from '@/lib/utils/invoice-calculations'
+import { getDestination } from '@/lib/utils/pricing'
 
 interface TenantSettings {
   invoice_prefix: string | null
@@ -26,6 +27,7 @@ interface Shipment {
 
 interface PricingRule {
   carrier: string
+  destination: string | null
   weight_min_grams: number
   weight_max_grams: number
   price_eur: number
@@ -187,7 +189,7 @@ export async function POST(request: NextRequest) {
     // Get pricing rules for grouping
     const { data: pricingRules } = await supabase
       .from('pricing_rules')
-      .select('carrier, weight_min_grams, weight_max_grams, price_eur')
+      .select('carrier, destination, weight_min_grams, weight_max_grams, price_eur')
       .eq('tenant_id', tenantId)
 
     // Group shipments by destination zone + delivery type + weight bracket
@@ -215,9 +217,12 @@ export async function POST(request: NextRequest) {
         return
       }
 
+      const destination = getDestination(shipment.country_code, shipment.carrier, shipment.service_point_id)
+
       const rule = (pricingRules as PricingRule[] | null)?.find(
         (r: PricingRule) =>
           r.carrier.toLowerCase() === shipment.carrier.toLowerCase() &&
+          r.destination === destination &&
           r.weight_min_grams <= shipment.weight_grams &&
           r.weight_max_grams >= shipment.weight_grams
       )
