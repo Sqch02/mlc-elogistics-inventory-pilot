@@ -119,7 +119,7 @@ export function FacturationClient() {
   const addAvoirMutation = useAddAvoirLine()
   const deleteAvoirMutation = useDeleteAvoirLine()
 
-  const allInvoices = data?.invoices || []
+  const allInvoices = (data?.invoices || []).filter(inv => !isClient || inv.status !== 'draft')
   const invoices = statusFilter === 'all'
     ? allInvoices
     : allInvoices.filter(inv => inv.status === statusFilter)
@@ -435,7 +435,7 @@ export function FacturationClient() {
       {/* Status Filter Pills */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs text-muted-foreground font-medium">Statut:</span>
-        {(Object.keys(STATUS_LABELS) as InvoiceStatus[]).map((status) => {
+        {(Object.keys(STATUS_LABELS) as InvoiceStatus[]).filter(s => !isClient || s !== 'draft').map((status) => {
           const count = status === 'all'
             ? allInvoices.length
             : allInvoices.filter(inv => inv.status === status).length
