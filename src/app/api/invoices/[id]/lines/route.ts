@@ -63,8 +63,9 @@ export async function POST(
     const billingConfig = billingConfigData as { vat_rate_pct: number } | null
     const vatRate = (billingConfig?.vat_rate_pct ?? 20) / 100
 
-    // Create the avoir line (negative amounts)
-    const totalEur = -amount
+    // Avoir = negative, Charge = positive
+    const isCharge = line_type.startsWith('charge')
+    const totalEur = isCharge ? amount : -amount
     const vatAmount = totalEur * vatRate
 
     const { data: newLine, error: insertError } = await supabase
@@ -163,10 +164,10 @@ export async function DELETE(
       return NextResponse.json({ error: 'Ligne non trouvée' }, { status: 404 })
     }
 
-    // Only allow deleting manual avoir lines
-    if (!line.line_type?.startsWith('avoir')) {
+    // Only allow deleting manual lines (avoir or charge)
+    if (!line.line_type?.startsWith('avoir') && !line.line_type?.startsWith('charge')) {
       return NextResponse.json(
-        { error: 'Seules les lignes d\'avoir peuvent être supprimées manuellement' },
+        { error: 'Seules les lignes manuelles (avoir/dépense) peuvent être supprimées' },
         { status: 400 }
       )
     }

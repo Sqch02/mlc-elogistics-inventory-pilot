@@ -54,6 +54,14 @@ const lineTypeConfig: Record<string, { icon: React.ElementType; label: string; c
   fuel_surcharge: { icon: Fuel, label: 'Carburant', color: 'text-amber-600 bg-amber-100' },
   returns: { icon: RotateCcw, label: 'Retours', color: 'text-gray-600 bg-gray-100' },
   avoir: { icon: BadgePercent, label: 'Avoir', color: 'text-red-600 bg-red-100' },
+  avoir_technique: { icon: BadgePercent, label: 'Avoir', color: 'text-red-600 bg-red-100' },
+  avoir_incident_hme: { icon: BadgePercent, label: 'Avoir', color: 'text-red-600 bg-red-100' },
+  avoir_incident_transport: { icon: BadgePercent, label: 'Avoir', color: 'text-red-600 bg-red-100' },
+  avoir_reduction_volume: { icon: BadgePercent, label: 'Avoir', color: 'text-red-600 bg-red-100' },
+  avoir_remboursement_surcharge: { icon: BadgePercent, label: 'Avoir', color: 'text-red-600 bg-red-100' },
+  avoir_autre: { icon: BadgePercent, label: 'Avoir', color: 'text-red-600 bg-red-100' },
+  charge: { icon: Receipt, label: 'Dépense', color: 'text-blue-600 bg-blue-100' },
+  charge_custom: { icon: Receipt, label: 'Dépense', color: 'text-blue-600 bg-blue-100' },
 }
 
 // Predefined avoir types
@@ -89,6 +97,10 @@ export function FacturationClient() {
   const [avoirType, setAvoirType] = useState(AVOIR_TYPES[0].value)
   const [avoirDescription, setAvoirDescription] = useState('')
   const [avoirAmount, setAvoirAmount] = useState('')
+  const [chargeDialogOpen, setChargeDialogOpen] = useState(false)
+  const [chargeInvoiceId, setChargeInvoiceId] = useState<string | null>(null)
+  const [chargeDescription, setChargeDescription] = useState('')
+  const [chargeAmount, setChargeAmount] = useState('')
 
   const { isClient } = useTenant()
   const { data, isLoading, isFetching } = useInvoices()
@@ -172,6 +184,32 @@ export function FacturationClient() {
     }, {
       onSuccess: () => {
         setAvoirDialogOpen(false)
+      },
+    })
+  }
+
+  const openChargeDialog = (invoiceId: string) => {
+    setChargeInvoiceId(invoiceId)
+    setChargeDescription('')
+    setChargeAmount('')
+    setChargeDialogOpen(true)
+  }
+
+  const handleAddCharge = () => {
+    if (!chargeInvoiceId || !chargeAmount || !chargeDescription) return
+    const amount = parseFloat(chargeAmount.replace(',', '.'))
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Montant invalide')
+      return
+    }
+    addAvoirMutation.mutate({
+      invoiceId: chargeInvoiceId,
+      line_type: 'charge_custom',
+      description: chargeDescription,
+      amount,
+    }, {
+      onSuccess: () => {
+        setChargeDialogOpen(false)
       },
     })
   }
@@ -516,7 +554,7 @@ export function FacturationClient() {
               <TableBody>
                 {invoices.map((inv) => {
                   const isExpanded = expandedInvoices.has(inv.id)
-                  const shipmentCount = inv.invoice_lines.filter(l => l.line_type === 'shipping').reduce((sum, l) => sum + l.shipment_count, 0)
+                  const shipmentCount = inv.invoice_lines.filter(l => l.line_type === 'shipping' || l.line_type === 'returns').reduce((sum, l) => sum + l.shipment_count, 0)
                   // Use new fields if available, otherwise calculate from total_eur
                   const subtotalHt = inv.subtotal_ht ? Number(inv.subtotal_ht) : Number(inv.total_eur)
                   const vatAmount = inv.vat_amount ? Number(inv.vat_amount) : subtotalHt * 0.20
@@ -665,9 +703,11 @@ export function FacturationClient() {
                                     {inv.invoice_lines.map((line, idx) => {
                                       const ltConfig = lineTypeConfig[line.line_type || 'shipping'] || { icon: FileText, label: line.line_type, color: 'text-gray-600 bg-gray-100' }
                                       const Icon = ltConfig.icon
-                                      const isAvoir = line.line_type === 'avoir'
+                                      const isAvoir = line.line_type?.startsWith('avoir')
+                                      const isCharge = line.line_type?.startsWith('charge')
+                                      const isManualLine = isAvoir || isCharge
                                       return (
-                                        <TableRow key={idx} className={`text-sm ${isAvoir ? 'bg-red-50/50' : ''}`}>
+                                        <TableRow key={idx} className={`text-sm ${isAvoir ? 'bg-red-50/50' : isCharge ? 'bg-blue-50/50' : ''}`}>
                                           <TableCell className="py-2">
                                             <div className="flex items-center gap-1.5">
                                               <div className={`p-1 rounded ${ltConfig.color}`}>
@@ -677,22 +717,22 @@ export function FacturationClient() {
                                             </div>
                                           </TableCell>
                                           <TableCell className="py-2 text-xs text-muted-foreground max-w-[300px]">
-                                            <span className={isAvoir ? 'whitespace-pre-line' : 'truncate block'}>
+                                            <span className={isManualLine ? 'whitespace-pre-line' : 'truncate block'}>
                                               {line.description || (line.carrier ? `${formatCarrierName(line.carrier)} ${line.weight_min_grams}-${line.weight_max_grams}g` : '-')}
                                             </span>
                                           </TableCell>
                                           <TableCell className="py-2 text-xs text-right">
-                                            {isAvoir ? '1' : (line.quantity || line.shipment_count || 1)}
+                                            {isManualLine ? '1' : (line.quantity || line.shipment_count || 1)}
                                           </TableCell>
                                           <TableCell className="py-2 text-xs text-right">
-                                            {isAvoir ? '0,00 €' : `${Number(line.unit_price_eur || 0).toFixed(2)} €`}
+                                            {isManualLine ? '0,00 €' : `${Number(line.unit_price_eur || 0).toFixed(2)} €`}
                                           </TableCell>
-                                          <TableCell className={`py-2 text-xs text-right font-medium ${isAvoir ? 'text-red-600' : ''}`}>
+                                          <TableCell className={`py-2 text-xs text-right font-medium ${isAvoir ? 'text-red-600' : isCharge ? 'text-blue-600' : ''}`}>
                                             {Number(line.total_eur).toFixed(2)} €
                                           </TableCell>
                                           {inv.status === 'draft' && !isClient && (
                                             <TableCell className="py-2 w-8">
-                                              {isAvoir && (
+                                              {isManualLine && (
                                                 <Button
                                                   variant="ghost"
                                                   size="icon"
@@ -728,9 +768,18 @@ export function FacturationClient() {
                                 </Table>
                               </div>
 
-                              {/* Add avoir button */}
+                              {/* Add avoir / charge buttons */}
                               {inv.status === 'draft' && !isClient && (
-                                <div className="flex justify-end">
+                                <div className="flex justify-end gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                                    onClick={() => openChargeDialog(inv.id)}
+                                  >
+                                    <Plus className="mr-1.5 h-3.5 w-3.5" />
+                                    Ajouter une dépense
+                                  </Button>
                                   <Button
                                     variant="outline"
                                     size="sm"
@@ -950,6 +999,62 @@ export function FacturationClient() {
             >
               {addAvoirMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Ajouter l&apos;avoir
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Charge Dialog */}
+      <Dialog open={chargeDialogOpen} onOpenChange={setChargeDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Ajouter une dépense</DialogTitle>
+            <DialogDescription>
+              Ajouter une ligne de dépense (montant positif) à la facture
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="charge-desc">Description</Label>
+              <Textarea
+                id="charge-desc"
+                value={chargeDescription}
+                onChange={(e) => setChargeDescription(e.target.value)}
+                placeholder="Ex: Frais de packaging spécial, Consommables, etc."
+                rows={3}
+                className="text-sm"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="charge-amount">Montant (en €)</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">+</span>
+                <input
+                  id="charge-amount"
+                  type="text"
+                  inputMode="decimal"
+                  value={chargeAmount}
+                  onChange={(e) => setChargeAmount(e.target.value)}
+                  placeholder="0,00"
+                  className="w-full h-9 rounded-md border border-input bg-background pl-7 pr-8 text-sm"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">€</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Ce montant sera ajouté au total de la facture.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setChargeDialogOpen(false)}>
+              Annuler
+            </Button>
+            <Button
+              onClick={handleAddCharge}
+              disabled={addAvoirMutation.isPending || !chargeAmount || !chargeDescription}
+            >
+              {addAvoirMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Ajouter la dépense
             </Button>
           </DialogFooter>
         </DialogContent>
