@@ -7,5 +7,7 @@ ALTER TABLE invoice_lines DROP CONSTRAINT IF EXISTS invoice_lines_line_type_chec
 ALTER TABLE invoice_lines ADD CONSTRAINT invoice_lines_line_type_check
   CHECK (line_type IN (
     'shipping', 'software', 'storage', 'reception', 'fuel_surcharge', 'returns',
-    'avoir_remise', 'avoir_retour', 'avoir_autre', 'avoir', 'charge'
+    'avoir', 'avoir_technique', 'avoir_incident_hme', 'avoir_incident_transport',
+    'avoir_reduction_volume', 'avoir_remboursement_surcharge', 'avoir_autre',
+    'charge', 'charge_custom'
   ));
