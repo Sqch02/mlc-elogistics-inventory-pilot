@@ -111,12 +111,12 @@ export function useCarriers() {
   return useQuery({
     queryKey: ['carriers'],
     queryFn: async () => {
-      const response = await fetch('/api/shipments?limit=1000')
+      const response = await fetch('/api/shipments/carriers')
       if (!response.ok) throw new Error('Failed to fetch carriers')
       const data = await response.json()
-      return [...new Set(data.shipments.map((s: Shipment) => s.carrier).filter(Boolean))] as string[]
+      return (data.carriers || []) as string[]
     },
-    staleTime: 10 * 60 * 1000, // 10 minutes - carriers don't change often
+    staleTime: 10 * 60 * 1000,
   })
 }
 
