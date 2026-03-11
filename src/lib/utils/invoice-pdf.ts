@@ -351,8 +351,8 @@ export async function generateInvoicePDF(data: InvoicePDFData): Promise<jsPDF> {
     yPos += 28
   }
 
-  // New page if not enough space for conditions
-  if (yPos > pageHeight - 55) {
+  // New page if not enough space for conditions (need ~80mm for conditions+RIB+intérêts)
+  if (yPos > pageHeight - 85) {
     doc.addPage()
     yPos = margin + 10
   }
@@ -361,56 +361,96 @@ export async function generateInvoicePDF(data: InvoicePDFData): Promise<jsPDF> {
   const condColW = (contentWidth - 15) / 2
 
   // Conditions (left)
-  doc.setFontSize(7.5)
+  doc.setFontSize(9)
   doc.setTextColor(...GOLD)
   doc.setFont('helvetica', 'bold')
-  doc.text('CONDITIONS', margin, yPos)
-  yPos += 5
+  doc.text('Conditions', margin, yPos)
+  yPos += 6
 
-  doc.setFont('helvetica', 'normal')
   doc.setFontSize(7)
   doc.setTextColor(...DARK)
 
   let condY = yPos
-  const defaultConditions = [
-    'Conditions de règlement : 10 jours',
-    'Mode de règlement : Virement bancaire',
-    'Intérêts de retard : 10 points le taux légal en vigueur',
-  ]
 
-  const conditionsList = data.paymentTerms
-    ? data.paymentTerms.split('\n').filter(Boolean)
-    : defaultConditions
+  // Structured conditions with bold labels
+  const condItems: { label: string; value: string }[] = data.paymentTerms
+    ? data.paymentTerms.split('\n').filter(Boolean).map(line => {
+        const [label, ...rest] = line.split(':')
+        return rest.length > 0 ? { label: label.trim() + ' :', value: rest.join(':').trim() } : { label: '', value: line }
+      })
+    : [
+        { label: 'Conditions de règlement :', value: 'À réception' },
+        { label: 'Mode de règlement :', value: 'Prélèvement' },
+      ]
 
-  conditionsList.forEach(term => {
-    doc.text(term, margin, condY)
-    condY += 3.5
+  condItems.forEach(item => {
+    if (item.label) {
+      doc.setFont('helvetica', 'bold')
+      doc.text(item.label, margin, condY)
+      const labelW = doc.getTextWidth(item.label)
+      doc.setFont('helvetica', 'normal')
+      doc.text(`  ${item.value}`, margin + labelW, condY)
+    } else {
+      doc.setFont('helvetica', 'normal')
+      doc.text(item.value, margin, condY)
+    }
+    condY += 4
   })
 
+  // Intérêts de retard (long legal text wrapped)
+  condY += 1
+  doc.setFont('helvetica', 'bold')
+  doc.text('Intérêts de retard :', margin, condY)
+  condY += 4
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(6.5)
+  const lateText = 'Application de la législation en vigueur sur les retards de paiement : pénalité calculée sur la base du taux légal en vigueur majoré de 10 points ainsi qu\'une somme forfaitaire de quarante euros due au titre des frais de recouvrement.'
+  const lateLines = doc.splitTextToSize(lateText, condColW)
+  doc.text(lateLines, margin, condY)
+  condY += lateLines.length * 3 + 3
+
+  // Notes
   if (data.company.email) {
     condY += 2
+    doc.setFontSize(7)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...DARK)
+    doc.text('Notes :', margin, condY)
+    condY += 4
+    doc.setFont('helvetica', 'normal')
     doc.setTextColor(...GRAY)
     doc.setFontSize(6.5)
-    doc.text(`Notes : ${data.company.email}`, margin, condY)
+    doc.text(`Pour toute question concernant cette facture, écrivez-nous à`, margin, condY)
+    condY += 3
+    doc.text(`${data.company.email}.`, margin, condY)
   }
 
   // RIB (right)
   if (data.bankDetails) {
     const ribX = margin + condColW + 15
-    doc.setFontSize(7.5)
+    doc.setFontSize(9)
     doc.setTextColor(...GOLD)
     doc.setFont('helvetica', 'bold')
-    doc.text('RIB', ribX, yPos - 5)
+    doc.text('RIB', ribX, yPos - 6)
 
-    doc.setFont('helvetica', 'normal')
     doc.setFontSize(7)
     doc.setTextColor(...DARK)
 
     let ribY = yPos
     const bankLines = data.bankDetails.split('\n').filter(Boolean)
     bankLines.forEach(line => {
-      doc.text(line, ribX, ribY)
-      ribY += 3.5
+      const [label, ...rest] = line.split(':')
+      if (rest.length > 0) {
+        doc.setFont('helvetica', 'bold')
+        doc.text(label.trim() + ' :', ribX, ribY)
+        const labelW = doc.getTextWidth(label.trim() + ' :')
+        doc.setFont('helvetica', 'normal')
+        doc.text(`  ${rest.join(':').trim()}`, ribX + labelW, ribY)
+      } else {
+        doc.setFont('helvetica', 'normal')
+        doc.text(line, ribX, ribY)
+      }
+      ribY += 4
     })
   }
 
