@@ -35,7 +35,7 @@ export async function GET() {
     // Also fetch tenant (client) info for PDF invoices
     const { data: tenantData } = await adminClient
       .from('tenants')
-      .select('name, address, postal_code, city, country, vat_number')
+      .select('name, address, postal_code, city, country, vat_number, siren, siret')
       .eq('id', tenantId)
       .single()
 
@@ -59,6 +59,8 @@ export async function GET() {
       client_city: tenantData?.city || '',
       client_country: tenantData?.country || '',
       client_vat_number: tenantData?.vat_number || '',
+      client_siren: tenantData?.siren || '',
+      client_siret: tenantData?.siret || '',
     })
   } catch (error) {
     console.error('Company settings GET error:', error)

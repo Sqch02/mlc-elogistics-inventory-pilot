@@ -50,6 +50,13 @@ export function PricingClient() {
   const { data, isLoading, isFetching, refetch } = usePricing()
   const { data: shipmentCarriers = [] } = useCarriers()
 
+  const STANDARD_CARRIERS = [
+    'Colissimo', 'Chronopost', 'Mondial Relay', 'Delivengo',
+    'DPD', 'GLS', 'UPS', 'FedEx', 'TNT', 'DHL',
+    'Colis Privé', 'Relais Colis', 'Lettre Suivie',
+  ]
+  const allCarriers = [...new Set([...STANDARD_CARRIERS, ...shipmentCarriers])].sort()
+
   const createMutation = useCreatePricingRule()
   const updateMutation = useUpdatePricingRule()
   const deleteMutation = useDeletePricingRule()
@@ -368,18 +375,17 @@ export function PricingClient() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Transporteur *</label>
-                <Select value={formCarrier} onValueChange={setFormCarrier}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Sélectionner" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {shipmentCarriers.map((carrier) => (
-                      <SelectItem key={carrier} value={carrier}>
-                        {carrier}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Input
+                  list="carrier-list-create"
+                  value={formCarrier}
+                  onChange={(e) => setFormCarrier(e.target.value)}
+                  placeholder="Saisir ou sélectionner"
+                />
+                <datalist id="carrier-list-create">
+                  {allCarriers.map((carrier) => (
+                    <option key={carrier} value={carrier} />
+                  ))}
+                </datalist>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Destination *</label>
@@ -453,18 +459,17 @@ export function PricingClient() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Transporteur *</label>
-                <Select value={formCarrier} onValueChange={setFormCarrier}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Sélectionner" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {shipmentCarriers.map((carrier) => (
-                      <SelectItem key={carrier} value={carrier}>
-                        {carrier}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Input
+                  list="carrier-list-edit"
+                  value={formCarrier}
+                  onChange={(e) => setFormCarrier(e.target.value)}
+                  placeholder="Saisir ou sélectionner"
+                />
+                <datalist id="carrier-list-edit">
+                  {allCarriers.map((carrier) => (
+                    <option key={carrier} value={carrier} />
+                  ))}
+                </datalist>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Destination *</label>

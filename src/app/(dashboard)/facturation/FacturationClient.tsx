@@ -39,6 +39,8 @@ interface CompanySettings {
   client_city?: string
   client_country?: string
   client_vat_number?: string
+  client_siren?: string
+  client_siret?: string
 }
 
 function formatMonth(month: string) {
@@ -376,6 +378,8 @@ export function FacturationClient() {
         city: companySettings.client_city,
         country: companySettings.client_country,
         vatNumber: companySettings.client_vat_number,
+        siren: companySettings.client_siren,
+        siret: companySettings.client_siret,
       } : undefined,
       lines: invoice.invoice_lines.map(line => ({
         lineType: line.line_type,

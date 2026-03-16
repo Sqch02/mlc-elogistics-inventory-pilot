@@ -27,6 +27,8 @@ export interface InvoicePDFData {
     postalCode?: string
     country?: string
     vatNumber?: string
+    siren?: string
+    siret?: string
   }
   lines: Array<{
     lineType?: string
@@ -216,10 +218,16 @@ export async function generateInvoicePDF(data: InvoicePDFData): Promise<jsPDF> {
       doc.text(`${data.client.postalCode || ''} ${data.client.city || ''}`.trim(), rightColX, destY); destY += 3.5
     }
     if (data.client.country) { doc.text(data.client.country, rightColX, destY); destY += 3.5 }
-    if (data.client.vatNumber) {
+    if (data.client.siret || data.client.vatNumber) {
       destY += 1
       doc.setTextColor(...GRAY)
-      doc.text(`TVA: ${data.client.vatNumber}`, rightColX, destY)
+      if (data.client.siret) {
+        doc.text(`SIRET: ${data.client.siret}`, rightColX, destY)
+        destY += 3.5
+      }
+      if (data.client.vatNumber) {
+        doc.text(`TVA: ${data.client.vatNumber}`, rightColX, destY)
+      }
     }
   }
 
