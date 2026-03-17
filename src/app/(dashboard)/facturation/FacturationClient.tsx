@@ -341,8 +341,8 @@ export function FacturationClient() {
     // Use new fields if available, otherwise calculate from total_eur
     const totalHT = invoice.subtotal_ht ? Number(invoice.subtotal_ht) : Number(invoice.total_eur)
     const tvaRate = 20
-    const tva = invoice.vat_amount ? Number(invoice.vat_amount) : totalHT * (tvaRate / 100)
-    const totalTTC = invoice.total_ttc ? Number(invoice.total_ttc) : totalHT + tva
+    const tva = invoice.vat_amount ? Number(invoice.vat_amount) : Math.round(totalHT * (tvaRate / 100) * 100) / 100
+    const totalTTC = invoice.total_ttc ? Number(invoice.total_ttc) : Math.round((totalHT + tva) * 100) / 100
 
     // Derive date range from month
     const lastDay = new Date(year, monthNum, 0).getDate()
@@ -576,8 +576,8 @@ export function FacturationClient() {
                   const shipmentCount = inv.invoice_lines.filter(l => l.line_type === 'shipping' || l.line_type === 'returns').reduce((sum, l) => sum + l.shipment_count, 0)
                   // Use new fields if available, otherwise calculate from total_eur
                   const subtotalHt = inv.subtotal_ht ? Number(inv.subtotal_ht) : Number(inv.total_eur)
-                  const vatAmount = inv.vat_amount ? Number(inv.vat_amount) : subtotalHt * 0.20
-                  const totalTtc = inv.total_ttc ? Number(inv.total_ttc) : subtotalHt * 1.20
+                  const vatAmount = inv.vat_amount ? Number(inv.vat_amount) : Math.round(subtotalHt * 0.20 * 100) / 100
+                  const totalTtc = inv.total_ttc ? Number(inv.total_ttc) : Math.round((subtotalHt + vatAmount) * 100) / 100
 
                   // Group lines by type
                   const linesByType = inv.invoice_lines.reduce((acc, line) => {

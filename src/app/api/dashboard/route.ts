@@ -105,13 +105,11 @@ export async function GET(request: NextRequest) {
         .order('qty_current')
         .limit(10),
 
-      supabase
-        .from('shipments')
-        .select('shipped_at, computed_cost_eur')
-        .eq('tenant_id', tenantId)
-        .gte('shipped_at', startOfMonth.toISOString())
-        .lte('shipped_at', endOfMonth.toISOString())
-        .order('shipped_at'),
+      supabaseUntyped.rpc('get_daily_shipments_aggregated', {
+        p_tenant_id: tenantId,
+        p_start_date: startOfMonth.toISOString(),
+        p_end_date: endOfMonth.toISOString(),
+      }),
 
       // Claims created yesterday
       supabase
@@ -145,46 +143,13 @@ export async function GET(request: NextRequest) {
     const costYesterday = costYesterdayData?.reduce((sum, s) => sum + (Number(s.computed_cost_eur) || 0), 0) || 0
     // criticalStockCount will be calculated after filtering bundles below
 
-    // Group daily shipments (with pagination to get all data)
-    const allDailyShipments: { shipped_at: string; computed_cost_eur: number | null }[] = []
-
-    // First batch from parallel query
-    if (dailyShipmentsResult.data) {
-      allDailyShipments.push(...(dailyShipmentsResult.data as { shipped_at: string; computed_cost_eur: number | null }[]))
-    }
-
-    // If we got 1000 (the limit), fetch more
-    if (dailyShipmentsResult.data?.length === 1000) {
-      let offset = 1000
-      let hasMore = true
-      while (hasMore) {
-        const { data: moreDailyShipments } = await supabase
-          .from('shipments')
-          .select('shipped_at, computed_cost_eur')
-          .eq('tenant_id', tenantId)
-          .gte('shipped_at', startOfMonth.toISOString())
-          .lte('shipped_at', endOfMonth.toISOString())
-          .order('shipped_at')
-          .range(offset, offset + 999)
-
-        if (moreDailyShipments && moreDailyShipments.length > 0) {
-          allDailyShipments.push(...(moreDailyShipments as { shipped_at: string; computed_cost_eur: number | null }[]))
-          hasMore = moreDailyShipments.length === 1000
-          offset += 1000
-        } else {
-          hasMore = false
-        }
-      }
-    }
-
+    // Build daily shipments map from RPC aggregation
+    const dailyAgg = dailyShipmentsResult.data as { day: string; shipments: number; cost: number }[] | null
     const shipmentsByDay = new Map<string, { shipments: number; cost: number }>()
-    for (const s of allDailyShipments) {
-      const day = s.shipped_at.split('T')[0]
-      const existing = shipmentsByDay.get(day) || { shipments: 0, cost: 0 }
-      shipmentsByDay.set(day, {
-        shipments: existing.shipments + 1,
-        cost: existing.cost + (Number(s.computed_cost_eur) || 0)
-      })
+    if (dailyAgg) {
+      for (const row of dailyAgg) {
+        shipmentsByDay.set(row.day, { shipments: Number(row.shipments), cost: Number(row.cost) })
+      }
     }
 
     const chartData = []
@@ -260,7 +225,7 @@ export async function GET(request: NextRequest) {
       lastSync: { date: new Date().toISOString(), status: 'ok' }
     }, {
       headers: {
-        'Cache-Control': 'private, no-store'
+        'Cache-Control': 'private, max-age=300, stale-while-revalidate=600'
       }
     })
   } catch (error) {

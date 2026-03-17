@@ -4,7 +4,7 @@ import { requireTenant } from '@/lib/supabase/auth'
 
 // In-memory cache: key = tenantId:from:to, value = { data, timestamp }
 const analyticsCache = new Map<string, { data: unknown; timestamp: number }>()
-const CACHE_TTL_MS = 60_000 // 60 seconds
+const CACHE_TTL_MS = 300_000 // 5 minutes
 
 interface MonthlyData {
   month: string
@@ -54,7 +54,7 @@ export async function GET(request: Request) {
     const cached = analyticsCache.get(cacheKey)
     if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
       return NextResponse.json(cached.data, {
-        headers: { 'Cache-Control': 'private, max-age=60, stale-while-revalidate=120', 'X-Cache': 'HIT' },
+        headers: { 'Cache-Control': 'private, max-age=300, stale-while-revalidate=600', 'X-Cache': 'HIT' },
       })
     }
 
@@ -423,7 +423,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json(responseData, {
       headers: {
-        'Cache-Control': 'private, max-age=60, stale-while-revalidate=120',
+        'Cache-Control': 'private, max-age=300, stale-while-revalidate=600',
         'X-Cache': 'MISS',
       },
     })

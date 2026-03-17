@@ -128,47 +128,41 @@ export async function GET(request: NextRequest) {
     const totalProductsVolume = products.reduce((sum, p) => sum + p.volume, 0)
     const totalBundlesVolume = bundlesSold.reduce((sum, b) => sum + b.volume, 0)
 
-    // Monthly breakdown for chart
+    // Build monthly breakdown from allItems (already in memory) — avoids N+1 queries
+    const monthlyMap = new Map<string, { products: number; bundles: number }>()
+    for (const item of allItems) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const shippedAt = (item as any).shipments?.shipped_at
+      if (!shippedAt) continue
+      const d = new Date(shippedAt)
+      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const existing = monthlyMap.get(monthKey) || { products: 0, bundles: 0 }
+      const qty = item.qty || 0
+      if (bundleSkuIds.has(item.sku_id)) {
+        existing.bundles += qty
+      } else {
+        existing.products += qty
+      }
+      monthlyMap.set(monthKey, existing)
+    }
+
+    // Fill in all months in the date range (including months with zero volume)
     const monthlyVolumes: MonthlyVolume[] = []
-    const currentDate = new Date(fromDate)
+    const currentDate = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1)
 
     while (currentDate <= toDate) {
-      const monthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
-      const monthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0, 23, 59, 59, 999)
       const monthKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`
       const monthLabel = currentDate.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }).toUpperCase()
-
-      // Get items for this specific month
-      const { data: monthItems } = await supabase
-        .from('shipment_items')
-        .select('sku_id, qty, shipments!inner(shipped_at)')
-        .eq('tenant_id', tenantId)
-        .gte('shipments.shipped_at', monthStart.toISOString())
-        .lte('shipments.shipped_at', monthEnd.toISOString())
-
-      let monthProducts = 0
-      let monthBundles = 0
-
-      for (const item of (monthItems || []) as { sku_id: string; qty: number | null }[]) {
-        const qty = item.qty || 0
-        const isBundle = bundleSkuIds.has(item.sku_id)
-
-        if (isBundle) {
-          monthBundles += qty
-        } else {
-          monthProducts += qty
-        }
-      }
+      const monthData = monthlyMap.get(monthKey) || { products: 0, bundles: 0 }
 
       monthlyVolumes.push({
         month: monthKey,
         label: monthLabel,
-        products: monthProducts,
-        bundles: monthBundles,
-        total: monthProducts + monthBundles,
+        products: monthData.products,
+        bundles: monthData.bundles,
+        total: monthData.products + monthData.bundles,
       })
 
-      // Move to next month
       currentDate.setMonth(currentDate.getMonth() + 1)
     }
 
@@ -207,7 +201,7 @@ export async function GET(request: NextRequest) {
       generatedAt: new Date().toISOString(),
     }, {
       headers: {
-        'Cache-Control': 'private, no-store',
+        'Cache-Control': 'private, max-age=300, stale-while-revalidate=600',
       },
     })
   } catch (error) {

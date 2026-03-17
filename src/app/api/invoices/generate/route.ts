@@ -312,10 +312,10 @@ export async function POST(request: NextRequest) {
     const fuelSurcharge = shippingTotalEur * (config.fuel_surcharge_pct / 100)
     const fuelSurchargeVat = fuelSurcharge * vatRate
 
-    // Calculate totals
-    const subtotalHt = softwareFee + storageFee + receptionFee + shippingTotalEur + fuelSurcharge
-    const totalVat = softwareVat + storageVat + receptionVat + shippingVat + fuelSurchargeVat
-    const totalTtc = subtotalHt + totalVat
+    // Calculate totals - round HT first, then compute TVA on rounded HT to avoid floating-point drift
+    const subtotalHt = Math.round((softwareFee + storageFee + receptionFee + shippingTotalEur + fuelSurcharge) * 100) / 100
+    const totalVat = Math.round(subtotalHt * vatRate * 100) / 100
+    const totalTtc = Math.round((subtotalHt + totalVat) * 100) / 100
 
     // Check if invoice already exists for this month
     const { data: existingInvoice } = await supabase
