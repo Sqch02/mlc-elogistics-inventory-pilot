@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, memo } from 'react'
+import { useState, useMemo, useEffect, memo } from 'react'
 import { Package, Boxes, TrendingUp, ArrowRight, Calendar, BarChart3, CalendarDays } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
@@ -130,14 +130,28 @@ export function ProductsAnalytics({ delay = 0 }: ProductsAnalyticsProps) {
   const [customFrom, setCustomFrom] = useState(defaultFrom)
   const [customTo, setCustomTo] = useState(defaultTo)
 
+  // Debounced versions of custom dates to avoid API calls on every keystroke
+  const [debouncedFrom, setDebouncedFrom] = useState(customFrom)
+  const [debouncedTo, setDebouncedTo] = useState(customTo)
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedFrom(customFrom), 300)
+    return () => clearTimeout(timer)
+  }, [customFrom])
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedTo(customTo), 300)
+    return () => clearTimeout(timer)
+  }, [customTo])
+
   const periodConfig = PERIODS.find(p => p.key === selectedPeriod)!
 
   const dateRange = useMemo(() => {
     if (selectedPeriod === 'custom') {
-      return { from: customFrom, to: customTo }
+      return { from: debouncedFrom, to: debouncedTo }
     }
     return getDateRange(periodConfig.months || 3)
-  }, [selectedPeriod, periodConfig.months, customFrom, customTo])
+  }, [selectedPeriod, periodConfig.months, debouncedFrom, debouncedTo])
 
   const { data, isLoading } = useProductsMetrics({
     from: dateRange.from,

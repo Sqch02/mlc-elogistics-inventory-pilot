@@ -12,10 +12,14 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status')
     const search = searchParams.get('search')
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
+    const limit = Math.max(1, Math.min(200, parseInt(searchParams.get('limit') || '50', 10)))
+    const from = (page - 1) * limit
+    const to = from + limit - 1
 
     let query = adminClient
       .from('inbound_restock')
-      .select('*, skus(id, sku_code, name)')
+      .select('*, skus(id, sku_code, name)', { count: 'exact' })
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
 
@@ -30,12 +34,24 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    query = query.range(from, to)
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await query as any
+    const { data, error, count } = await query as any
 
     if (error) throw error
 
-    return NextResponse.json({ data: data || [] })
+    const total = count ?? 0
+
+    return NextResponse.json({
+      data: data || [],
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    })
   } catch (error) {
     console.error('Inbound list error:', error)
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })

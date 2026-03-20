@@ -20,7 +20,7 @@ const badgeVariants = cva(
         success:
           "border-transparent bg-success/15 text-success",
         warning:
-          "border-transparent bg-warning/15 text-[#8B7118]",
+          "border-transparent bg-warning/15 text-[#6B5A14]",
         error:
           "border-transparent bg-error/15 text-error",
         muted:
