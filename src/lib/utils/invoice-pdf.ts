@@ -237,7 +237,7 @@ export async function generateInvoicePDF(data: InvoicePDFData): Promise<jsPDF> {
   doc.setFontSize(8.5)
   doc.setTextColor(...DARK)
   doc.setFont('helvetica', 'italic')
-  const shipCount = data.shipmentCount ?? data.lines.filter(l => l.lineType === 'shipping').reduce((s, l) => s + l.shipmentCount, 0)
+  const shipCount = data.shipmentCount ?? data.lines.filter(l => l.lineType === 'shipping' || l.lineType === 'returns').reduce((s, l) => s + l.shipmentCount, 0)
   const subtitle = `Prestation logistique du ${formatFrDate(dateFrom)} au ${formatFrDate(dateTo)} pour la marque ${data.client?.name || '—'} pour un total de ${shipCount} commandes expédiées.`
 
   const subtitleLines = doc.splitTextToSize(subtitle, contentWidth)

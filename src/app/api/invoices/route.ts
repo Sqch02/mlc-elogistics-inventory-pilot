@@ -9,10 +9,7 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams
     const month = searchParams.get('month')
-    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
-    const limit = Math.max(1, Math.min(200, parseInt(searchParams.get('limit') || '50', 10)))
-    const from = (page - 1) * limit
-    const to = from + limit - 1
+    const pageParam = searchParams.get('page')
 
     let query = supabase
       .from('invoices_monthly')
@@ -27,25 +24,40 @@ export async function GET(request: NextRequest) {
       query = query.eq('month', month)
     }
 
-    query = query.range(from, to)
+    // Only apply pagination when explicitly requested
+    if (pageParam) {
+      const page = Math.max(1, parseInt(pageParam, 10))
+      const limit = Math.max(1, Math.min(200, parseInt(searchParams.get('limit') || '50', 10)))
+      const from = (page - 1) * limit
+      const to = from + limit - 1
+      query = query.range(from, to)
 
-    const { data: invoices, error, count } = await query
+      const { data: invoices, error, count } = await query
+
+      if (error) {
+        throw error
+      }
+
+      const total = count ?? 0
+
+      return NextResponse.json({
+        invoices,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      })
+    }
+
+    const { data: invoices, error } = await query
 
     if (error) {
       throw error
     }
 
-    const total = count ?? 0
-
-    return NextResponse.json({
-      invoices,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
-    })
+    return NextResponse.json({ invoices })
   } catch (error) {
     console.error('Get invoices error:', error)
     return NextResponse.json(

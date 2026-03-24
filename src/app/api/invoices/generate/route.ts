@@ -295,22 +295,22 @@ export async function POST(request: NextRequest) {
 
     // 1. Software fee (fixed monthly)
     const softwareFee = config.software_fee_eur
-    const softwareVat = softwareFee * vatRate
+    const softwareVat = Math.round(softwareFee * vatRate * 100) / 100
 
     // 2. Storage fee (per m3)
     const storageFee = storage_m3 * config.storage_fee_per_m3
-    const storageVat = storageFee * vatRate
+    const storageVat = Math.round(storageFee * vatRate * 100) / 100
 
     // 3. Reception fee (per 15min quarter)
     const receptionFee = reception_quarters * config.reception_fee_per_15min
-    const receptionVat = receptionFee * vatRate
+    const receptionVat = Math.round(receptionFee * vatRate * 100) / 100
 
     // 4. Shipping total (already calculated - includes both outbound and returns)
     const shippingVat = shippingTotalEur * vatRate
 
     // 5. Fuel surcharge (% of total shipping including returns)
     const fuelSurcharge = shippingTotalEur * (config.fuel_surcharge_pct / 100)
-    const fuelSurchargeVat = fuelSurcharge * vatRate
+    const fuelSurchargeVat = Math.round(fuelSurcharge * vatRate * 100) / 100
 
     // Calculate totals - round HT first, then compute TVA on rounded HT to avoid floating-point drift
     const subtotalHt = Math.round((softwareFee + storageFee + receptionFee + shippingTotalEur + fuelSurcharge) * 100) / 100
@@ -463,7 +463,7 @@ export async function POST(request: NextRequest) {
         quantity: group.shipment_count,
         unit_price_eur: group.unit_price_eur,
         total_eur: group.total_eur,
-        vat_amount: group.total_eur * vatRate,
+        vat_amount: Math.round(group.total_eur * vatRate * 100) / 100,
       })
     })
 

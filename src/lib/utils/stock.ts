@@ -79,6 +79,7 @@ export async function calculateSKUMetrics(
         shipments!inner(shipped_at)
       `)
       .eq('tenant_id', tenantId)
+      .eq('shipments.is_return', false)
       .gte('shipments.shipped_at', date90dAgo.toISOString()),
     supabase
       .from('inbound_restock')

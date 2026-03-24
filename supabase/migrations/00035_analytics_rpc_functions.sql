@@ -144,6 +144,7 @@ AS $$
   JOIN shipments sh ON si.shipment_id = sh.id
   WHERE si.tenant_id = p_tenant_id
     AND sh.shipped_at >= NOW() - INTERVAL '90 days'
+    AND sh.is_return = false
   GROUP BY si.sku_id;
 $$;
 

@@ -93,6 +93,8 @@ export function TodaySummary() {
     setSelectedDate(new Date().toISOString().split('T')[0])
   }
 
+  const { isClient } = useTenant()
+
   if (isLoading) {
     return (
       <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
@@ -106,8 +108,6 @@ export function TodaySummary() {
       </Card>
     )
   }
-
-  const { isClient } = useTenant()
 
   if (!data) return null
 

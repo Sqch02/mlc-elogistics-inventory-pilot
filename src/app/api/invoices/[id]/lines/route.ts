@@ -66,7 +66,7 @@ export async function POST(
     // Avoir = negative, Charge = positive
     const isCharge = line_type.startsWith('charge')
     const totalEur = isCharge ? amount : -amount
-    const vatAmount = totalEur * vatRate
+    const vatAmount = Math.round(totalEur * vatRate * 100) / 100
 
     const { data: newLine, error: insertError } = await supabase
       .from('invoice_lines')
@@ -201,27 +201,27 @@ export async function DELETE(
 async function recalculateInvoiceTotals(supabase: any, invoiceId: string) {
   const { data: lines } = await supabase
     .from('invoice_lines')
-    .select('total_eur, vat_amount')
+    .select('total_eur')
     .eq('invoice_id', invoiceId)
 
   if (!lines) return
 
-  const subtotalHt = lines.reduce(
-    (sum: number, l: { total_eur: number }) => sum + Number(l.total_eur),
-    0
-  )
-  const vatAmount = lines.reduce(
-    (sum: number, l: { vat_amount: number }) => sum + Number(l.vat_amount || 0),
-    0
-  )
-  const totalTtc = subtotalHt + vatAmount
+  const subtotalHt = Math.round(
+    lines.reduce(
+      (sum: number, l: { total_eur: number }) => sum + Number(l.total_eur),
+      0
+    ) * 100
+  ) / 100
+  const vatRate = 0.20
+  const vatAmount = Math.round(subtotalHt * vatRate * 100) / 100
+  const totalTtc = Math.round((subtotalHt + vatAmount) * 100) / 100
 
   await supabase
     .from('invoices_monthly')
     .update({
-      subtotal_ht: Math.round(subtotalHt * 100) / 100,
-      vat_amount: Math.round(vatAmount * 100) / 100,
-      total_ttc: Math.round(totalTtc * 100) / 100,
+      subtotal_ht: subtotalHt,
+      vat_amount: vatAmount,
+      total_ttc: totalTtc,
     })
     .eq('id', invoiceId)
 }
