@@ -12,38 +12,23 @@ interface PricingRule {
   price_eur: number
 }
 
-// This endpoint is called by Render Cron every 5 minutes
-// OPTIMIZED: Uses batch operations to fit within 30s timeout
-export async function GET(request: NextRequest) {
+// Background sync function - runs after response is sent
+async function runSync() {
   const startTime = Date.now()
   console.log('========================================')
-  console.log('[Cron] *** SYNC STARTED (BATCH MODE) ***')
+  console.log('[Cron] *** SYNC STARTED (BACKGROUND) ***')
   console.log(`[Cron] Timestamp: ${new Date().toISOString()}`)
   console.log('========================================')
 
-  // Verify cron secret - ALWAYS required
-  const authHeader = request.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-
-  if (!cronSecret) {
-    console.error('[Cron] CRON_SECRET not configured')
-    return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 })
-  }
-
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
   const adminClient = getAdminDb()
 
-  // Get all tenants
   const { data: tenants, error: tenantsError } = await adminClient
     .from('tenants')
     .select('id')
 
   if (tenantsError || !tenants) {
     console.error('[Cron] Failed to get tenants:', tenantsError)
-    return NextResponse.json({ error: 'Failed to get tenants' }, { status: 500 })
+    return
   }
 
   const results: Array<{ tenantId: string; success: boolean; shipments?: number; returns?: number; error?: string }> = []
@@ -299,10 +284,31 @@ export async function GET(request: NextRequest) {
 
   const totalDuration = Date.now() - startTime
   console.log(`\n[Cron] *** SYNC COMPLETE in ${totalDuration}ms ***`)
+}
 
+// This endpoint is called by cron-job.org every 5 minutes
+// Returns immediately (< 1s) and runs sync in background
+export async function GET(request: NextRequest) {
+  // Verify cron secret
+  const authHeader = request.headers.get('authorization')
+  const cronSecret = process.env.CRON_SECRET
+
+  if (!cronSecret) {
+    console.error('[Cron] CRON_SECRET not configured')
+    return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 })
+  }
+
+  if (authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Start sync in background (don't await - Node.js process stays alive on Render)
+  runSync().catch((err) => console.error('[Cron] Background sync error:', err))
+
+  // Return immediately
   return NextResponse.json({
     success: true,
-    duration_ms: totalDuration,
-    results,
+    message: 'Sync started in background',
+    timestamp: new Date().toISOString(),
   })
 }
