@@ -73,6 +73,7 @@ export async function GET(request: NextRequest) {
         .eq('tenant_id', tenantId)
         .gte('shipments.shipped_at', fromDate.toISOString())
         .lte('shipments.shipped_at', toDate.toISOString())
+        .eq('shipments.is_return', false)
         .range(page * pageSize, (page + 1) * pageSize - 1)
 
       if (error) throw error

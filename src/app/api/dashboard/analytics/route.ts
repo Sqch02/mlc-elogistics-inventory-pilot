@@ -336,6 +336,7 @@ export async function GET(request: Request) {
             .eq('tenant_id', tenantId)
             .gte('shipments.shipped_at' as never, startDate.toISOString())
             .lte('shipments.shipped_at' as never, endDate.toISOString())
+            .eq('shipments.is_return' as never, false)
             .range(offset, offset + pageSize - 1)
           if (error) { console.error('[Analytics] SKU sales fallback query error:', error); break }
           if (data && data.length > 0) {

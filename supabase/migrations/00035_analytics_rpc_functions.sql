@@ -83,6 +83,7 @@ AS $$
   WHERE si.tenant_id = p_tenant_id
     AND sh.shipped_at >= p_start_date
     AND sh.shipped_at <= p_end_date
+    AND sh.is_return = false
   GROUP BY si.sku_id, s.sku_code, s.name
   ORDER BY quantity_sold DESC;
 $$;
