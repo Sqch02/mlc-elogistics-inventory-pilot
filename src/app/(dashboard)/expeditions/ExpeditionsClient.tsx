@@ -574,7 +574,33 @@ export function ExpeditionsClient() {
   const handleExport = async () => {
     setIsExporting(true)
     try {
-      const exportData = shipments.map((s) => {
+      // Fetch ALL shipments matching current filters (paginate in batches of 1000)
+      const allShipments: Shipment[] = []
+      let page = 1
+      const batchSize = 1000
+      let hasMore = true
+
+      while (hasMore) {
+        const params = new URLSearchParams()
+        if (filters.from) params.set('from', filters.from)
+        if (filters.to) params.set('to', filters.to)
+        if (filters.carrier) params.set('carrier', filters.carrier)
+        if (filters.pricing_status) params.set('pricing_status', filters.pricing_status)
+        if (filters.shipment_status) params.set('shipment_status', filters.shipment_status)
+        if (filters.delivery_status) params.set('delivery_status', filters.delivery_status)
+        if (filters.search) params.set('search', filters.search)
+        params.set('page', String(page))
+        params.set('pageSize', String(batchSize))
+
+        const response = await fetch(`/api/shipments?${params.toString()}`)
+        if (!response.ok) throw new Error('Export failed')
+        const data = await response.json()
+        allShipments.push(...data.shipments)
+        hasMore = data.shipments.length === batchSize
+        page++
+      }
+
+      const exportData = allShipments.map((s) => {
         const base: Record<string, string | number> = {
           date: s.shipped_at ? formatDate(s.shipped_at) : '',
           reference: s.order_ref || '',
