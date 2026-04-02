@@ -147,7 +147,7 @@ export async function POST(request: NextRequest) {
         (rule: PricingRule) =>
           rule.carrier.toLowerCase() === parcel.carrier.toLowerCase() &&
           rule.weight_min_grams <= parcel.weight_grams &&
-          rule.weight_max_grams > parcel.weight_grams
+          rule.weight_max_grams >= parcel.weight_grams
       )
 
       if (matchingRule) {
