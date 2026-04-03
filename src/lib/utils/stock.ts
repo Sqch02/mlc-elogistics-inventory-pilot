@@ -25,11 +25,7 @@ interface SKUData {
   stock_snapshots: { qty_current: number } | Array<{ qty_current: number }>
 }
 
-interface ShipmentItemData {
-  sku_id: string
-  qty: number
-  shipments: { shipped_at: string }
-}
+
 
 interface RestockData {
   sku_id: string
@@ -43,8 +39,6 @@ export async function calculateSKUMetrics(
   const supabase = await getServerDb()
 
   const now = new Date()
-  const date30dAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-  const date90dAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
 
   // Run all 4 queries in parallel
   let skuQuery = supabase
@@ -71,16 +65,9 @@ export async function calculateSKUMetrics(
         bundle_components(component_sku_id, qty_component)
       `)
       .eq('tenant_id', tenantId),
-    supabase
-      .from('shipment_items')
-      .select(`
-        sku_id,
-        qty,
-        shipments!inner(shipped_at)
-      `)
-      .eq('tenant_id', tenantId)
-      .eq('shipments.is_return', false)
-      .gte('shipments.shipped_at', date90dAgo.toISOString()),
+    supabase.rpc('get_sku_consumption_metrics', {
+      p_tenant_id: tenantId,
+    }),
     supabase
       .from('inbound_restock')
       .select('sku_id, qty')
@@ -103,41 +90,26 @@ export async function calculateSKUMetrics(
     bundleMap.set(bundle.bundle_sku_id, bundle.bundle_components)
   })
 
-  // Build consumption map from shipment items
+  // Build consumption map from RPC results (pre-aggregated server-side)
   const consumptionMap = new Map<string, { last30d: number; last90d: number }>()
-  const itemsList = shipmentItemsResult.data as ShipmentItemData[] | null
-  let earliestShipmentDate: Date | null = null
+  const rpcData = shipmentItemsResult.data as Array<{ sku_id: string; total_qty_90d: number; total_qty_30d: number }> | null
 
-  itemsList?.forEach((item: ShipmentItemData) => {
-    const shippedAt = new Date(item.shipments.shipped_at)
-    if (!earliestShipmentDate || shippedAt < earliestShipmentDate) {
-      earliestShipmentDate = shippedAt
-    }
-    const skuIds: Array<{ id: string; qty: number }> = []
-
-    // Check if this is a bundle
-    const bundleComponents = bundleMap.get(item.sku_id)
+  rpcData?.forEach((row) => {
+    // Check if this SKU is a bundle - decompose into components
+    const bundleComponents = bundleMap.get(row.sku_id)
     if (bundleComponents) {
-      // Decompose bundle into components
       bundleComponents.forEach((comp) => {
-        skuIds.push({
-          id: comp.component_sku_id,
-          qty: item.qty * comp.qty_component,
-        })
+        const current = consumptionMap.get(comp.component_sku_id) || { last30d: 0, last90d: 0 }
+        current.last90d += (row.total_qty_90d || 0) * comp.qty_component
+        current.last30d += (row.total_qty_30d || 0) * comp.qty_component
+        consumptionMap.set(comp.component_sku_id, current)
       })
     } else {
-      skuIds.push({ id: item.sku_id, qty: item.qty })
+      const current = consumptionMap.get(row.sku_id) || { last30d: 0, last90d: 0 }
+      current.last90d += row.total_qty_90d || 0
+      current.last30d += row.total_qty_30d || 0
+      consumptionMap.set(row.sku_id, current)
     }
-
-    // Add to consumption
-    skuIds.forEach(({ id, qty }) => {
-      const current = consumptionMap.get(id) || { last30d: 0, last90d: 0 }
-      current.last90d += qty
-      if (shippedAt >= date30dAgo) {
-        current.last30d += qty
-      }
-      consumptionMap.set(id, current)
-    })
   })
 
   // Build restock map
@@ -155,10 +127,7 @@ export async function calculateSKUMetrics(
       : sku.stock_snapshots
     const qtyCurrent = stockSnapshot?.qty_current || 0
     const consumption = consumptionMap.get(sku.id) || { last30d: 0, last90d: 0 }
-    const actualDays = earliestShipmentDate
-      ? Math.max(1, Math.ceil((now.getTime() - earliestShipmentDate.getTime()) / (24 * 60 * 60 * 1000)))
-      : 90
-    const avgDaily90d = consumption.last90d / actualDays
+    const avgDaily90d = consumption.last90d / 90
     const daysRemaining = avgDaily90d > 0 ? Math.floor(qtyCurrent / avgDaily90d) : null
     const pendingRestock = restockMap.get(sku.id) || 0
     const projectedStock = qtyCurrent + pendingRestock
