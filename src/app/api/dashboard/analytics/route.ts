@@ -347,13 +347,42 @@ export async function GET(request: Request) {
           } else { hasMore = false }
         }
 
+        // Fetch bundles for decomposition
+        const { data: bundlesData } = await adminClient
+          .from('bundles')
+          .select('bundle_sku_id, bundle_components(component_sku_id, qty_component)')
+          .eq('tenant_id', tenantId)
+        const bundleMap = new Map<string, Array<{ component_sku_id: string; qty_component: number }>>()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(bundlesData as any[] || []).forEach((b: any) => { bundleMap.set(b.bundle_sku_id, b.bundle_components || []) })
+
+        // Fetch all SKUs for name resolution
+        const { data: allSkus } = await adminClient.from('skus').select('id, sku_code, name').eq('tenant_id', tenantId)
+        const skuLookup = new Map<string, { sku_code: string; name: string }>()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(allSkus as any[] || []).forEach((s: any) => { skuLookup.set(s.id, { sku_code: s.sku_code, name: s.name }) })
+
         const salesMap = new Map<string, { sku_code: string; name: string; quantity_sold: number }>()
         for (const item of allItems) {
           if (!item.sku_id) continue
-          const existing = salesMap.get(item.sku_id)
-          if (existing) { existing.quantity_sold += Number(item.qty) || 0 }
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          else { const skuInfo = item.skus as any; salesMap.set(item.sku_id, { sku_code: skuInfo?.sku_code || '', name: skuInfo?.name || '', quantity_sold: Number(item.qty) || 0 }) }
+          const qty = Number(item.qty) || 0
+          const components = bundleMap.get(item.sku_id)
+          if (components && components.length > 0) {
+            // Decompose bundle into physical components
+            for (const comp of components) {
+              const physicalQty = qty * comp.qty_component
+              const skuInfo = skuLookup.get(comp.component_sku_id)
+              const existing = salesMap.get(comp.component_sku_id)
+              if (existing) { existing.quantity_sold += physicalQty }
+              else { salesMap.set(comp.component_sku_id, { sku_code: skuInfo?.sku_code || '', name: skuInfo?.name || '', quantity_sold: physicalQty }) }
+            }
+          } else {
+            // Simple SKU
+            const existing = salesMap.get(item.sku_id)
+            if (existing) { existing.quantity_sold += qty }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            else { const skuInfo = (item.skus as any); salesMap.set(item.sku_id, { sku_code: skuInfo?.sku_code || '', name: skuInfo?.name || '', quantity_sold: qty }) }
+          }
         }
         return Array.from(salesMap.entries())
           .map(([sku_id, info]) => ({ sku_id, sku_code: info.sku_code, name: info.name, quantity_sold: info.quantity_sold }))

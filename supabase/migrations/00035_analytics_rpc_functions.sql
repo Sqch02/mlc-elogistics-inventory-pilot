@@ -55,7 +55,7 @@ $$;
 GRANT EXECUTE ON FUNCTION analytics_monthly_shipments TO service_role;
 
 
--- 2. SKU sales ranking within a date range
+-- 2. SKU sales ranking within a date range (with bundle decomposition into physical units)
 CREATE OR REPLACE FUNCTION analytics_sku_sales(
   p_tenant_id UUID,
   p_start_date TIMESTAMPTZ,
@@ -72,19 +72,44 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
+  WITH raw_items AS (
+    SELECT si.sku_id, si.qty
+    FROM shipment_items si
+    JOIN shipments sh ON si.shipment_id = sh.id
+    WHERE si.tenant_id = p_tenant_id
+      AND sh.shipped_at >= p_start_date
+      AND sh.shipped_at <= p_end_date
+      AND sh.is_return = false
+  ),
+  decomposed AS (
+    -- Bundle items: decompose into physical components
+    SELECT
+      bc.component_sku_id AS sku_id,
+      ri.qty * bc.qty_component AS qty
+    FROM raw_items ri
+    JOIN bundles b ON b.bundle_sku_id = ri.sku_id AND b.tenant_id = p_tenant_id
+    JOIN bundle_components bc ON bc.bundle_id = b.id
+
+    UNION ALL
+
+    -- Non-bundle items: keep as-is
+    SELECT
+      ri.sku_id,
+      ri.qty
+    FROM raw_items ri
+    WHERE NOT EXISTS (
+      SELECT 1 FROM bundles b
+      WHERE b.bundle_sku_id = ri.sku_id AND b.tenant_id = p_tenant_id
+    )
+  )
   SELECT
-    si.sku_id,
+    d.sku_id,
     s.sku_code,
     s.name,
-    SUM(si.qty)::BIGINT AS quantity_sold
-  FROM shipment_items si
-  JOIN skus s ON si.sku_id = s.id
-  JOIN shipments sh ON si.shipment_id = sh.id
-  WHERE si.tenant_id = p_tenant_id
-    AND sh.shipped_at >= p_start_date
-    AND sh.shipped_at <= p_end_date
-    AND sh.is_return = false
-  GROUP BY si.sku_id, s.sku_code, s.name
+    SUM(d.qty)::BIGINT AS quantity_sold
+  FROM decomposed d
+  JOIN skus s ON d.sku_id = s.id
+  GROUP BY d.sku_id, s.sku_code, s.name
   ORDER BY quantity_sold DESC;
 $$;
 

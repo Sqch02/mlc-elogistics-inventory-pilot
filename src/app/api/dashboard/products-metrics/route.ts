@@ -52,13 +52,23 @@ export async function GET(request: NextRequest) {
       toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
     }
 
-    // Get all bundle SKU IDs
+    // Get all bundles with components for decomposition
     const { data: bundles } = await supabase
       .from('bundles')
-      .select('bundle_sku_id')
+      .select('bundle_sku_id, bundle_components(component_sku_id, qty_component)')
       .eq('tenant_id', tenantId)
 
     const bundleSkuIds = new Set((bundles || []).map((b: BundleRow) => b.bundle_sku_id))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const bundleComponentsMap = new Map<string, Array<{ component_sku_id: string; qty_component: number }>>()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(bundles as any[] || []).forEach((b: any) => { bundleComponentsMap.set(b.bundle_sku_id, b.bundle_components || []) })
+
+    // Get all SKUs for component name resolution
+    const { data: allSkus } = await supabase.from('skus').select('id, sku_code, name').eq('tenant_id', tenantId)
+    const skuLookup = new Map<string, { sku_code: string; name: string }>()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(allSkus as any[] || []).forEach((s: any) => { skuLookup.set(s.id, { sku_code: s.sku_code, name: s.name }) })
 
     // Get all shipment items in the date range with pagination
     const allItems: ShipmentItem[] = []
@@ -87,49 +97,67 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Aggregate by SKU
-    const skuVolumes = new Map<string, {
+    // Aggregate by physical SKU (decompose bundles into components)
+    const physicalVolumes = new Map<string, {
       sku_id: string
       sku_code: string
       name: string
       volume: number
-      isBundle: boolean
+    }>()
+    // Also track bundle volumes separately (as Shopify line items, not decomposed)
+    const bundleVolumes = new Map<string, {
+      sku_id: string
+      sku_code: string
+      name: string
+      volume: number
     }>()
 
     for (const item of allItems) {
       if (!item.skus) continue
-
-      const existing = skuVolumes.get(item.sku_id)
       const qty = item.qty || 0
-      const isBundle = bundleSkuIds.has(item.sku_id) || item.skus.sku_code.toUpperCase().startsWith('BU-')
+      const isBundle = bundleSkuIds.has(item.sku_id)
 
-      if (existing) {
-        existing.volume += qty
+      if (isBundle) {
+        // Track bundle as bundle
+        const existingBundle = bundleVolumes.get(item.sku_id)
+        if (existingBundle) { existingBundle.volume += qty }
+        else { bundleVolumes.set(item.sku_id, { sku_id: item.sku_id, sku_code: item.skus.sku_code, name: item.skus.name, volume: qty }) }
+
+        // Decompose into physical components
+        const components = bundleComponentsMap.get(item.sku_id)
+        if (components) {
+          for (const comp of components) {
+            const physicalQty = qty * comp.qty_component
+            const existing = physicalVolumes.get(comp.component_sku_id)
+            if (existing) { existing.volume += physicalQty }
+            else {
+              const skuInfo = skuLookup.get(comp.component_sku_id)
+              physicalVolumes.set(comp.component_sku_id, { sku_id: comp.component_sku_id, sku_code: skuInfo?.sku_code || '', name: skuInfo?.name || '', volume: physicalQty })
+            }
+          }
+        }
       } else {
-        skuVolumes.set(item.sku_id, {
-          sku_id: item.sku_id,
-          sku_code: item.skus.sku_code,
-          name: item.skus.name,
-          volume: qty,
-          isBundle,
-        })
+        // Simple SKU = physical article
+        const existing = physicalVolumes.get(item.sku_id)
+        if (existing) { existing.volume += qty }
+        else { physicalVolumes.set(item.sku_id, { sku_id: item.sku_id, sku_code: item.skus.sku_code, name: item.skus.name, volume: qty }) }
       }
     }
 
-    // Separate products and bundles
-    const products = Array.from(skuVolumes.values())
-      .filter(s => !s.isBundle)
+    // Products = physical articles (decomposed)
+    const products = Array.from(physicalVolumes.values())
       .sort((a, b) => b.volume - a.volume)
 
-    const bundlesSold = Array.from(skuVolumes.values())
-      .filter(s => s.isBundle)
+    // Bundles = as Shopify line items (for reference)
+    const bundlesSold = Array.from(bundleVolumes.values())
+      .map(b => ({ ...b, isBundle: true }))
       .sort((a, b) => b.volume - a.volume)
 
-    // Calculate totals
+    // Calculate totals (physical units)
     const totalProductsVolume = products.reduce((sum, p) => sum + p.volume, 0)
     const totalBundlesVolume = bundlesSold.reduce((sum, b) => sum + b.volume, 0)
 
-    // Build monthly breakdown from allItems (already in memory) — avoids N+1 queries
+    // Build monthly breakdown from allItems with bundle decomposition
     const monthlyMap = new Map<string, { products: number; bundles: number }>()
     for (const item of allItems) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -140,7 +168,11 @@ export async function GET(request: NextRequest) {
       const existing = monthlyMap.get(monthKey) || { products: 0, bundles: 0 }
       const qty = item.qty || 0
       if (bundleSkuIds.has(item.sku_id)) {
-        existing.bundles += qty
+        // Decompose bundle into physical units for the monthly count
+        const components = bundleComponentsMap.get(item.sku_id)
+        const physicalUnits = components ? components.reduce((sum, c) => sum + qty * c.qty_component, 0) : qty
+        existing.products += physicalUnits
+        existing.bundles += qty // Keep bundle count as orders (for reference)
       } else {
         existing.products += qty
       }
