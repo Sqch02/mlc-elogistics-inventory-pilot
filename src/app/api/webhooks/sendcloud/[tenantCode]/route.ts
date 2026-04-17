@@ -207,11 +207,9 @@ export async function POST(
     const signature = request.headers.get('Sendcloud-Signature') || ''
 
     // Get webhook secret - prefer tenant-specific, fallback to global
-    const webhookSecret = tenant.webhookSecret || process.env.SENDCLOUD_WEBHOOK_SECRET || ''
-
-    // Validate signature - require secret
+    const webhookSecret = tenant.webhookSecret || process.env.SENDCLOUD_WEBHOOK_SECRET
     if (!webhookSecret) {
-      console.error('[Webhook] No webhook secret configured for tenant:', tenantCode)
+      console.error('[Webhook] CRITICAL: No webhook secret configured for tenant', tenantCode)
       return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 })
     }
 

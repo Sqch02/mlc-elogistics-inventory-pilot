@@ -290,7 +290,7 @@ function ShipmentRow({ shipment, onCreateClaim, onEdit, onCancel, onRefresh, isC
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Cout transport</span>
+                        <span className="text-muted-foreground">Coût transport</span>
                         {shipment.pricing_status === 'ok' ? (
                           <span className="font-medium text-green-600">
                             {shipment.computed_cost_eur?.toFixed(2)} EUR
@@ -436,7 +436,7 @@ function ShipmentRow({ shipment, onCreateClaim, onEdit, onCancel, onRefresh, isC
                   <div className="flex flex-wrap gap-2">
                     {shipment.shipment_items.map((item, i) => (
                       <Badge key={i} variant="outline" className="text-xs py-1 px-2">
-                        {item.qty}x {item.skus?.sku_code || item.skus?.name || '?'}
+                        {item.qty}x {item.skus?.sku_code || item.skus?.name || 'Produit sans code'}
                       </Badge>
                     ))}
                   </div>
@@ -672,7 +672,7 @@ export function ExpeditionsClient() {
       {/* Header */}
       <div className="flex flex-col gap-2 sm:gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl sm:text-2xl font-semibold text-foreground">Expeditions</h1>
+          <h1 className="text-xl sm:text-2xl font-semibold text-foreground">Expéditions</h1>
           <p className="text-muted-foreground text-sm">
             {totalShipments} expedition(s) {isFetching && '(chargement...)'}
           </p>
@@ -713,7 +713,7 @@ export function ExpeditionsClient() {
           <Card className="shadow-sm border-border">
             <CardContent className="p-3 lg:p-4 flex items-center justify-between">
               <div className="space-y-1">
-                <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Cout transport</p>
+                <p className="text-[10px] lg:text-xs text-muted-foreground font-medium uppercase">Coût transport</p>
                 <p className="text-lg lg:text-2xl font-bold">{totalCost.toFixed(2)} EUR</p>
               </div>
               <div className="p-1.5 lg:p-2 bg-primary/10 rounded-lg text-primary">

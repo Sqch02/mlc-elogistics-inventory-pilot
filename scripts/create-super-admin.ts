@@ -20,8 +20,12 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey, {
 })
 
 async function createSuperAdmin() {
-  const email = 'aurelien@famillia.fr'
-  const password = 'Famillia2024!'
+  const email = process.env.SUPER_ADMIN_EMAIL
+  const password = process.env.SUPER_ADMIN_PASSWORD
+  if (!email || !password) {
+    console.error('Set SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD env vars')
+    process.exit(1)
+  }
   const fullName = 'Aurélien Famillia'
   const tenantId = '00000000-0000-0000-0000-000000000001' // FLORNA tenant
 

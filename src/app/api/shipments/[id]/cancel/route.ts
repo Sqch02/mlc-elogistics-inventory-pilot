@@ -61,9 +61,14 @@ export async function POST(
         secret: tenantSettings.sendcloud_secret,
       }
     } else {
+      const apiKey = process.env.SENDCLOUD_API_KEY
+      const secret = process.env.SENDCLOUD_SECRET
+      if (!apiKey || !secret) {
+        return NextResponse.json({ error: 'Sendcloud credentials not configured' }, { status: 500 })
+      }
       credentials = {
-        apiKey: process.env.SENDCLOUD_API_KEY || '',
-        secret: process.env.SENDCLOUD_SECRET || '',
+        apiKey,
+        secret,
       }
     }
 

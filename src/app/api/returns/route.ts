@@ -140,33 +140,52 @@ export async function GET(request: NextRequest) {
       throw error
     }
 
-    // Get aggregate stats
-    let statsQuery = supabase
-      .from('returns')
-      .select('status, return_reason')
-      .eq('tenant_id', tenantId)
-
-    if (from) {
-      statsQuery = statsQuery.gte('created_at', from)
-    }
-    if (to) {
-      statsQuery = statsQuery.lte('created_at', to)
+    // Get aggregate stats via parallel count queries (HEAD requests, no row data fetched)
+    const buildStatsQuery = () => {
+      let q = supabase
+        .from('returns')
+        .select('*', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+      if (from) q = q.gte('created_at', from)
+      if (to) q = q.lte('created_at', to)
+      return q
     }
 
-    const { data: allReturns } = await statsQuery
+    const [
+      totalRes,
+      announcedRes,
+      inTransitRes,
+      deliveredRes,
+      refundRes,
+      exchangeRes,
+      defectiveRes,
+      wrongItemRes,
+      otherReasonRes,
+      nullReasonRes,
+    ] = await Promise.all([
+      buildStatsQuery(),
+      buildStatsQuery().eq('status', 'announced'),
+      buildStatsQuery().eq('status', 'in_transit'),
+      buildStatsQuery().eq('status', 'delivered'),
+      buildStatsQuery().eq('return_reason', 'refund'),
+      buildStatsQuery().eq('return_reason', 'exchange'),
+      buildStatsQuery().eq('return_reason', 'defective'),
+      buildStatsQuery().eq('return_reason', 'wrong_item'),
+      buildStatsQuery().eq('return_reason', 'other'),
+      buildStatsQuery().is('return_reason', null),
+    ])
 
-    const returnsForStats = allReturns as Array<{ status: string; return_reason: string | null }> | null
     const stats = {
-      total: returnsForStats?.length || 0,
-      announced: returnsForStats?.filter(r => r.status === 'announced').length || 0,
-      in_transit: returnsForStats?.filter(r => r.status === 'in_transit').length || 0,
-      delivered: returnsForStats?.filter(r => r.status === 'delivered').length || 0,
+      total: totalRes.count || 0,
+      announced: announcedRes.count || 0,
+      in_transit: inTransitRes.count || 0,
+      delivered: deliveredRes.count || 0,
       byReason: {
-        refund: returnsForStats?.filter(r => r.return_reason === 'refund').length || 0,
-        exchange: returnsForStats?.filter(r => r.return_reason === 'exchange').length || 0,
-        defective: returnsForStats?.filter(r => r.return_reason === 'defective').length || 0,
-        wrong_item: returnsForStats?.filter(r => r.return_reason === 'wrong_item').length || 0,
-        other: returnsForStats?.filter(r => r.return_reason === 'other' || !r.return_reason).length || 0,
+        refund: refundRes.count || 0,
+        exchange: exchangeRes.count || 0,
+        defective: defectiveRes.count || 0,
+        wrong_item: wrongItemRes.count || 0,
+        other: (otherReasonRes.count || 0) + (nullReasonRes.count || 0),
       }
     }
 

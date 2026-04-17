@@ -37,7 +37,7 @@ const hubVisibleMenus = ['/', '/admin', '/parametres']
 const baseNavigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard, feature: null },
   { name: 'Analytics', href: '/analytics', icon: BarChart3, feature: null },
-  { name: 'Expeditions', href: '/expeditions', icon: Truck, feature: null },
+  { name: 'Expéditions', href: '/expeditions', icon: Truck, feature: null },
   { name: 'Retours', href: '/retours', icon: RotateCcw, feature: 'returnsModule' as const },
   { name: 'Produits & Stock', href: '/produits', icon: Package, feature: null },
   { name: 'Bundles', href: '/bundles', icon: Boxes, feature: null },
@@ -45,9 +45,9 @@ const baseNavigation = [
   { name: 'Emplacements', href: '/emplacements', icon: MapPin, feature: null },
   { name: 'Pricing', href: '/pricing', icon: DollarSign, feature: null },
   { name: 'Facturation', href: '/facturation', icon: FileText, feature: null },
-  { name: 'Reclamations', href: '/reclamations', icon: AlertTriangle, feature: null },
+  { name: 'Réclamations', href: '/reclamations', icon: AlertTriangle, feature: null },
   { name: 'Administration', href: '/admin', icon: Shield, feature: null, superAdminOnly: true },
-  { name: 'Parametres', href: '/parametres', icon: Settings, feature: null },
+  { name: 'Paramètres', href: '/parametres', icon: Settings, feature: null },
 ]
 
 interface SidebarContentProps {

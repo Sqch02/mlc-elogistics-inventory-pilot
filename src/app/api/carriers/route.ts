@@ -8,12 +8,13 @@ export async function GET() {
     const tenantId = await requireTenant()
     const adminClient = createAdminClient()
 
-    // Get distinct carriers from shipments
+    // Get distinct carriers from shipments (limit to avoid scanning huge tables)
     const { data: shipmentCarriers } = await adminClient
       .from('shipments')
       .select('carrier')
       .eq('tenant_id', tenantId)
       .not('carrier', 'is', null)
+      .limit(5000)
 
     // Get distinct carriers from pricing_rules
     const { data: pricingCarriers } = await adminClient
@@ -52,7 +53,9 @@ export async function GET() {
       }))
       .sort((a, b) => b.shipmentCount - a.shipmentCount)
 
-    return NextResponse.json({ carriers })
+    return NextResponse.json({ carriers }, {
+      headers: { 'Cache-Control': 'private, max-age=600, stale-while-revalidate=1200' }
+    })
   } catch (error) {
     console.error('Carriers error:', error)
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })

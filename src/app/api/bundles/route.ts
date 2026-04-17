@@ -27,7 +27,9 @@ export async function GET() {
       throw error
     }
 
-    return NextResponse.json({ bundles })
+    return NextResponse.json({ bundles }, {
+      headers: { 'Cache-Control': 'private, max-age=300, stale-while-revalidate=600' }
+    })
   } catch (error) {
     console.error('Get bundles error:', error)
     return NextResponse.json(
