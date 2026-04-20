@@ -62,26 +62,57 @@ export async function GET(request: NextRequest) {
     }
 
     // Single RPC call does all aggregation server-side (replaces 180+ pagination roundtrips).
+    const t0 = Date.now()
     const { data, error } = await supabase.rpc('get_products_metrics', {
       p_tenant_id: tenantId,
       p_start_date: fromDate.toISOString(),
       p_end_date: toDate.toISOString(),
       p_limit: limit,
     })
+    console.log(`[products-metrics] RPC took ${Date.now() - t0}ms, error=${error ? JSON.stringify(error) : 'null'}, data_type=${typeof data}, is_array=${Array.isArray(data)}`)
 
-    if (error) throw error
+    if (error) {
+      console.error('[products-metrics] RPC error details:', error)
+      throw error
+    }
 
-    const rpc = (data || {
-      topProducts: [],
-      topBundles: [],
-      monthlyVolumes: [],
-      summary: {
+    // PostgREST may return the jsonb as the object itself, or wrapped in an array,
+    // or as a string. Normalize defensively.
+    let raw: unknown = data
+    if (Array.isArray(raw) && raw.length > 0) raw = raw[0]
+    if (typeof raw === 'string') {
+      try { raw = JSON.parse(raw) } catch { raw = null }
+    }
+    if (raw && typeof raw === 'object' && 'get_products_metrics' in raw) {
+      raw = (raw as { get_products_metrics: unknown }).get_products_metrics
+    }
+
+    const rpc = (raw && typeof raw === 'object'
+      ? (raw as RpcResponse)
+      : {
+          topProducts: [],
+          topBundles: [],
+          monthlyVolumes: [],
+          summary: {
+            totalProducts: 0,
+            totalBundles: 0,
+            totalProductsVolume: 0,
+            totalBundlesVolume: 0,
+          },
+        })
+
+    // Ensure arrays exist (in case RPC returned partial data)
+    if (!Array.isArray(rpc.topProducts)) rpc.topProducts = []
+    if (!Array.isArray(rpc.topBundles)) rpc.topBundles = []
+    if (!Array.isArray(rpc.monthlyVolumes)) rpc.monthlyVolumes = []
+    if (!rpc.summary) {
+      rpc.summary = {
         totalProducts: 0,
         totalBundles: 0,
         totalProductsVolume: 0,
         totalBundlesVolume: 0,
-      },
-    }) as RpcResponse
+      }
+    }
 
     const totalProductsVolume = toNum(rpc.summary.totalProductsVolume)
     const totalBundlesVolume = toNum(rpc.summary.totalBundlesVolume)
@@ -181,7 +212,10 @@ export async function GET(request: NextRequest) {
       }
     )
   } catch (error) {
-    console.error('Products metrics error:', error)
-    return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
+    console.error('[products-metrics] FATAL:', error instanceof Error ? { message: error.message, stack: error.stack } : error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Erreur serveur' },
+      { status: 500 }
+    )
   }
 }
