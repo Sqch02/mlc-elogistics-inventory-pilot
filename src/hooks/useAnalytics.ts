@@ -63,7 +63,7 @@ export function useAnalytics() {
   return useQuery({
     queryKey: ['dashboard-analytics'],
     queryFn: fetchAnalytics,
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 10 * 60 * 1000, // 10 min (mat views refreshed every 5 min)
     refetchOnWindowFocus: false,
   })
 }

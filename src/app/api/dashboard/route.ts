@@ -1,34 +1,54 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { getServerDb } from '@/lib/supabase/untyped'
+import { getAdminDb, getServerDb } from '@/lib/supabase/untyped'
 import { getFastUser, getFastTenantId } from '@/lib/supabase/fast-auth'
-import { calculateSKUMetrics } from '@/lib/utils/stock'
 
-export const revalidate = 60 // Cache for 60 seconds
+export const revalidate = 60
+
+interface DashboardMetricRow {
+  metric: 'month' | 'all_time_missing' | 'yesterday' | 'day'
+  day: string | null
+  shipments_count: number | string
+  shipments_cost: number | string
+  shipments_missing_pricing: number | string
+}
+
+interface SkuMetricRow {
+  sku_id: string
+  sku_code: string
+  name: string
+  qty_current: number
+  consumption_30d: number
+  consumption_90d: number
+  avg_daily_90d: number
+  days_remaining: number | null
+  is_bundle: boolean
+}
+
+function toInt(v: number | string | null | undefined): number {
+  if (v === null || v === undefined) return 0
+  const n = typeof v === 'string' ? Number(v) : v
+  return Number.isFinite(n) ? n : 0
+}
 
 export async function GET(request: NextRequest) {
   try {
     const user = await getFastUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })
-    }
+    if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })
 
-    const tenantId = await getFastTenantId() || user.tenant_id
-    const supabase = await createClient()
-    const supabaseUntyped = await getServerDb()
+    const tenantId = (await getFastTenantId()) || user.tenant_id
+    const adminDb = getAdminDb()
+    const serverDb = await getServerDb()
 
-    // Get month from query param or default to current month
     const searchParams = request.nextUrl.searchParams
-    const monthParam = searchParams.get('month') // Format: YYYY-MM
-
+    const monthParam = searchParams.get('month')
     const now = new Date()
+
     let targetYear: number
     let targetMonth: number
-
     if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
-      const [year, month] = monthParam.split('-').map(Number)
-      targetYear = year
-      targetMonth = month - 1 // JS months are 0-indexed
+      const [y, m] = monthParam.split('-').map(Number)
+      targetYear = y
+      targetMonth = m - 1
     } else {
       targetYear = now.getFullYear()
       targetMonth = now.getMonth()
@@ -36,198 +56,239 @@ export async function GET(request: NextRequest) {
 
     const currentMonth = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}`
     const startOfMonth = new Date(targetYear, targetMonth, 1)
-    const endOfMonth = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59)
+    const endOfMonth = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59, 999)
+    const isCurrentMonth =
+      targetYear === now.getFullYear() && targetMonth === now.getMonth()
+    const daysInMonth = isCurrentMonth
+      ? now.getDate()
+      : new Date(targetYear, targetMonth + 1, 0).getDate()
 
-    // For chart, determine how many days to show
-    const isCurrentMonth = targetYear === now.getFullYear() && targetMonth === now.getMonth()
-    const daysInMonth = isCurrentMonth ? now.getDate() : new Date(targetYear, targetMonth + 1, 0).getDate()
-
-    // Calculate yesterday date range
     const yesterday = new Date(now)
     yesterday.setDate(yesterday.getDate() - 1)
     yesterday.setHours(0, 0, 0, 0)
     const yesterdayEnd = new Date(yesterday)
     yesterdayEnd.setHours(23, 59, 59, 999)
+    const yesterdayStr = yesterday.toISOString().split('T')[0]
+    const monthStartStr = startOfMonth.toISOString().split('T')[0]
+    const monthEndStr = endOfMonth.toISOString().split('T')[0]
 
-    // Run all queries in parallel
-    const [
-      shipmentsResult,
-      shipmentsCostResult,
-      missingPricingMonthResult,
-      missingPricingTotalResult,
-      claimsResult,
-      stockResult,
-      dailyShipmentsResult,
-      claimsYesterdayResult,
-      costYesterdayResult
-    ] = await Promise.all([
-      supabase
-        .from('shipments')
-        .select('*', { count: 'exact', head: true })
-        .eq('tenant_id', tenantId)
-        .gte('shipped_at', startOfMonth.toISOString())
-        .lte('shipped_at', endOfMonth.toISOString()),
+    // 4 queries in parallel — dashboard_metrics RPC does the heavy lifting
+    // (monthly totals + all-time missing + yesterday + daily chart in one call).
+    // mv_sku_metrics has is_bundle flag so we don't need a separate bundles query.
+    const [metricsResult, indemnityResult, claimsYesterdayResult, stockResult] =
+      await Promise.all([
+        adminDb.rpc('get_dashboard_metrics', {
+          p_tenant_id: tenantId,
+          p_month_start: monthStartStr,
+          p_month_end: monthEndStr,
+          p_yesterday: yesterdayStr,
+        }),
+        serverDb.rpc('get_monthly_indemnities', {
+          p_tenant_id: tenantId,
+          p_start_date: startOfMonth.toISOString(),
+          p_end_date: endOfMonth.toISOString(),
+        }),
+        serverDb
+          .from('claims')
+          .select('*', { count: 'exact', head: true })
+          .eq('tenant_id', tenantId)
+          .gte('opened_at', yesterday.toISOString())
+          .lte('opened_at', yesterdayEnd.toISOString()),
+        // mv_sku_metrics is a materialized view (no RLS) — use admin client + explicit tenant filter
+        adminDb
+          .from('mv_sku_metrics')
+          .select(
+            'sku_id, sku_code, name, qty_current, consumption_30d, consumption_90d, avg_daily_90d, days_remaining, is_bundle'
+          )
+          .eq('tenant_id', tenantId)
+          .eq('is_bundle', false),
+      ])
 
-      supabase
-        .from('shipments')
-        .select('computed_cost_eur')
-        .eq('tenant_id', tenantId)
-        .eq('pricing_status', 'ok')
-        .gte('shipped_at', startOfMonth.toISOString())
-        .lte('shipped_at', endOfMonth.toISOString()),
+    const metricRows = (metricsResult.data || []) as DashboardMetricRow[]
 
-      supabase
-        .from('shipments')
-        .select('*', { count: 'exact', head: true })
-        .eq('tenant_id', tenantId)
-        .eq('pricing_status', 'missing')
-        .gte('shipped_at', startOfMonth.toISOString())
-        .lte('shipped_at', endOfMonth.toISOString()),
+    // Parse metric rows by category
+    let shipmentsCount = 0
+    let totalCost = 0
+    let missingPricingMonthCount = 0
+    let missingPricingTotalCount = 0
+    let shipmentsYesterday = 0
+    let costYesterday = 0
+    const dailyByDay = new Map<string, { shipments: number; cost: number }>()
 
-      supabase
-        .from('shipments')
-        .select('*', { count: 'exact', head: true })
-        .eq('tenant_id', tenantId)
-        .eq('pricing_status', 'missing'),
-
-      // Use untyped client to call RPC for indemnities (uses COALESCE for decided_at/created_at)
-      supabaseUntyped.rpc('get_monthly_indemnities', {
-        p_tenant_id: tenantId,
-        p_start_date: startOfMonth.toISOString(),
-        p_end_date: endOfMonth.toISOString()
-      }),
-
-      supabase
-        .from('stock_snapshots')
-        .select('qty_current, skus(sku_code, name)')
-        .eq('tenant_id', tenantId)
-        .lt('qty_current', 50)
-        .order('qty_current')
-        .limit(10),
-
-      supabaseUntyped.rpc('get_daily_shipments_aggregated', {
-        p_tenant_id: tenantId,
-        p_start_date: startOfMonth.toISOString(),
-        p_end_date: endOfMonth.toISOString(),
-      }),
-
-      // Claims created yesterday
-      supabase
-        .from('claims')
-        .select('*', { count: 'exact', head: true })
-        .eq('tenant_id', tenantId)
-        .gte('opened_at', yesterday.toISOString())
-        .lte('opened_at', yesterdayEnd.toISOString()),
-
-      // Cost yesterday
-      supabase
-        .from('shipments')
-        .select('computed_cost_eur')
-        .eq('tenant_id', tenantId)
-        .eq('pricing_status', 'ok')
-        .gte('shipped_at', yesterday.toISOString())
-        .lte('shipped_at', yesterdayEnd.toISOString())
-    ])
-
-    const shipmentsCost = shipmentsCostResult.data as { computed_cost_eur: number | null }[] | null
-    const totalCost = shipmentsCost?.reduce((sum, s) => sum + (Number(s.computed_cost_eur) || 0), 0) || 0
-
-    const claimsData = claimsResult.data as { indemnity_eur: number | null }[] | null
-    const totalIndemnity = claimsData?.reduce((sum, c) => sum + (Number(c.indemnity_eur) || 0), 0) ?? 0
-
-    const shipmentsCount = shipmentsResult.count || 0
-    const missingPricingMonthCount = missingPricingMonthResult.count || 0
-    const missingPricingTotalCount = missingPricingTotalResult.count || 0
-    const claimsYesterdayCount = claimsYesterdayResult.count || 0
-    const costYesterdayData = costYesterdayResult.data as { computed_cost_eur: number | null }[] | null
-    const costYesterday = costYesterdayData?.reduce((sum, s) => sum + (Number(s.computed_cost_eur) || 0), 0) || 0
-    // criticalStockCount will be calculated after filtering bundles below
-
-    // Build daily shipments map from RPC aggregation
-    const dailyAgg = dailyShipmentsResult.data as { day: string; shipments: number; cost: number }[] | null
-    const shipmentsByDay = new Map<string, { shipments: number; cost: number }>()
-    if (dailyAgg) {
-      for (const row of dailyAgg) {
-        shipmentsByDay.set(row.day, { shipments: Number(row.shipments), cost: Number(row.cost) })
+    for (const row of metricRows) {
+      switch (row.metric) {
+        case 'month':
+          shipmentsCount = toInt(row.shipments_count)
+          totalCost = Number(row.shipments_cost) || 0
+          missingPricingMonthCount = toInt(row.shipments_missing_pricing)
+          break
+        case 'all_time_missing':
+          missingPricingTotalCount = toInt(row.shipments_missing_pricing)
+          break
+        case 'yesterday':
+          shipmentsYesterday = toInt(row.shipments_count)
+          costYesterday = Number(row.shipments_cost) || 0
+          break
+        case 'day':
+          if (row.day) {
+            dailyByDay.set(row.day, {
+              shipments: toInt(row.shipments_count),
+              cost: Number(row.shipments_cost) || 0,
+            })
+          }
+          break
       }
     }
+    void shipmentsYesterday // reserved for future KPI
 
+    // Build full daily chart (fill gaps with zeros)
     const chartData = []
     for (let i = 1; i <= daysInMonth; i++) {
       const dateStr = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`
-      const dayData = shipmentsByDay.get(dateStr) || { shipments: 0, cost: 0 }
+      const dayData = dailyByDay.get(dateStr) || { shipments: 0, cost: 0 }
       chartData.push({
         date: new Date(targetYear, targetMonth, i).toISOString(),
         shipments: dayData.shipments,
-        cost: dayData.cost
+        cost: dayData.cost,
       })
     }
 
-    // Get bundle SKU IDs to exclude from stock health
-    const { data: bundles } = await supabase
-      .from('bundles')
-      .select('bundle_sku_id')
-      .eq('tenant_id', tenantId)
-    const bundleSkuIds = new Set((bundles || []).map((b: { bundle_sku_id: string }) => b.bundle_sku_id))
+    const indemnityData = indemnityResult.data as
+      | { indemnity_eur: number | null }[]
+      | null
+    const totalIndemnity =
+      indemnityData?.reduce(
+        (sum, c) => sum + (Number(c.indemnity_eur) || 0),
+        0
+      ) ?? 0
 
-    // Get real consumption metrics for stock health
-    const skuMetrics = await calculateSKUMetrics(tenantId)
+    const claimsYesterdayCount = claimsYesterdayResult.count || 0
 
-    // Filter out bundles and get critical stock (low qty or low days remaining)
+    // Stock health from mv_sku_metrics (bundles already filtered out via is_bundle flag)
+    const skuMetrics = (stockResult.data || []) as SkuMetricRow[]
+
     const stockHealth = skuMetrics
-      .filter(m => {
-        // Exclude bundles
-        if (bundleSkuIds.has(m.sku_id)) return false
+      .filter((m) => {
         if (m.sku_code.toUpperCase().includes('BU-')) return false
-        // Only include if low stock or low days remaining
-        return m.qty_current < 50 || (m.days_remaining !== null && m.days_remaining < 30)
+        return (
+          m.qty_current < 50 ||
+          (m.days_remaining !== null && m.days_remaining < 30)
+        )
       })
-      .map(m => ({
+      .map((m) => ({
         sku: m.sku_code,
         stock: m.qty_current,
         avgConsumption90d: m.avg_daily_90d,
         consumption30d: m.consumption_30d,
-        daysRemaining: m.days_remaining !== null ? Math.max(1, m.days_remaining) : 999,
-        isBundle: false
+        daysRemaining:
+          m.days_remaining !== null ? Math.max(1, m.days_remaining) : 999,
+        isBundle: false,
       }))
       .sort((a, b) => a.daysRemaining - b.daysRemaining)
       .slice(0, 10)
 
-    // Count critical SKUs (excluding bundles, stock < 20)
-    const criticalStockCount = skuMetrics.filter(m => {
-      if (bundleSkuIds.has(m.sku_id)) return false
+    const criticalStockCount = skuMetrics.filter((m) => {
       if (m.sku_code.toUpperCase().includes('BU-')) return false
       return m.qty_current < 20
     }).length
 
-    const missingPricingStatus = missingPricingMonthCount > 0 ? 'warning' : 'success'
+    const missingPricingStatus =
+      missingPricingMonthCount > 0 ? 'warning' : 'success'
     const indemnityStatus = totalIndemnity > 0 ? 'success' : 'default'
     const criticalStockStatus = criticalStockCount > 0 ? 'danger' : 'success'
 
-    return NextResponse.json({
-      currentMonth,
-      kpis: {
-        shipments: { label: "Expéditions", value: shipmentsCount, subValue: "ce mois-ci", status: 'default' },
-        cost: { label: "Coût transport", value: `${totalCost.toFixed(2)} €`, subValue: "ce mois-ci", status: 'default' },
-        missingPricing: { label: "Tarifs manquants", value: missingPricingMonthCount, subValue: "ce mois-ci", status: missingPricingStatus },
-        indemnity: { label: "Total indemnisé", value: `${totalIndemnity.toFixed(2)} €`, subValue: "ce mois-ci", status: indemnityStatus },
-        criticalStock: { label: "SKUs critiques", value: criticalStockCount, subValue: "stock < 20", status: criticalStockStatus },
-        claimsYesterday: { label: "Réclamations", value: claimsYesterdayCount, subValue: "hier", status: claimsYesterdayCount > 0 ? 'warning' : 'success' },
-        costYesterday: { label: "Coût HME hier", value: `${costYesterday.toFixed(2)} €`, subValue: "hier", status: 'default' },
+    return NextResponse.json(
+      {
+        currentMonth,
+        kpis: {
+          shipments: {
+            label: 'Expéditions',
+            value: shipmentsCount,
+            subValue: 'ce mois-ci',
+            status: 'default',
+          },
+          cost: {
+            label: 'Coût transport',
+            value: `${totalCost.toFixed(2)} €`,
+            subValue: 'ce mois-ci',
+            status: 'default',
+          },
+          missingPricing: {
+            label: 'Tarifs manquants',
+            value: missingPricingMonthCount,
+            subValue: 'ce mois-ci',
+            status: missingPricingStatus,
+          },
+          indemnity: {
+            label: 'Total indemnisé',
+            value: `${totalIndemnity.toFixed(2)} €`,
+            subValue: 'ce mois-ci',
+            status: indemnityStatus,
+          },
+          criticalStock: {
+            label: 'SKUs critiques',
+            value: criticalStockCount,
+            subValue: 'stock < 20',
+            status: criticalStockStatus,
+          },
+          claimsYesterday: {
+            label: 'Réclamations',
+            value: claimsYesterdayCount,
+            subValue: 'hier',
+            status: claimsYesterdayCount > 0 ? 'warning' : 'success',
+          },
+          costYesterday: {
+            label: 'Coût HME hier',
+            value: `${costYesterday.toFixed(2)} €`,
+            subValue: 'hier',
+            status: 'default',
+          },
+        },
+        chartData,
+        stockHealth,
+        alerts: [
+          ...(criticalStockCount > 0
+            ? [
+                {
+                  id: 'stock-critique',
+                  type: 'stock_critique',
+                  title: 'Stock critique',
+                  description: `${criticalStockCount} SKU(s) faibles`,
+                  count: criticalStockCount,
+                  actionLabel: 'Gérer',
+                  actionLink: '/produits?filter=critique',
+                },
+              ]
+            : []),
+          ...(missingPricingTotalCount > 0
+            ? [
+                {
+                  id: 'tarif-manquant',
+                  type: 'tarif_manquant',
+                  title: 'Tarifs manquants',
+                  description: `${missingPricingTotalCount} total (${missingPricingMonthCount} ce mois)`,
+                  count: missingPricingTotalCount,
+                  actionLabel: 'Corriger',
+                  actionLink: '/expeditions?pricing_status=missing',
+                },
+              ]
+            : []),
+        ],
+        billing: {
+          status: 'pending',
+          totalCost,
+          missingPricingCount: missingPricingMonthCount,
+          missingPricingTotal: missingPricingTotalCount,
+          totalIndemnity,
+        },
+        lastSync: { date: new Date().toISOString(), status: 'ok' },
       },
-      chartData,
-      stockHealth,
-      alerts: [
-        ...(criticalStockCount > 0 ? [{ id: 'stock-critique', type: 'stock_critique', title: 'Stock critique', description: `${criticalStockCount} SKU(s) faibles`, count: criticalStockCount, actionLabel: 'Gérer', actionLink: '/produits?filter=critique' }] : []),
-        ...(missingPricingTotalCount > 0 ? [{ id: 'tarif-manquant', type: 'tarif_manquant', title: 'Tarifs manquants', description: `${missingPricingTotalCount} total (${missingPricingMonthCount} ce mois)`, count: missingPricingTotalCount, actionLabel: 'Corriger', actionLink: '/expeditions?pricing_status=missing' }] : [])
-      ],
-      billing: { status: 'pending', totalCost, missingPricingCount: missingPricingMonthCount, missingPricingTotal: missingPricingTotalCount, totalIndemnity },
-      lastSync: { date: new Date().toISOString(), status: 'ok' }
-    }, {
-      headers: {
-        'Cache-Control': 'private, max-age=300, stale-while-revalidate=600'
+      {
+        headers: {
+          'Cache-Control': 'private, max-age=300, stale-while-revalidate=600',
+        },
       }
-    })
+    )
   } catch (error) {
     console.error('Dashboard error:', error)
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })

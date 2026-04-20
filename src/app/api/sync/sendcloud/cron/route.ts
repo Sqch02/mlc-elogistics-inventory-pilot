@@ -343,12 +343,17 @@ async function runSync() {
     }
   }
 
-  // Refresh materialized view (non-blocking)
+  // Refresh all analytics materialized views (physical items + dashboard daily + sku metrics)
   try {
-    await adminClient.rpc('refresh_physical_items_view')
-    console.log('[Cron] Refreshed v_physical_shipment_items materialized view')
+    await adminClient.rpc('refresh_all_analytics_views')
+    console.log('[Cron] Refreshed analytics materialized views')
   } catch (e) {
-    console.error('[Cron] Failed to refresh materialized view:', e)
+    console.error('[Cron] Failed to refresh analytics views, falling back to physical items only:', e)
+    try {
+      await adminClient.rpc('refresh_physical_items_view')
+    } catch (e2) {
+      console.error('[Cron] Fallback refresh also failed:', e2)
+    }
   }
 
   const totalDuration = Date.now() - startTime

@@ -181,7 +181,7 @@ export default function AnalyticsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['analytics', dateRange.from, dateRange.to],
     queryFn: () => fetchAnalytics(dateRange.from, dateRange.to),
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 10 * 60 * 1000, // 10 min (mat views refreshed every 5 min)
   })
 
   if (isLoading) {

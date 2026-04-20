@@ -33,6 +33,7 @@ import {
   AlertCircle,
   AlertTriangle,
   CheckCircle2,
+  ExternalLink,
   HelpCircle,
   Info,
   Loader2,
@@ -169,12 +170,193 @@ function formatDate(iso: string | null): string {
   }
 }
 
+function normalizeStr(s: string | null | undefined): string {
+  if (!s) return ''
+  return s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
+function findMatchingSku(
+  hint: string | null,
+  skus: SkuOption[]
+): SkuOption | null {
+  if (!hint) return null
+  const nh = normalizeStr(hint).replace(
+    /^(flacon|pack|coffret|bundle|kit|lot)\s+/i,
+    ''
+  )
+  if (nh.length < 3) return null
+  const tokens = nh.split(/\s+/).filter((t) => t.length >= 3)
+  if (tokens.length === 0) return null
+
+  let best: { sku: SkuOption; score: number } | null = null
+  for (const sku of skus) {
+    const nname = normalizeStr(sku.name)
+    if (!nname) continue
+    let score = 0
+    for (const t of tokens) if (nname.includes(t)) score += 1
+    if (nname.includes(nh) || nh.includes(nname)) score += 2
+    if (score > 0 && (!best || score > best.score)) best = { sku, score }
+  }
+  return best && best.score >= 2 ? best.sku : null
+}
+
+interface FixGuide {
+  problem: string
+  impact: string
+  steps: string[]
+  suggestedSku?: SkuOption
+  suggestedValue?: string
+}
+
+function buildFixGuide(a: AnomalyGroup, skus: SkuOption[]): FixGuide {
+  switch (a.type) {
+    case 'empty_sku': {
+      const match = findMatchingSku(a.raw_description, skus)
+      return {
+        problem: `Le produit "${a.raw_description ?? '(sans nom)'}" est vendu sur Shopify sans code SKU.`,
+        impact: `${a.total_qty} unite(s) ne sont pas rattachees a ton stock ni a tes statistiques.`,
+        steps: [
+          `Ouvrir Shopify Admin > Produits.`,
+          `Rechercher "${a.raw_description ?? ''}" et ouvrir la fiche.`,
+          `Descendre a la section "Inventaire" > champ "SKU".`,
+          match
+            ? `Saisir le code : ${match.sku_code} (correspond au produit "${match.name}" deja dans l'app).`
+            : `Saisir le code SKU (format Florna : FLRN-XXXXXX-FBCG, ex: FLRN-PPOIDS-FBCG pour "Perte de poids").`,
+          `Cliquer sur "Enregistrer". La correction sera prise en compte au prochain sync (sous 5 min).`,
+        ],
+        suggestedSku: match ?? undefined,
+      }
+    }
+    case 'sku_with_spaces': {
+      const match =
+        findMatchingSku(a.raw_sku, skus) ??
+        findMatchingSku(a.raw_description, skus)
+      return {
+        problem: `Le champ SKU contient du texte libre ("${a.raw_sku}") au lieu d'un code court.`,
+        impact: `Un SKU doit etre un identifiant unique sans espaces. ${a.total_qty} unite(s) ne peuvent pas etre reliees a l'inventaire.`,
+        steps: [
+          `Ouvrir Shopify Admin > Produits.`,
+          `Ouvrir la fiche (champ SKU actuel : "${a.raw_sku}").`,
+          `Section "Inventaire" > champ "SKU".`,
+          match
+            ? `Remplacer par : ${match.sku_code} (correspond au produit "${match.name}" deja dans l'app).`
+            : `Remplacer par un vrai code court (ex: FLRN-XXXXXX-FBCG).`,
+          `Cliquer sur "Enregistrer".`,
+        ],
+        suggestedSku: match ?? undefined,
+      }
+    }
+    case 'sku_with_accents': {
+      const match =
+        findMatchingSku(a.raw_sku, skus) ??
+        findMatchingSku(a.raw_description, skus)
+      const cleaned = normalizeStr(a.raw_sku ?? '')
+        .toUpperCase()
+        .replace(/\s+/g, '-')
+      return {
+        problem: `Le code SKU contient des accents ("${a.raw_sku}"). Les codes SKU ne doivent pas contenir d'accents.`,
+        impact: `${a.total_qty} unite(s) risquent de ne pas etre matchees avec l'inventaire.`,
+        steps: [
+          `Ouvrir Shopify Admin > Produits.`,
+          `Ouvrir la fiche avec SKU "${a.raw_sku}".`,
+          `Section "Inventaire" > champ "SKU".`,
+          match
+            ? `Remplacer par : ${match.sku_code} (correspond au produit "${match.name}" deja dans l'app).`
+            : `Remplacer par : ${cleaned} (version sans accents).`,
+          `Cliquer sur "Enregistrer".`,
+        ],
+        suggestedSku: match ?? undefined,
+        suggestedValue: match ? undefined : cleaned,
+      }
+    }
+    case 'order_ref_as_description': {
+      return {
+        problem: `Commandes traitees manuellement par le SAV : le numero de commande ("${a.raw_description}") a ete saisi a la place du nom du produit dans Shopify.`,
+        impact: `${a.total_qty} unite(s) ne sont pas identifiables par produit dans les stats. Pour les stocks, il faut rattacher chacune de ces commandes au bon produit dans Shopify.`,
+        steps: [
+          `Pour chaque commande listee ci-dessous, ouvrir la commande dans Shopify Admin.`,
+          `Identifier quel produit physique a reellement ete expedie (voir notes SAV ou communication client).`,
+          `Remplacer la ligne generique par le bon produit Shopify (avec SKU correct).`,
+          `Si recurrence importante : demander au SAV de toujours utiliser le produit du catalogue plutot qu'une description libre.`,
+          `La correction sera prise en compte au prochain sync (sous 5 min).`,
+        ],
+      }
+    }
+    default:
+      return {
+        problem: 'Anomalie detectee dans Shopify.',
+        impact: `${a.total_qty} unite(s) concernees.`,
+        steps: ['Corriger la fiche produit dans Shopify.'],
+      }
+  }
+}
+
+function OrderBadgeList({
+  orders,
+  showAll,
+  label,
+}: {
+  orders: SampleOrder[]
+  showAll: boolean
+  label: string
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const initialLimit = showAll ? 8 : 3
+  const display = expanded ? orders : orders.slice(0, initialLimit)
+  const hidden = orders.length - display.length
+
+  return (
+    <div className="pt-1">
+      <div className="text-xs text-muted-foreground mb-1.5 font-medium">
+        {label}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {display.map((o) => (
+          <Badge
+            key={o.order_ref}
+            variant="muted"
+            className="font-mono text-[11px]"
+          >
+            {o.order_ref}
+            {o.date ? ` - ${formatDate(o.date)}` : ''}
+            {o.client ? ` - ${o.client}` : ''}
+          </Badge>
+        ))}
+        {hidden > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="text-[11px] font-medium text-primary hover:underline px-1.5"
+          >
+            + {hidden} autre{hidden > 1 ? 's' : ''} commande{hidden > 1 ? 's' : ''}
+          </button>
+        )}
+        {expanded && orders.length > initialLimit && (
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className="text-[11px] font-medium text-muted-foreground hover:underline px-1.5"
+          >
+            Reduire
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function AnomaliesSection({
   anomalies,
   isLoading,
+  skus,
 }: {
   anomalies: AnomalyGroup[]
   isLoading: boolean
+  skus: SkuOption[]
 }) {
   if (isLoading) {
     return (
@@ -228,8 +410,9 @@ function AnomaliesSection({
               )}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              Problemes detectes dans vos produits Shopify sur les 6 derniers
-              mois. A corriger dans Shopify &gt; Produits.
+              Problemes detectes dans vos produits Shopify depuis le debut de
+              l&apos;annee. Chaque anomalie est detaillee ci-dessous avec la
+              marche a suivre.
             </p>
           </div>
         </div>
@@ -243,84 +426,144 @@ function AnomaliesSection({
             </span>
           </div>
         ) : (
-          <div className="grid gap-3">
-            {anomalies.map((a) => (
-              <div
-                key={anomalyKey(a)}
-                className="rounded-md border border-border bg-background p-3 space-y-2"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant={ANOMALY_VARIANTS[a.type]}>
-                    {ANOMALY_LABELS[a.type]}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">
-                    <strong className="text-foreground">{a.total_qty}</strong>{' '}
-                    unite(s) sur{' '}
-                    <strong className="text-foreground">
-                      {a.nb_occurrences}
-                    </strong>{' '}
-                    occurrence(s)
-                  </span>
-                </div>
-
-                <div className="text-sm space-y-1">
-                  <div className="flex flex-wrap items-baseline gap-2">
-                    <span className="text-xs uppercase tracking-wide text-muted-foreground">
-                      SKU:
-                    </span>
-                    <span className="font-mono break-all">
-                      {a.raw_sku && a.raw_sku.length > 0 ? (
-                        a.raw_sku
-                      ) : (
-                        <span className="text-muted-foreground italic">
-                          (vide)
-                        </span>
-                      )}
+          <div className="grid gap-4">
+            {anomalies.map((a) => {
+              const guide = buildFixGuide(a, skus)
+              return (
+                <div
+                  key={anomalyKey(a)}
+                  className="rounded-md border border-border bg-background p-3.5 space-y-3"
+                >
+                  {/* Header */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={ANOMALY_VARIANTS[a.type]}>
+                      {ANOMALY_LABELS[a.type]}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      <strong className="text-foreground">{a.total_qty}</strong>{' '}
+                      unite(s) sur{' '}
+                      <strong className="text-foreground">
+                        {a.nb_occurrences}
+                      </strong>{' '}
+                      occurrence(s)
                     </span>
                   </div>
-                  <div className="flex flex-wrap items-baseline gap-2">
-                    <span className="text-xs uppercase tracking-wide text-muted-foreground">
-                      Description:
-                    </span>
-                    <span className="break-words">
-                      {a.raw_description && a.raw_description.length > 0 ? (
-                        a.raw_description
-                      ) : (
-                        <span className="text-muted-foreground italic">
-                          (vide)
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                </div>
 
-                {a.sample_orders.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1">
-                    <span className="text-xs text-muted-foreground mr-1">
-                      Exemples:
-                    </span>
-                    {a.sample_orders.slice(0, 3).map((o) => (
-                      <Badge
-                        key={o.order_ref}
-                        variant="muted"
-                        className="font-mono text-[11px]"
-                      >
-                        {o.order_ref}
-                        {o.date ? ` - ${formatDate(o.date)}` : ''}
-                        {o.client ? ` - ${o.client}` : ''}
-                      </Badge>
-                    ))}
+                  {/* Raw data */}
+                  <div className="text-sm space-y-1 bg-muted/40 rounded-md p-2.5">
+                    <div className="flex flex-wrap items-baseline gap-2">
+                      <span className="text-xs uppercase tracking-wide text-muted-foreground w-24 shrink-0">
+                        SKU Shopify:
+                      </span>
+                      <span className="font-mono break-all">
+                        {a.raw_sku && a.raw_sku.length > 0 ? (
+                          a.raw_sku
+                        ) : (
+                          <span className="text-muted-foreground italic">
+                            (vide)
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-baseline gap-2">
+                      <span className="text-xs uppercase tracking-wide text-muted-foreground w-24 shrink-0">
+                        Description:
+                      </span>
+                      <span className="break-words">
+                        {a.raw_description && a.raw_description.length > 0 ? (
+                          a.raw_description
+                        ) : (
+                          <span className="text-muted-foreground italic">
+                            (vide)
+                          </span>
+                        )}
+                      </span>
+                    </div>
                   </div>
-                )}
 
-                <div className="flex items-start gap-2 bg-muted/50 border border-border rounded-md p-2.5">
-                  <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                  <p className="text-xs text-foreground leading-relaxed">
-                    {a.suggested_action}
-                  </p>
+                  {/* Problem block */}
+                  <div className="flex items-start gap-2 rounded-md bg-error/5 border border-error/15 p-2.5">
+                    <AlertTriangle className="h-4 w-4 text-error shrink-0 mt-0.5" />
+                    <div className="text-sm leading-relaxed">
+                      <span className="font-semibold text-error text-[11px] uppercase tracking-wide block mb-0.5">
+                        Le probleme
+                      </span>
+                      <span className="text-foreground">{guide.problem}</span>
+                    </div>
+                  </div>
+
+                  {/* Impact block */}
+                  <div className="flex items-start gap-2 rounded-md bg-warning/5 border border-warning/15 p-2.5">
+                    <Info className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+                    <div className="text-sm leading-relaxed">
+                      <span className="font-semibold text-warning text-[11px] uppercase tracking-wide block mb-0.5">
+                        L'impact
+                      </span>
+                      <span className="text-foreground">{guide.impact}</span>
+                    </div>
+                  </div>
+
+                  {/* Fix block */}
+                  <div className="rounded-md bg-success/5 border border-success/15 p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
+                      <span className="font-semibold text-success text-[11px] uppercase tracking-wide">
+                        Comment corriger (etape par etape)
+                      </span>
+                    </div>
+                    <ol className="list-decimal list-inside space-y-1.5 text-sm text-foreground marker:text-success marker:font-semibold">
+                      {guide.steps.map((step, i) => (
+                        <li key={i} className="leading-relaxed">
+                          {step}
+                        </li>
+                      ))}
+                    </ol>
+                    {guide.suggestedSku && (
+                      <div className="mt-3 rounded-md border border-primary/20 bg-primary/5 p-2.5 text-xs flex items-start gap-2">
+                        <LinkIcon className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+                        <div>
+                          <span className="text-muted-foreground">
+                            SKU suggere (existe deja dans l'app) :
+                          </span>{' '}
+                          <code className="font-mono font-semibold text-primary">
+                            {guide.suggestedSku.sku_code}
+                          </code>
+                          <span className="text-muted-foreground">
+                            {' '}
+                            — {guide.suggestedSku.name}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    <div className="mt-3">
+                      <Button asChild variant="outline" size="sm">
+                        <a
+                          href="https://admin.shopify.com/products"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <ExternalLink className="h-4 w-4 mr-2" />
+                          Ouvrir Shopify Admin
+                        </a>
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Examples — for SAV type, show all orders (important for the workflow). */}
+                  {a.sample_orders.length > 0 && (
+                    <OrderBadgeList
+                      orders={a.sample_orders}
+                      showAll={a.type === 'order_ref_as_description'}
+                      label={
+                        a.type === 'order_ref_as_description'
+                          ? `${a.sample_orders.length} commande(s) SAV a retraiter`
+                          : 'Exemples de commandes'
+                      }
+                    />
+                  )}
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </CardContent>
@@ -346,7 +589,7 @@ export function MappingClient() {
   } = useQuery({
     queryKey: ['mapping', 'unmapped'],
     queryFn: fetchUnmapped,
-    staleTime: 30 * 1000,
+    staleTime: 2 * 60 * 1000, // 2 min (refreshed by cron every 5 min)
   })
 
   const {
@@ -355,7 +598,7 @@ export function MappingClient() {
   } = useQuery({
     queryKey: ['mapping', 'anomalies'],
     queryFn: fetchAnomalies,
-    staleTime: 60 * 1000,
+    staleTime: 5 * 60 * 1000, // 5 min (RPC scans 7 days of raw_json)
   })
 
   const anomalies = useMemo<AnomalyGroup[]>(
@@ -366,7 +609,7 @@ export function MappingClient() {
   const { data: skusData } = useQuery({
     queryKey: ['skus', 'all'],
     queryFn: fetchSkus,
-    staleTime: 2 * 60 * 1000,
+    staleTime: 10 * 60 * 1000, // 10 min (SKU list changes rarely)
   })
 
   const resolveMutation = useMutation({
@@ -472,7 +715,11 @@ export function MappingClient() {
       </div>
 
       {/* Anomalies Shopify section */}
-      <AnomaliesSection anomalies={anomalies} isLoading={isAnomaliesLoading} />
+      <AnomaliesSection
+        anomalies={anomalies}
+        isLoading={isAnomaliesLoading}
+        skus={skusData?.skus ?? []}
+      />
 
       {/* Summary + search */}
       <Card className="p-4">

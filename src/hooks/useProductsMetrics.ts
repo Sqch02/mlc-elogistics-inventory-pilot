@@ -59,7 +59,7 @@ export function useProductsMetrics(params: UseProductsMetricsParams = {}) {
   return useQuery({
     queryKey: ['products-metrics', params.from, params.to, params.limit],
     queryFn: () => fetchProductsMetrics(params),
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 10 * 60 * 1000, // 10 minutes
+    staleTime: 10 * 60 * 1000, // 10 min (mat views refreshed every 5 min)
+    gcTime: 20 * 60 * 1000,
   })
 }

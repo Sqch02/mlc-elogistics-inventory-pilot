@@ -103,7 +103,7 @@ export function useShipments(filters: ShipmentFilters = {}) {
   return useQuery({
     queryKey: ['shipments', filters],
     queryFn: () => fetchShipments(filters),
-    staleTime: 2 * 60 * 1000, // 2 minutes
+    staleTime: 5 * 60 * 1000, // 5 min (shipments list, refreshed by cron)
   })
 }
 
