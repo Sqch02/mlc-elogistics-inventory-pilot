@@ -1,7 +1,8 @@
 'use client'
 
 import { memo } from 'react'
-import { Package, Eye, ArrowRight, TrendingDown, AlertTriangle } from 'lucide-react'
+import { Package, Eye, ArrowRight, TrendingDown, AlertTriangle, Info } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
 import type { StockHealthItem } from '@/types/dashboard'
@@ -126,7 +127,34 @@ export function StockHealthPanel({ items, criticalCount, delay = 0 }: StockHealt
             <Eye className="h-4 w-4 text-primary" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-foreground">Sante Stock</h3>
+            <div className="flex items-center gap-1.5">
+              <h3 className="text-sm font-semibold text-foreground">Sante Stock</h3>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="Methode de calcul"
+                      className="text-muted-foreground/60 hover:text-foreground transition-colors"
+                    >
+                      <Info className="h-3 w-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="text-xs leading-relaxed">
+                      <strong>Jours restants</strong> = stock actuel / conso
+                      moyenne journaliere (moyenne sur 90 jours, basee sur les
+                      unites physiques reellement expediees — bundles deja
+                      decomposes en flacons).
+                      <br />
+                      <br />
+                      Rouge = moins de 7 jours, orange = moins de 30 jours,
+                      vert = plus de 30 jours.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
             <p className="text-[10px] text-muted-foreground">
               {items.length} SKU a surveiller
             </p>

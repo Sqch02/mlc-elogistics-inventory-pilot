@@ -3,7 +3,8 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { Badge } from '@/components/ui/badge'
-import { Truck, AlertTriangle } from 'lucide-react'
+import { Truck, AlertTriangle, Info } from 'lucide-react'
+import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatCarrierName, formatEuro } from '@/lib/utils'
 
 interface CarrierStats {
@@ -58,6 +59,38 @@ export function CarrierPerformance({ data, totalCarriers }: CarrierPerformancePr
             <CardTitle className="flex items-center gap-2 text-lg font-semibold">
               <Truck className="h-5 w-5 text-muted-foreground" />
               Performance Transporteurs
+              <TooltipProvider>
+                <UITooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="Methode de calcul"
+                      className="text-muted-foreground/60 hover:text-foreground transition-colors"
+                    >
+                      <Info className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-sm">
+                    <p className="text-xs leading-relaxed">
+                      Donnees agregees sur les <strong>90 derniers jours</strong>,
+                      par transporteur :
+                      <br />
+                      <br />
+                      <strong>Expeditions</strong> : nombre de colis expedies
+                      (hors retours).
+                      <br />
+                      <strong>Cout total</strong> : somme des tarifs
+                      transporteur.
+                      <br />
+                      <strong>Cout moyen</strong> : cout total / nombre de
+                      colis.
+                      <br />
+                      <strong>Taux de reclamations</strong> : reclamations
+                      ouvertes / expeditions × 100.
+                    </p>
+                  </TooltipContent>
+                </UITooltip>
+              </TooltipProvider>
             </CardTitle>
             <CardDescription>90 derniers jours • {totalCarriers} transporteurs</CardDescription>
           </div>

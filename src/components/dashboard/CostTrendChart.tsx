@@ -2,7 +2,8 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
-import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, Info } from 'lucide-react'
+import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatEuro } from '@/lib/utils'
 
 interface MonthlyData {
@@ -50,7 +51,40 @@ export function CostTrendChart({ data, percentChange, shipmentsPercentChange }: 
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-lg font-semibold">Évolution des Coûts</CardTitle>
+            <CardTitle className="text-lg font-semibold flex items-center gap-2">
+              Évolution des Coûts
+              <TooltipProvider>
+                <UITooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="Methode de calcul"
+                      className="text-muted-foreground/60 hover:text-foreground transition-colors"
+                    >
+                      <Info className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-sm">
+                    <p className="text-xs leading-relaxed">
+                      <strong>Cout mensuel</strong> = somme des tarifs calcules
+                      pour les colis expedies dans le mois (hors retours et
+                      commandes annulees). Tarif = regle pricing (transporteur +
+                      destination + tranche de poids).
+                      <br />
+                      <br />
+                      <strong>% vs mois precedent</strong> : evolution du cout
+                      total d&apos;un mois a l&apos;autre. Rouge = hausse, vert
+                      = baisse.
+                      <br />
+                      <br />
+                      <strong>Reclamations indemnisees</strong> : montant total
+                      verse aux clients pour les reclamations cloturees avec
+                      statut &quot;indemnisee&quot; le mois en cours.
+                    </p>
+                  </TooltipContent>
+                </UITooltip>
+              </TooltipProvider>
+            </CardTitle>
             <CardDescription>Coûts transport sur 12 mois</CardDescription>
           </div>
           <div className="text-right">
