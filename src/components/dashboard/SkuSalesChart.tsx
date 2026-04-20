@@ -2,8 +2,9 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Package } from 'lucide-react'
+import { Package, Info } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts'
+import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 interface SkuSalesData {
   sku_id: string
@@ -49,6 +50,24 @@ export function SkuSalesChart({ data, totalSkus, totalQuantity }: SkuSalesChartP
             <CardTitle className="flex items-center gap-2 text-lg font-semibold">
               <Package className="h-5 w-5 text-muted-foreground" />
               Produits vendus par SKU
+              <TooltipProvider>
+                <UITooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="text-muted-foreground/70 hover:text-foreground transition-colors"
+                      aria-label="Plus d'informations"
+                    >
+                      <Info className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="text-xs leading-relaxed">
+                      Nombre d&apos;articles physiques reellement expedies. Les bundles (ex: Pack Minceur = 3 flacons) sont automatiquement decomposes en composants individuels. Ce chiffre represente ce qui sort de l&apos;entrepot, pas les lignes Shopify.
+                    </p>
+                  </TooltipContent>
+                </UITooltip>
+              </TooltipProvider>
             </CardTitle>
             <CardDescription>
               Top 10 des produits les plus expedies sur la periode

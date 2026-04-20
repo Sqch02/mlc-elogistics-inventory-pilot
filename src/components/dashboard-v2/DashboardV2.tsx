@@ -151,6 +151,7 @@ export function DashboardV2() {
           icon={Package}
           status="default"
           delay={0.1}
+          tooltip="Nombre total de colis expedies sur la periode (hors retours et commandes annulees)."
         />
         {!isClient && (
           <SecondaryKpiCard
@@ -160,6 +161,7 @@ export function DashboardV2() {
             icon={Banknote}
             status="default"
             delay={0.15}
+            tooltip="Somme des couts de transport calcules selon les regles tarifaires par transporteur, destination et poids."
           />
         )}
         {!isClient && (
@@ -170,6 +172,7 @@ export function DashboardV2() {
             icon={Banknote}
             status="default"
             delay={0.17}
+            tooltip="Cout de transport cumule pour les colis expedies la veille."
           />
         )}
         {!isClient && (
@@ -180,6 +183,7 @@ export function DashboardV2() {
             icon={Award}
             status={Number(String(indemnityValue).replace(/[^\d.]/g, '')) > 0 ? 'warning' : 'success'}
             delay={0.2}
+            tooltip="Somme des indemnisations versees pour les reclamations cloturees avec statut 'indemnisee'."
           />
         )}
         <SecondaryKpiCard
@@ -189,6 +193,7 @@ export function DashboardV2() {
           icon={AlertTriangle}
           status={criticalStockCount > 0 ? 'danger' : 'success'}
           delay={0.25}
+          tooltip="Nombre de SKUs dont la quantite en stock est inferieure a 20 unites. Necessite un reapprovisionnement."
         />
       </div>
 

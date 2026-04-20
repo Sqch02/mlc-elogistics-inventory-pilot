@@ -14,13 +14,35 @@ import {
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { Package, TrendingDown, AlertTriangle, Warehouse, Search, X, Download, Loader2, Plus, MoreHorizontal, Pencil, Trash2, PackagePlus, History, ArrowUpRight, ArrowDownRight, Clock, Upload, BarChart3, Box } from 'lucide-react'
+import { Package, TrendingDown, AlertTriangle, Warehouse, Search, X, Download, Loader2, Plus, MoreHorizontal, Pencil, Trash2, PackagePlus, History, ArrowUpRight, ArrowDownRight, Clock, Upload, BarChart3, Box, Info } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useProducts, ProductFilters } from '@/hooks/useProducts'
 import { useSkus, useCreateSku, useUpdateSku, useDeleteSku, useAdjustStock, useSkuMovements, SKU, StockMovement } from '@/hooks/useSkus'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ImportPreviewDialog } from '@/components/forms/ImportPreviewDialog'
 import { useTenant } from '@/components/providers/TenantProvider'
+
+function MetricInfo({ text }: { text: string }) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="text-muted-foreground/70 hover:text-foreground transition-colors"
+            aria-label="Plus d'informations"
+          >
+            <Info className="h-3.5 w-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">
+          <p className="text-xs leading-relaxed">{text}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
 
 function getStatusBadge(status: string) {
   switch (status) {
@@ -340,7 +362,10 @@ export function ProduitsClient() {
         <Card>
           <CardContent className="p-3 lg:p-4 flex items-center justify-between">
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground font-medium uppercase">Conso 30j</p>
+              <div className="flex items-center gap-1.5">
+                <p className="text-xs text-muted-foreground font-medium uppercase">Conso 30j</p>
+                <MetricInfo text="Consommation des 30 derniers jours en articles physiques. Pour les bundles, chaque composant est comptabilise individuellement." />
+              </div>
               <p className="text-2xl font-bold">{stats.totalConsumption30d.toLocaleString()}</p>
             </div>
             <div className="p-2 bg-primary/10 rounded-lg text-primary">
@@ -364,7 +389,10 @@ export function ProduitsClient() {
         <Card>
           <CardContent className="p-3 lg:p-4 flex items-center justify-between">
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground font-medium uppercase">Volume Stock</p>
+              <div className="flex items-center gap-1.5">
+                <p className="text-xs text-muted-foreground font-medium uppercase">Volume Stock</p>
+                <MetricInfo text="Volume total en m3 calcule a partir du volume unitaire de chaque SKU multiplie par sa quantite en stock." />
+              </div>
               <p className="text-2xl font-bold">{stats.totalVolume_m3.toFixed(2)} m³</p>
             </div>
             <div className="p-2 bg-primary/10 rounded-lg text-primary">
@@ -439,8 +467,18 @@ export function ProduitsClient() {
                 <TableHead className="pl-6">SKU</TableHead>
                 <TableHead>Nom</TableHead>
                 <TableHead className="text-right">Stock</TableHead>
-                <TableHead className="text-right hidden md:table-cell">Conso 30j</TableHead>
-                <TableHead className="text-right hidden lg:table-cell">Jours</TableHead>
+                <TableHead className="text-right hidden md:table-cell">
+                  <div className="inline-flex items-center gap-1.5 justify-end">
+                    <span>Conso 30j</span>
+                    <MetricInfo text="Consommation des 30 derniers jours en articles physiques. Pour les bundles, chaque composant est comptabilise individuellement." />
+                  </div>
+                </TableHead>
+                <TableHead className="text-right hidden lg:table-cell">
+                  <div className="inline-flex items-center gap-1.5 justify-end">
+                    <span>Jours</span>
+                    <MetricInfo text="Stock actuel divise par la consommation journaliere moyenne sur 90 jours. Indique le nombre de jours avant rupture au rythme actuel." />
+                  </div>
+                </TableHead>
                 <TableHead className="text-center">Statut</TableHead>
                 <TableHead className="w-[50px]"></TableHead>
               </TableRow>

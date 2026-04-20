@@ -1,7 +1,8 @@
 'use client'
 
-import { LucideIcon, TrendingUp, TrendingDown } from 'lucide-react'
+import { LucideIcon, TrendingUp, TrendingDown, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 interface SecondaryKpiCardProps {
   label: string
@@ -14,6 +15,7 @@ interface SecondaryKpiCardProps {
     isPositive: boolean
   }
   delay?: number
+  tooltip?: string
 }
 
 const statusColors = {
@@ -50,7 +52,8 @@ export function SecondaryKpiCard({
   icon: Icon,
   status = 'default',
   trend,
-  delay = 0
+  delay = 0,
+  tooltip
 }: SecondaryKpiCardProps) {
   const colors = statusColors[status]
 
@@ -102,7 +105,27 @@ export function SecondaryKpiCard({
         <p className="text-2xl font-semibold text-foreground tracking-tight">
           {value}
         </p>
-        <p className="text-sm text-muted-foreground">{label}</p>
+        <div className="flex items-center gap-1.5">
+          <p className="text-sm text-muted-foreground">{label}</p>
+          {tooltip && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="text-muted-foreground/60 hover:text-foreground transition-colors"
+                    aria-label={`Info sur ${label}`}
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <p className="text-xs leading-relaxed">{tooltip}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
         {subValue && (
           <p className="text-xs text-muted-foreground/70">{subValue}</p>
         )}

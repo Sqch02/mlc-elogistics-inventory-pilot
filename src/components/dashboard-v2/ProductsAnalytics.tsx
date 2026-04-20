@@ -1,12 +1,13 @@
 'use client'
 
 import { useState, useMemo, useEffect, memo } from 'react'
-import { Package, Boxes, TrendingUp, ArrowRight, Calendar, BarChart3, CalendarDays } from 'lucide-react'
+import { Package, Boxes, TrendingUp, ArrowRight, Calendar, BarChart3, CalendarDays, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
 import { useProductsMetrics, type ProductMetric } from '@/hooks/useProductsMetrics'
 import { Skeleton } from '@/components/ui/skeleton'
 import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 interface ProductsAnalyticsProps {
   delay?: number
@@ -202,7 +203,27 @@ export function ProductsAnalytics({ delay = 0 }: ProductsAnalyticsProps) {
               <BarChart3 className="h-4 w-4 text-primary" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-foreground">Analyse des Ventes</h3>
+              <div className="flex items-center gap-1.5">
+                <h3 className="text-sm font-semibold text-foreground">Analyse des Ventes</h3>
+                <TooltipProvider>
+                  <UITooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="text-muted-foreground/70 hover:text-foreground transition-colors"
+                        aria-label="Plus d'informations"
+                      >
+                        <Info className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs">
+                      <p className="text-xs leading-relaxed">
+                        Graphique base sur les articles physiques reellement expedies. Les bundles (ex: Pack Minceur = 3 flacons) sont decomposes automatiquement en composants individuels.
+                      </p>
+                    </TooltipContent>
+                  </UITooltip>
+                </TooltipProvider>
+              </div>
               <p className="text-[10px] text-muted-foreground">
                 {selectedPeriod === 'custom'
                   ? `${formatDateDisplay(customFrom)} - ${formatDateDisplay(customTo)}`

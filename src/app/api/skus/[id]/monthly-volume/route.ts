@@ -3,31 +3,36 @@ import { getServerDb } from '@/lib/supabase/untyped'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireTenant } from '@/lib/supabase/auth'
 
-interface ShipmentItem {
-  qty: number | null
+interface PhysicalItem {
+  physical_qty: number | null
 }
 
-// Fetch all shipment items for a SKU in a date range with pagination
+// Fetch all physical shipment items for a SKU in a date range with pagination.
+// Uses v_physical_shipment_items so bundles are decomposed into physical components
+// (i.e. the SKU's monthly volume includes quantities shipped as part of bundles).
 async function fetchAllShipmentItems(
+  tenantId: string,
   skuId: string,
   startDate: Date,
   endDate: Date
-): Promise<ShipmentItem[]> {
+): Promise<PhysicalItem[]> {
   const adminClient = createAdminClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = adminClient as any
-  const allItems: ShipmentItem[] = []
+  const allItems: PhysicalItem[] = []
   const pageSize = 1000
   let offset = 0
   let hasMore = true
 
   while (hasMore) {
     const { data, error } = await db
-      .from('shipment_items')
-      .select('qty, shipments!inner(shipped_at)')
+      .from('v_physical_shipment_items')
+      .select('physical_qty')
+      .eq('tenant_id', tenantId)
       .eq('sku_id', skuId)
-      .gte('shipments.shipped_at', startDate.toISOString())
-      .lte('shipments.shipped_at', endDate.toISOString())
+      .eq('is_return', false)
+      .gte('shipped_at', startDate.toISOString())
+      .lte('shipped_at', endDate.toISOString())
       .range(offset, offset + pageSize - 1)
 
     if (error) {
@@ -83,10 +88,10 @@ export async function GET(
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
       const monthLabel = date.toLocaleDateString('fr-FR', { month: 'short' }).toUpperCase()
 
-      // Get ALL shipment items for this month (with pagination)
-      const items = await fetchAllShipmentItems(id, startOfMonth, endOfMonth)
+      // Get ALL shipment items for this month (with pagination, bundles decomposed)
+      const items = await fetchAllShipmentItems(tenantId, id, startOfMonth, endOfMonth)
 
-      const volume = items.reduce((sum: number, item: ShipmentItem) => sum + (item.qty || 0), 0)
+      const volume = items.reduce((sum: number, item: PhysicalItem) => sum + (item.physical_qty || 0), 0)
 
       months.push({
         month: monthKey,

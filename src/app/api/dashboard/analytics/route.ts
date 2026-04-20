@@ -241,43 +241,36 @@ export async function GET(request: Request) {
           .sort((a, b) => b.shipments - a.shipments)
       })(),
 
-      // --- 3. STOCK FORECAST (5 parallel queries) ---
+      // --- 3. STOCK FORECAST ---
+      // Consumption is fetched from v_physical_shipment_items (bundles already
+      // decomposed into components), so we no longer need bundle_components
+      // decomposition here.
       (async () => {
-        const [skusRes, stockRes, bundlesRes, bundleCompRes, itemsRes] = await Promise.all([
+        const [skusRes, stockRes, bundlesRes, itemsRes] = await Promise.all([
           adminClient.from('skus').select('id, sku_code, name, alert_threshold').eq('tenant_id', tenantId).eq('active', true),
           adminClient.from('stock_snapshots').select('sku_id, qty_current').eq('tenant_id', tenantId),
           adminClient.from('bundles').select('id, bundle_sku_id').eq('tenant_id', tenantId),
-          adminClient.from('bundle_components').select('bundle_id, component_sku_id, qty_component').eq('tenant_id', tenantId),
-          adminClient.from('shipment_items').select('sku_id, qty, shipments!inner(shipped_at)').eq('tenant_id', tenantId).gte('shipments.shipped_at' as never, ninetyDaysAgo.toISOString()),
+          adminClient.from('v_physical_shipment_items' as never).select('sku_id, physical_qty, shipped_at').eq('tenant_id', tenantId).gte('shipped_at' as never, ninetyDaysAgo.toISOString()),
         ])
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const skus = (skusRes.data || []) as any[]
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const bundlesList = (bundlesRes.data || []) as any[]
-        const bundleIdToSkuIdMap = new Map<string, string>()
-        for (const b of bundlesList) bundleIdToSkuIdMap.set(b.id, b.bundle_sku_id)
         const bundleSkuIds = new Set(bundlesList.map((b: { bundle_sku_id: string }) => b.bundle_sku_id))
-
-        const bundleDecompositionMap = new Map<string, Array<{ component_sku_id: string; qty_component: number }>>()
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        for (const comp of (bundleCompRes.data || []) as any[]) {
-          const bundleSkuId = bundleIdToSkuIdMap.get(comp.bundle_id)
-          if (!bundleSkuId) continue
-          const components = bundleDecompositionMap.get(bundleSkuId) || []
-          components.push({ component_sku_id: comp.component_sku_id, qty_component: comp.qty_component || 1 })
-          bundleDecompositionMap.set(bundleSkuId, components)
-        }
 
         const stockMap = new Map<string, number>()
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         for (const snapshot of (stockRes.data || []) as any[]) stockMap.set(snapshot.sku_id, snapshot.qty_current || 0)
 
+        // Consumption is computed from v_physical_shipment_items (bundles already
+        // decomposed into component skus), so consumption for simple SKUs now
+        // correctly includes units shipped as part of bundles.
         const consumptionMap = new Map<string, number>()
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         for (const item of (itemsRes.data || []) as any[]) {
           const existing = consumptionMap.get(item.sku_id) || 0
-          consumptionMap.set(item.sku_id, existing + (item.qty || 0))
+          consumptionMap.set(item.sku_id, existing + (item.physical_qty || 0))
         }
 
         return skus
@@ -326,17 +319,18 @@ export async function GET(request: Request) {
         }
 
         console.error('[Analytics] SKU sales RPC error, using fallback:', skuSalesError)
-        const allItems: { sku_id: string; qty: number; skus: { sku_code: string; name: string }; shipments: { shipped_at: string } }[] = []
+        // Fallback: query v_physical_shipment_items (bundles already decomposed)
+        const allItems: { sku_id: string; physical_qty: number; shipped_at: string | null }[] = []
         let offset = 0
         let hasMore = true
         while (hasMore) {
           const { data, error } = await adminClient
-            .from('shipment_items')
-            .select('sku_id, qty, skus!inner(sku_code, name), shipments!inner(shipped_at)')
+            .from('v_physical_shipment_items' as never)
+            .select('sku_id, physical_qty, shipped_at')
             .eq('tenant_id', tenantId)
-            .gte('shipments.shipped_at' as never, startDate.toISOString())
-            .lte('shipments.shipped_at' as never, endDate.toISOString())
-            .eq('shipments.is_return' as never, false)
+            .gte('shipped_at' as never, startDate.toISOString())
+            .lte('shipped_at' as never, endDate.toISOString())
+            .eq('is_return' as never, false)
             .range(offset, offset + pageSize - 1)
           if (error) { console.error('[Analytics] SKU sales fallback query error:', error); break }
           if (data && data.length > 0) {
@@ -347,15 +341,6 @@ export async function GET(request: Request) {
           } else { hasMore = false }
         }
 
-        // Fetch bundles for decomposition
-        const { data: bundlesData } = await adminClient
-          .from('bundles')
-          .select('bundle_sku_id, bundle_components(component_sku_id, qty_component)')
-          .eq('tenant_id', tenantId)
-        const bundleMap = new Map<string, Array<{ component_sku_id: string; qty_component: number }>>()
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ;(bundlesData as any[] || []).forEach((b: any) => { bundleMap.set(b.bundle_sku_id, b.bundle_components || []) })
-
         // Fetch all SKUs for name resolution
         const { data: allSkus } = await adminClient.from('skus').select('id, sku_code, name').eq('tenant_id', tenantId)
         const skuLookup = new Map<string, { sku_code: string; name: string }>()
@@ -365,23 +350,13 @@ export async function GET(request: Request) {
         const salesMap = new Map<string, { sku_code: string; name: string; quantity_sold: number }>()
         for (const item of allItems) {
           if (!item.sku_id) continue
-          const qty = Number(item.qty) || 0
-          const components = bundleMap.get(item.sku_id)
-          if (components && components.length > 0) {
-            // Decompose bundle into physical components
-            for (const comp of components) {
-              const physicalQty = qty * comp.qty_component
-              const skuInfo = skuLookup.get(comp.component_sku_id)
-              const existing = salesMap.get(comp.component_sku_id)
-              if (existing) { existing.quantity_sold += physicalQty }
-              else { salesMap.set(comp.component_sku_id, { sku_code: skuInfo?.sku_code || '', name: skuInfo?.name || '', quantity_sold: physicalQty }) }
-            }
+          const qty = Number(item.physical_qty) || 0
+          const existing = salesMap.get(item.sku_id)
+          if (existing) {
+            existing.quantity_sold += qty
           } else {
-            // Simple SKU
-            const existing = salesMap.get(item.sku_id)
-            if (existing) { existing.quantity_sold += qty }
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            else { const skuInfo = (item.skus as any); salesMap.set(item.sku_id, { sku_code: skuInfo?.sku_code || '', name: skuInfo?.name || '', quantity_sold: qty }) }
+            const skuInfo = skuLookup.get(item.sku_id)
+            salesMap.set(item.sku_id, { sku_code: skuInfo?.sku_code || '', name: skuInfo?.name || '', quantity_sold: qty })
           }
         }
         return Array.from(salesMap.entries())

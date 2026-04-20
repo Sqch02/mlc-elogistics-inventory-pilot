@@ -144,7 +144,10 @@ export function MappingClient() {
     },
   })
 
-  const groups = unmappedData?.groups ?? []
+  const groups = useMemo<UnmappedGroup[]>(
+    () => unmappedData?.groups ?? [],
+    [unmappedData]
+  )
 
   const filteredGroups = useMemo(() => {
     if (!searchInput.trim()) return groups

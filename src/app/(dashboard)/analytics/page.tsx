@@ -17,9 +17,32 @@ import {
   AlertTriangle,
   BarChart3,
   Clock,
+  Info,
 } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
 import { useTenant } from '@/components/providers/TenantProvider'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+
+function MetricInfo({ text }: { text: string }) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="text-muted-foreground/70 hover:text-foreground transition-colors"
+            aria-label="Plus d'informations"
+          >
+            <Info className="h-3.5 w-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">
+          <p className="text-xs leading-relaxed">{text}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
 
 const CostTrendChart = dynamic(
   () => import('@/components/dashboard/CostTrendChart').then(m => ({ default: m.CostTrendChart })),
@@ -205,7 +228,10 @@ export default function AnalyticsPage() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground font-medium uppercase">Expeditions</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-xs text-muted-foreground font-medium uppercase">Expeditions</p>
+                  <MetricInfo text="Nombre total de colis expedies sur la periode selectionnee (hors retours et commandes annulees)." />
+                </div>
                 <p className="text-2xl font-bold">{ytdShipments.toLocaleString('fr-FR')}</p>
                 <TrendBadge value={data.costTrend.shipmentsPercentChange} />
               </div>
@@ -221,7 +247,10 @@ export default function AnalyticsPage() {
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground font-medium uppercase">Coût total</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-xs text-muted-foreground font-medium uppercase">Coût total</p>
+                    <MetricInfo text="Somme des couts de transport HT pour la periode selectionnee, calcules selon les regles tarifaires par transporteur, destination et poids." />
+                  </div>
                   <p className="text-2xl font-bold">{formatEuro(ytdCost)}</p>
                   <TrendBadge value={data.costTrend.percentChange} inverse />
                 </div>
@@ -238,7 +267,10 @@ export default function AnalyticsPage() {
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground font-medium uppercase">Coût moyen / exp.</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-xs text-muted-foreground font-medium uppercase">Coût moyen / exp.</p>
+                    <MetricInfo text="Cout total divise par le nombre d'expeditions sur la periode selectionnee." />
+                  </div>
                   <p className="text-2xl font-bold">{formatEuro(avgCostPerShipment)}</p>
                   <p className="text-xs text-muted-foreground">sur la periode</p>
                 </div>
@@ -254,7 +286,16 @@ export default function AnalyticsPage() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground font-medium uppercase">{isClient ? 'Reclamations' : 'Indemnites'}</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-xs text-muted-foreground font-medium uppercase">{isClient ? 'Reclamations' : 'Indemnites'}</p>
+                  <MetricInfo
+                    text={
+                      isClient
+                        ? "Nombre total de reclamations (SAV) ouvertes sur la periode."
+                        : "Somme des indemnisations versees pour les reclamations cloturees avec statut 'indemnisee'."
+                    }
+                  />
+                </div>
                 {!isClient && <p className="text-2xl font-bold">{formatEuro(ytdIndemnity)}</p>}
                 <p className={isClient ? 'text-2xl font-bold' : 'text-xs text-muted-foreground'}>
                   {data.costTrend.data.reduce((sum, m) => sum + m.claims, 0)} reclamations
