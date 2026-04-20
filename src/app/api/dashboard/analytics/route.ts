@@ -41,6 +41,32 @@ interface SkuSalesData {
   quantity_sold: number
 }
 
+interface CarrierRpcRow {
+  carrier: string
+  shipments: number | string
+  total_cost: number | string
+  avg_cost: number | string
+  claims: number | string
+  claim_rate: number | string
+}
+
+interface SkuMetricRow {
+  sku_id: string
+  sku_code: string
+  name: string
+  alert_threshold: number | null
+  qty_current: number
+  avg_daily_90d: number
+  days_remaining: number | null
+  is_bundle: boolean
+}
+
+function toNum(v: number | string | null | undefined): number {
+  if (v === null || v === undefined) return 0
+  const n = typeof v === 'string' ? Number(v) : v
+  return Number.isFinite(n) ? n : 0
+}
+
 export async function GET(request: Request) {
   try {
     const tenantId = await requireTenant()
@@ -49,347 +75,172 @@ export async function GET(request: Request) {
     const from = searchParams.get('from')
     const to = searchParams.get('to')
 
-    // Check in-memory cache
     const cacheKey = `${tenantId}:${from || ''}:${to || ''}`
     const cached = analyticsCache.get(cacheKey)
     if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
       return NextResponse.json(cached.data, {
-        headers: { 'Cache-Control': 'private, max-age=300, stale-while-revalidate=600', 'X-Cache': 'HIT' },
+        headers: {
+          'Cache-Control': 'private, max-age=300, stale-while-revalidate=600',
+          'X-Cache': 'HIT',
+        },
       })
     }
 
     const adminClient = createAdminClient()
 
-    // Default to last 12 months if no dates provided
+    // Default: last 12 months
     const endDate = to ? new Date(to) : new Date()
-    // Ensure endDate includes the full last day (23:59:59.999 UTC)
-    // new Date('2025-12-31') gives midnight, excluding that day's shipments
-    if (to) {
-      endDate.setUTCHours(23, 59, 59, 999)
-    }
-    const startDate = from ? new Date(from) : new Date(endDate.getFullYear(), endDate.getMonth() - 11, 1)
+    if (to) endDate.setUTCHours(23, 59, 59, 999)
+    const startDate = from
+      ? new Date(from)
+      : new Date(endDate.getFullYear(), endDate.getMonth() - 11, 1)
 
     const now = new Date()
     const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
-    const pageSize = 1000
 
-    // ===========================================
-    // ALL 4 SECTIONS IN PARALLEL (was sequential before)
-    // ===========================================
-    const [costTrendResult, carrierResult, stockResult, skuSalesResult] = await Promise.all([
-      // --- 1. COST TREND ---
-      (async () => {
-        const { data: monthlyShipments, error: monthlyError } = await adminClient.rpc(
-          'analytics_monthly_shipments' as never,
-          {
+    // All 4 sections in parallel — every one is now a single RPC / single mat view read.
+    const [costTrendResult, carrierResult, stockResult, skuSalesResult] =
+      await Promise.all([
+        // 1. Cost trend — analytics_monthly_shipments RPC (indexed, fast)
+        adminClient
+          .rpc('analytics_monthly_shipments' as never, {
             p_tenant_id: tenantId,
             p_start_date: startDate.toISOString(),
             p_end_date: endDate.toISOString(),
-          } as never
-        )
+          } as never)
+          .then(({ data, error }) => {
+            if (error || !data) return [] as MonthlyData[]
+            return (data as MonthlyData[]) || []
+          }),
 
-        if (!monthlyError && monthlyShipments) {
-          return (monthlyShipments as MonthlyData[]) || []
-        }
+        // 2. Carrier performance — new RPC, aggregated server-side
+        adminClient
+          .rpc('get_carrier_performance' as never, {
+            p_tenant_id: tenantId,
+            p_start_date: ninetyDaysAgo.toISOString(),
+            p_end_date: now.toISOString(),
+          } as never)
+          .then(({ data, error }) => {
+            if (error || !data) return [] as CarrierStats[]
+            return ((data as CarrierRpcRow[]) || []).map((row) => ({
+              carrier: row.carrier,
+              shipments: toNum(row.shipments),
+              totalCost: toNum(row.total_cost),
+              avgCost: toNum(row.avg_cost),
+              claims: toNum(row.claims),
+              claimRate: toNum(row.claim_rate),
+            }))
+          }),
 
-        // Fallback: direct queries in parallel
-        const [allShipments, allClaims] = await Promise.all([
-          (async () => {
-            const results: { shipped_at: string; computed_cost_eur: number | null }[] = []
-            let offset = 0
-            let hasMore = true
-            while (hasMore) {
-              const { data, error } = await adminClient
-                .from('shipments')
-                .select('shipped_at, computed_cost_eur')
-                .eq('tenant_id', tenantId)
-                .eq('is_return', false)
-                .gte('shipped_at', startDate.toISOString())
-                .lte('shipped_at', endDate.toISOString())
-                .range(offset, offset + pageSize - 1)
-              if (error) throw error
-              if (data && data.length > 0) {
-                results.push(...data)
-                offset += pageSize
-                hasMore = data.length === pageSize
-              } else {
-                hasMore = false
-              }
-            }
-            return results
-          })(),
-          (async () => {
-            const { data } = await adminClient
-              .from('claims')
-              .select('decided_at, indemnity_eur')
-              .eq('tenant_id', tenantId)
-              .eq('status', 'indemnisee')
-              .gte('decided_at', startDate.toISOString())
-              .lte('decided_at', endDate.toISOString())
-            return data
-          })(),
-        ])
+        // 3. Stock forecast — read directly from mv_sku_metrics (pre-computed)
+        adminClient
+          .from('mv_sku_metrics' as never)
+          .select(
+            'sku_id, sku_code, name, alert_threshold, qty_current, avg_daily_90d, days_remaining, is_bundle' as never
+          )
+          .eq('tenant_id' as never, tenantId)
+          .eq('is_bundle' as never, false)
+          .then(({ data, error }) => {
+            if (error || !data) return [] as StockForecast[]
+            return ((data as unknown as SkuMetricRow[]) || [])
+              .filter((m) => !m.sku_code.toUpperCase().includes('BU-'))
+              .filter((m) => m.qty_current > 0 || m.avg_daily_90d > 0)
+              .map((m) => {
+                const daysRemaining = m.days_remaining
+                const estimatedStockout =
+                  daysRemaining !== null
+                    ? new Date(now.getTime() + daysRemaining * 24 * 60 * 60 * 1000)
+                        .toISOString()
+                        .split('T')[0]
+                    : null
+                return {
+                  sku_id: m.sku_id,
+                  sku_code: m.sku_code,
+                  name: m.name,
+                  current_stock: m.qty_current,
+                  avg_daily_consumption: m.avg_daily_90d,
+                  days_remaining: daysRemaining,
+                  estimated_stockout: estimatedStockout,
+                  alert_threshold: m.alert_threshold || 10,
+                }
+              })
+              .sort((a, b) => {
+                if (a.days_remaining === null && b.days_remaining === null)
+                  return a.current_stock - b.current_stock
+                if (a.days_remaining === null) return 1
+                if (b.days_remaining === null) return -1
+                return a.days_remaining - b.days_remaining
+              })
+          }),
 
-        const shipmentsByMonth = new Map<string, { count: number; cost: number }>()
-        for (const s of allShipments) {
-          if (!s.shipped_at) continue
-          const d = new Date(s.shipped_at)
-          const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
-          const existing = shipmentsByMonth.get(key) || { count: 0, cost: 0 }
-          existing.count++
-          existing.cost += Number(s.computed_cost_eur) || 0
-          shipmentsByMonth.set(key, existing)
-        }
-
-        const claimsByMonth = new Map<string, { count: number; indemnity: number }>()
-        for (const c of (allClaims || []) as { decided_at: string | null; indemnity_eur: number | null }[]) {
-          if (!c.decided_at) continue
-          const d = new Date(c.decided_at)
-          const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
-          const existing = claimsByMonth.get(key) || { count: 0, indemnity: 0 }
-          existing.count++
-          existing.indemnity += Number(c.indemnity_eur) || 0
-          claimsByMonth.set(key, existing)
-        }
-
-        const monthlyData: MonthlyData[] = []
-        const sYear = startDate.getFullYear()
-        const sMonth = startDate.getMonth()
-        const eYear = endDate.getFullYear()
-        const eMonth = endDate.getMonth()
-        const totalMonths = (eYear - sYear) * 12 + (eMonth - sMonth) + 1
-
-        for (let i = 0; i < totalMonths; i++) {
-          const date = new Date(sYear, sMonth + i, 1)
-          const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-          const shipData = shipmentsByMonth.get(monthKey) || { count: 0, cost: 0 }
-          const claimData = claimsByMonth.get(monthKey) || { count: 0, indemnity: 0 }
-          monthlyData.push({
-            month: monthKey,
-            shipments: shipData.count,
-            cost: Math.round(shipData.cost * 100) / 100,
-            claims: claimData.count,
-            indemnity: Math.round(claimData.indemnity * 100) / 100,
-          })
-        }
-        return monthlyData
-      })(),
-
-      // --- 2. CARRIER PERFORMANCE (last 90 days) ---
-      (async () => {
-        const [recentShipments, recentClaims] = await Promise.all([
-          (async () => {
-            const results: { carrier: string; computed_cost_eur: number | null }[] = []
-            let offset = 0
-            let hasMore = true
-            while (hasMore) {
-              const { data, error } = await adminClient
-                .from('shipments')
-                .select('carrier, computed_cost_eur')
-                .eq('tenant_id', tenantId)
-                .eq('is_return', false)
-                .gte('shipped_at', ninetyDaysAgo.toISOString())
-                .range(offset, offset + pageSize - 1)
-              if (error) throw error
-              if (data && data.length > 0) {
-                results.push(...data)
-                offset += pageSize
-                hasMore = data.length === pageSize
-              } else {
-                hasMore = false
-              }
-            }
-            return results
-          })(),
-          (async () => {
-            const { data } = await adminClient
-              .from('claims')
-              .select('shipment_id, shipments!inner(carrier)')
-              .eq('tenant_id', tenantId)
-              .gte('opened_at', ninetyDaysAgo.toISOString())
-            return data
-          })(),
-        ])
-
-        const carrierMap = new Map<string, { shipments: number; cost: number; claims: number }>()
-        for (const shipment of recentShipments) {
-          const carrier = (shipment.carrier || 'unknown').toLowerCase()
-          const existing = carrierMap.get(carrier) || { shipments: 0, cost: 0, claims: 0 }
-          carrierMap.set(carrier, {
-            shipments: existing.shipments + 1,
-            cost: existing.cost + (Number(shipment.computed_cost_eur) || 0),
-            claims: existing.claims,
-          })
-        }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        for (const claim of (recentClaims || []) as any[]) {
-          const shipment = claim.shipments
-          const carrier = (shipment?.carrier || 'unknown').toLowerCase()
-          const existing = carrierMap.get(carrier)
-          if (existing) existing.claims++
-        }
-
-        return Array.from(carrierMap.entries())
-          .map(([carrier, stats]) => ({
-            carrier,
-            shipments: stats.shipments,
-            totalCost: Math.round(stats.cost * 100) / 100,
-            avgCost: stats.shipments > 0 ? Math.round((stats.cost / stats.shipments) * 100) / 100 : 0,
-            claims: stats.claims,
-            claimRate: stats.shipments > 0 ? Math.round((stats.claims / stats.shipments) * 10000) / 100 : 0,
-          }))
-          .sort((a, b) => b.shipments - a.shipments)
-      })(),
-
-      // --- 3. STOCK FORECAST ---
-      // Consumption is fetched from v_physical_shipment_items (bundles already
-      // decomposed into components), so we no longer need bundle_components
-      // decomposition here.
-      (async () => {
-        const [skusRes, stockRes, bundlesRes, itemsRes] = await Promise.all([
-          adminClient.from('skus').select('id, sku_code, name, alert_threshold').eq('tenant_id', tenantId).eq('active', true),
-          adminClient.from('stock_snapshots').select('sku_id, qty_current').eq('tenant_id', tenantId),
-          adminClient.from('bundles').select('id, bundle_sku_id').eq('tenant_id', tenantId),
-          adminClient.from('v_physical_shipment_items' as never).select('sku_id, physical_qty, shipped_at').eq('tenant_id', tenantId).gte('shipped_at' as never, ninetyDaysAgo.toISOString()),
-        ])
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const skus = (skusRes.data || []) as any[]
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const bundlesList = (bundlesRes.data || []) as any[]
-        const bundleSkuIds = new Set(bundlesList.map((b: { bundle_sku_id: string }) => b.bundle_sku_id))
-
-        const stockMap = new Map<string, number>()
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        for (const snapshot of (stockRes.data || []) as any[]) stockMap.set(snapshot.sku_id, snapshot.qty_current || 0)
-
-        // Consumption is computed from v_physical_shipment_items (bundles already
-        // decomposed into component skus), so consumption for simple SKUs now
-        // correctly includes units shipped as part of bundles.
-        const consumptionMap = new Map<string, number>()
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        for (const item of (itemsRes.data || []) as any[]) {
-          const existing = consumptionMap.get(item.sku_id) || 0
-          consumptionMap.set(item.sku_id, existing + (item.physical_qty || 0))
-        }
-
-        return skus
-          .filter((sku: { id: string }) => !bundleSkuIds.has(sku.id))
-          .filter((sku: { sku_code: string }) => !sku.sku_code.toUpperCase().includes('BU-'))
-          .map((sku: { id: string; sku_code: string; name: string; alert_threshold: number | null }) => {
-            const currentStock = stockMap.get(sku.id) || 0
-            const totalConsumption = consumptionMap.get(sku.id) || 0
-            const avgDailyConsumption = totalConsumption / 90
-            let daysRemaining: number | null = null
-            let estimatedStockout: string | null = null
-            if (avgDailyConsumption > 0) {
-              daysRemaining = Math.floor(currentStock / avgDailyConsumption)
-              const stockoutDate = new Date(now.getTime() + daysRemaining * 24 * 60 * 60 * 1000)
-              estimatedStockout = stockoutDate.toISOString().split('T')[0]
-            }
-            return {
-              sku_id: sku.id, sku_code: sku.sku_code, name: sku.name,
-              current_stock: currentStock,
-              avg_daily_consumption: Math.round(avgDailyConsumption * 100) / 100,
-              days_remaining: daysRemaining, estimated_stockout: estimatedStockout,
-              alert_threshold: sku.alert_threshold || 10,
-            }
-          })
-          .filter((sku: StockForecast) => sku.current_stock > 0 || sku.avg_daily_consumption > 0)
-          .sort((a: StockForecast, b: StockForecast) => {
-            if (a.days_remaining === null && b.days_remaining === null) return a.current_stock - b.current_stock
-            if (a.days_remaining === null) return 1
-            if (b.days_remaining === null) return -1
-            return a.days_remaining - b.days_remaining
-          })
-      })(),
-
-      // --- 4. SKU SALES ---
-      (async () => {
-        const { data: skuSalesRaw, error: skuSalesError } = await adminClient.rpc(
-          'analytics_sku_sales' as never,
-          { p_tenant_id: tenantId, p_start_date: startDate.toISOString(), p_end_date: endDate.toISOString() } as never
-        )
-
-        if (!skuSalesError && skuSalesRaw) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return ((skuSalesRaw || []) as any[]).map((row: { sku_id: string; sku_code: string; name: string; quantity_sold: number }) => ({
-            sku_id: row.sku_id, sku_code: row.sku_code, name: row.name, quantity_sold: Number(row.quantity_sold),
-          }))
-        }
-
-        console.error('[Analytics] SKU sales RPC error, using fallback:', skuSalesError)
-        // Fallback: query v_physical_shipment_items (bundles already decomposed)
-        const allItems: { sku_id: string; physical_qty: number; shipped_at: string | null }[] = []
-        let offset = 0
-        let hasMore = true
-        while (hasMore) {
-          const { data, error } = await adminClient
-            .from('v_physical_shipment_items' as never)
-            .select('sku_id, physical_qty, shipped_at')
-            .eq('tenant_id', tenantId)
-            .gte('shipped_at' as never, startDate.toISOString())
-            .lte('shipped_at' as never, endDate.toISOString())
-            .eq('is_return' as never, false)
-            .range(offset, offset + pageSize - 1)
-          if (error) { console.error('[Analytics] SKU sales fallback query error:', error); break }
-          if (data && data.length > 0) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            allItems.push(...(data as any[]))
-            offset += pageSize
-            hasMore = data.length === pageSize
-          } else { hasMore = false }
-        }
-
-        // Fetch all SKUs for name resolution
-        const { data: allSkus } = await adminClient.from('skus').select('id, sku_code, name').eq('tenant_id', tenantId)
-        const skuLookup = new Map<string, { sku_code: string; name: string }>()
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ;(allSkus as any[] || []).forEach((s: any) => { skuLookup.set(s.id, { sku_code: s.sku_code, name: s.name }) })
-
-        const salesMap = new Map<string, { sku_code: string; name: string; quantity_sold: number }>()
-        for (const item of allItems) {
-          if (!item.sku_id) continue
-          const qty = Number(item.physical_qty) || 0
-          const existing = salesMap.get(item.sku_id)
-          if (existing) {
-            existing.quantity_sold += qty
-          } else {
-            const skuInfo = skuLookup.get(item.sku_id)
-            salesMap.set(item.sku_id, { sku_code: skuInfo?.sku_code || '', name: skuInfo?.name || '', quantity_sold: qty })
-          }
-        }
-        return Array.from(salesMap.entries())
-          .map(([sku_id, info]) => ({ sku_id, sku_code: info.sku_code, name: info.name, quantity_sold: info.quantity_sold }))
-          .sort((a, b) => b.quantity_sold - a.quantity_sold)
-      })(),
-    ])
+        // 4. SKU sales — analytics_sku_sales RPC
+        adminClient
+          .rpc('analytics_sku_sales' as never, {
+            p_tenant_id: tenantId,
+            p_start_date: startDate.toISOString(),
+            p_end_date: endDate.toISOString(),
+          } as never)
+          .then(({ data, error }) => {
+            if (error || !data) return [] as SkuSalesData[]
+            return (
+              (data as Array<{
+                sku_id: string
+                sku_code: string
+                name: string
+                quantity_sold: number
+              }>) || []
+            ).map((row) => ({
+              sku_id: row.sku_id,
+              sku_code: row.sku_code,
+              name: row.name,
+              quantity_sold: Number(row.quantity_sold),
+            }))
+          }),
+      ])
 
     const monthlyData = costTrendResult
     const carrierStats = carrierResult
     const stockForecast = stockResult
-    const skuSalesAll: SkuSalesData[] = skuSalesResult
-    const skuSalesData: SkuSalesData[] = skuSalesAll.slice(0, 10)
+    const skuSalesAll = skuSalesResult
+    const skuSalesData = skuSalesAll.slice(0, 10)
     const totalSkusSold = skuSalesAll.length
-    const totalQuantitySold = skuSalesAll.reduce((sum: number, s: { quantity_sold: number }) => sum + s.quantity_sold, 0)
+    const totalQuantitySold = skuSalesAll.reduce(
+      (sum, s) => sum + s.quantity_sold,
+      0
+    )
 
-    // ===========================================
-    // 5. SUMMARY STATS
-    // ===========================================
-    const emptyMonth = { month: '', shipments: 0, cost: 0, claims: 0, indemnity: 0 }
-    const currentMonthData = monthlyData.length > 0 ? monthlyData[monthlyData.length - 1] : emptyMonth
-    const previousMonthData = monthlyData.length >= 2 ? monthlyData[monthlyData.length - 2] : null
+    const emptyMonth: MonthlyData = {
+      month: '',
+      shipments: 0,
+      cost: 0,
+      claims: 0,
+      indemnity: 0,
+    }
+    const currentMonthData =
+      monthlyData.length > 0 ? monthlyData[monthlyData.length - 1] : emptyMonth
+    const previousMonthData =
+      monthlyData.length >= 2 ? monthlyData[monthlyData.length - 2] : null
 
-    const costTrend = previousMonthData && previousMonthData.cost > 0
-      ? Math.round(((currentMonthData.cost - previousMonthData.cost) / previousMonthData.cost) * 100)
-      : 0
+    const costTrend =
+      previousMonthData && previousMonthData.cost > 0
+        ? Math.round(
+            ((currentMonthData.cost - previousMonthData.cost) /
+              previousMonthData.cost) *
+              100
+          )
+        : 0
 
-    const shipmentsTrend = previousMonthData && previousMonthData.shipments > 0
-      ? Math.round(((currentMonthData.shipments - previousMonthData.shipments) / previousMonthData.shipments) * 100)
-      : 0
+    const shipmentsTrend =
+      previousMonthData && previousMonthData.shipments > 0
+        ? Math.round(
+            ((currentMonthData.shipments - previousMonthData.shipments) /
+              previousMonthData.shipments) *
+              100
+          )
+        : 0
 
-    const criticalStockCount = stockForecast.filter((s: StockForecast) =>
-      s.days_remaining !== null && s.days_remaining < 30
+    const criticalStockCount = stockForecast.filter(
+      (s) => s.days_remaining !== null && s.days_remaining < 30
     ).length
 
     const responseData = {
@@ -418,11 +269,11 @@ export async function GET(request: Request) {
       generatedAt: new Date().toISOString(),
     }
 
-    // Store in cache
     analyticsCache.set(cacheKey, { data: responseData, timestamp: Date.now() })
-    // Evict old entries (keep max 50)
     if (analyticsCache.size > 50) {
-      const oldest = Array.from(analyticsCache.entries()).sort((a, b) => a[1].timestamp - b[1].timestamp)[0]
+      const oldest = Array.from(analyticsCache.entries()).sort(
+        (a, b) => a[1].timestamp - b[1].timestamp
+      )[0]
       if (oldest) analyticsCache.delete(oldest[0])
     }
 
@@ -434,9 +285,6 @@ export async function GET(request: Request) {
     })
   } catch (error) {
     console.error('Analytics error:', error)
-    return NextResponse.json(
-      { error: 'Erreur serveur' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
   }
 }
