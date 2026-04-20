@@ -2,9 +2,28 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
 import { requireTenant } from '@/lib/supabase/auth'
 
-interface ShipmentItem {
+interface PhysicalItem {
+  sku_id: string
+  physical_qty: number | null
+  shipped_at: string | null
+}
+
+interface BundleLineItem {
   sku_id: string
   qty: number | null
+  skus: {
+    sku_code: string
+    name: string
+  } | null
+  shipments: {
+    shipped_at: string | null
+    is_return: boolean | null
+  } | null
+}
+
+interface ShipmentItem {
+  sku_id: string
+  qty: number
   skus: {
     sku_code: string
     name: string
