@@ -28,10 +28,22 @@ export async function GET(request: NextRequest) {
     const pageSize = parseInt(searchParams.get('pageSize') || '100')
     const offset = (page - 1) * pageSize
 
+    // Explicit column list to avoid pulling the heavy raw_json JSONB field on every row
+    const SHIPMENT_COLUMNS = [
+      'id', 'tenant_id', 'sendcloud_id', 'shipped_at', 'carrier', 'service',
+      'weight_grams', 'order_ref', 'tracking', 'pricing_status', 'computed_cost_eur',
+      'total_value', 'currency', 'recipient_name', 'recipient_email', 'recipient_phone',
+      'recipient_company', 'address_line1', 'address_line2', 'house_number', 'city',
+      'postal_code', 'country_code', 'country_name', 'status_id', 'status_message',
+      'tracking_url', 'label_url', 'service_point_id', 'is_return', 'collo_count',
+      'external_order_id', 'date_created', 'date_updated', 'date_announced',
+      'has_error', 'error_message', 'length_cm', 'width_cm', 'height_cm',
+    ].join(', ')
+
     let query = supabase
       .from('shipments')
       .select(`
-        *,
+        ${SHIPMENT_COLUMNS},
         shipment_items(
           qty,
           skus(sku_code, name)
@@ -185,7 +197,9 @@ export async function GET(request: NextRequest) {
       stats
     }, {
       headers: {
-        'Cache-Control': 'private, no-store'
+        // Short private cache with SWR so tab-switching and pagination feel instant
+        // while remaining fresh for the current user only
+        'Cache-Control': 'private, max-age=30, stale-while-revalidate=120'
       }
     })
   } catch (error) {

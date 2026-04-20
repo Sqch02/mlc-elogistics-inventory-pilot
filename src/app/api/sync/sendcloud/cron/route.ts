@@ -343,6 +343,14 @@ async function runSync() {
     }
   }
 
+  // Refresh materialized view (non-blocking)
+  try {
+    await adminClient.rpc('refresh_physical_items_view')
+    console.log('[Cron] Refreshed v_physical_shipment_items materialized view')
+  } catch (e) {
+    console.error('[Cron] Failed to refresh materialized view:', e)
+  }
+
   const totalDuration = Date.now() - startTime
   console.log(`\n[Cron] *** SYNC COMPLETE in ${totalDuration}ms ***`)
 }

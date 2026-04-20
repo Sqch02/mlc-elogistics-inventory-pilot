@@ -76,29 +76,25 @@ export async function GET(
       return NextResponse.json({ error: 'SKU non trouvé' }, { status: 404 })
     }
 
-    // Get monthly volumes for the last 12 months
+    // Get monthly volumes for the last 12 months (fetch all in parallel)
     const now = new Date()
-    const months: { month: string; label: string; volume: number }[] = []
-
-    for (let i = 11; i >= 0; i--) {
+    const monthSpecs = Array.from({ length: 12 }, (_, idx) => {
+      const i = 11 - idx
       const date = new Date(now.getFullYear(), now.getMonth() - i, 1)
       const startOfMonth = new Date(date.getFullYear(), date.getMonth(), 1)
       const endOfMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999)
-
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
       const monthLabel = date.toLocaleDateString('fr-FR', { month: 'short' }).toUpperCase()
+      return { startOfMonth, endOfMonth, monthKey, monthLabel }
+    })
 
-      // Get ALL shipment items for this month (with pagination, bundles decomposed)
-      const items = await fetchAllShipmentItems(tenantId, id, startOfMonth, endOfMonth)
-
-      const volume = items.reduce((sum: number, item: PhysicalItem) => sum + (item.physical_qty || 0), 0)
-
-      months.push({
-        month: monthKey,
-        label: monthLabel,
-        volume,
+    const months = await Promise.all(
+      monthSpecs.map(async (spec) => {
+        const items = await fetchAllShipmentItems(tenantId, id, spec.startOfMonth, spec.endOfMonth)
+        const volume = items.reduce((sum: number, item: PhysicalItem) => sum + (item.physical_qty || 0), 0)
+        return { month: spec.monthKey, label: spec.monthLabel, volume }
       })
-    }
+    )
 
     // Calculate total and average
     const totalVolume = months.reduce((sum, m) => sum + m.volume, 0)
@@ -113,6 +109,10 @@ export async function GET(
       months,
       totalVolume,
       avgVolume,
+    }, {
+      headers: {
+        'Cache-Control': 'private, max-age=300, stale-while-revalidate=600',
+      },
     })
   } catch (error) {
     console.error('Error fetching monthly volume:', error)

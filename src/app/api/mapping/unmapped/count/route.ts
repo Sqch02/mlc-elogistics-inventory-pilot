@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireRole, requireTenant } from '@/lib/supabase/auth'
 
 // GET /api/mapping/unmapped/count - Count of unresolved unmapped items for the current tenant
+// Admin-only: clients should not see internal mapping issues
 export async function GET() {
   try {
+    await requireRole(['admin', 'super_admin'])
     const tenantId = await requireTenant()
     const adminClient = getAdminDb()
 

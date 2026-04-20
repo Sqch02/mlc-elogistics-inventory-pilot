@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireRole, requireTenant } from '@/lib/supabase/auth'
 
 export type AnomalyType =
   | 'order_ref_as_description'
@@ -61,8 +61,10 @@ function suggestedAction(type: AnomalyType, rawDescription: string | null, rawSk
 }
 
 // GET /api/mapping/anomalies - Detect Shopify product data issues
+// Admin-only: clients should not see internal data anomalies
 export async function GET() {
   try {
+    await requireRole(['admin', 'super_admin'])
     const tenantId = await requireTenant()
     const adminClient = getAdminDb()
 

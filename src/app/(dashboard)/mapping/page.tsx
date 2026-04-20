@@ -1,32 +1,15 @@
-'use client'
+import { redirect } from 'next/navigation'
+import { requireAuth } from '@/lib/supabase/auth'
+import { MappingPageClient } from './MappingPageClient'
 
-import dynamic from 'next/dynamic'
-import { Card } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
+export default async function MappingPage() {
+  const user = await requireAuth()
 
-function PageSkeleton() {
-  return (
-    <div className="space-y-6">
-      <div className="space-y-2">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-4 w-96" />
-      </div>
-      <Card className="p-4">
-        <div className="space-y-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 w-full" />
-          ))}
-        </div>
-      </Card>
-    </div>
-  )
-}
+  // Only admin and super_admin can access the mapping center.
+  // Client users (e.g. brand staff) are redirected to the dashboard.
+  if (user.role !== 'admin' && user.role !== 'super_admin') {
+    redirect('/')
+  }
 
-const MappingClient = dynamic(
-  () => import('./MappingClient').then((m) => ({ default: m.MappingClient })),
-  { ssr: false, loading: () => <PageSkeleton /> }
-)
-
-export default function MappingPage() {
-  return <MappingClient />
+  return <MappingPageClient />
 }

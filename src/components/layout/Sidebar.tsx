@@ -29,7 +29,7 @@ import { Button } from '@/components/ui/button'
 import { features } from '@/lib/config/features'
 
 // Menus hidden for client role (brand users)
-const clientHiddenMenus = ['/emplacements']
+const clientHiddenMenus = ['/emplacements', '/mapping']
 
 // Only these menus visible in hub view (super_admin on own tenant)
 const hubVisibleMenus = ['/', '/admin', '/parametres']
@@ -81,6 +81,8 @@ function SidebarContent({ pathname, onClose, onLogout, userRole, isHubView }: Si
   // Fetch unmapped items count (refresh every 60s)
   useEffect(() => {
     if (isHubView) return
+    // Clients don't have access to the mapping center
+    if (userRole === 'client') return
     let cancelled = false
 
     const fetchCount = async () => {
@@ -103,7 +105,7 @@ function SidebarContent({ pathname, onClose, onLogout, userRole, isHubView }: Si
       cancelled = true
       clearInterval(interval)
     }
-  }, [isHubView])
+  }, [isHubView, userRole])
 
   return (
     <>

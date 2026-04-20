@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
-import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
+import { requireRole, requireTenant, getCurrentUser } from '@/lib/supabase/auth'
 
 type ResolveAction = 'map_to_sku' | 'create_sku' | 'add_rule'
 
@@ -37,8 +37,10 @@ interface InsertMappingPayload {
 }
 
 // POST /api/mapping/resolve - Create a mapping rule or new SKU to resolve unmapped items
+// Admin-only: clients cannot modify mapping rules or create SKUs via this endpoint
 export async function POST(request: NextRequest) {
   try {
+    await requireRole(['admin', 'super_admin'])
     const tenantId = await requireTenant()
     const user = await getCurrentUser()
     const db = getAdminDb()
