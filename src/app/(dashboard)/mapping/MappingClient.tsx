@@ -23,7 +23,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { AlertCircle, CheckCircle2, Loader2, Plus, Search, Link as LinkIcon } from 'lucide-react'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import {
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle2,
+  HelpCircle,
+  Info,
+  Loader2,
+  Plus,
+  Search,
+  Link as LinkIcon,
+} from 'lucide-react'
 
 interface UnmappedGroup {
   raw_sku: string | null
@@ -34,6 +50,45 @@ interface UnmappedGroup {
   first_seen: string | null
   last_seen: string | null
   sample_orders: string[]
+}
+
+type AnomalyType =
+  | 'order_ref_as_description'
+  | 'empty_sku'
+  | 'sku_with_spaces'
+  | 'sku_with_accents'
+
+interface SampleOrder {
+  order_ref: string
+  date: string | null
+  client: string | null
+}
+
+interface AnomalyGroup {
+  type: AnomalyType
+  raw_sku: string | null
+  raw_description: string | null
+  nb_occurrences: number
+  total_qty: number
+  sample_orders: SampleOrder[]
+  suggested_action: string
+}
+
+const ANOMALY_LABELS: Record<AnomalyType, string> = {
+  order_ref_as_description: 'Numero de commande comme description',
+  empty_sku: 'SKU vide dans Shopify',
+  sku_with_spaces: 'SKU avec espaces (probablement un nom)',
+  sku_with_accents: 'SKU avec accents',
+}
+
+const ANOMALY_VARIANTS: Record<
+  AnomalyType,
+  'error' | 'warning' | 'info' | 'gold'
+> = {
+  order_ref_as_description: 'error',
+  empty_sku: 'warning',
+  sku_with_spaces: 'gold',
+  sku_with_accents: 'info',
 }
 
 interface SkuOption {
@@ -60,6 +115,22 @@ async function fetchUnmapped(): Promise<{ groups: UnmappedGroup[] }> {
     throw new Error(err.error || 'Erreur lors du chargement')
   }
   return res.json()
+}
+
+async function fetchAnomalies(): Promise<{
+  anomalies: AnomalyGroup[]
+  total_anomalies: number
+}> {
+  const res = await fetch('/api/mapping/anomalies')
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || 'Erreur lors du chargement des anomalies')
+  }
+  return res.json()
+}
+
+function anomalyKey(a: AnomalyGroup): string {
+  return [a.type, a.raw_sku ?? '', a.raw_description ?? ''].join('||')
 }
 
 async function fetchSkus(): Promise<{ skus: SkuOption[] }> {
@@ -98,6 +169,165 @@ function formatDate(iso: string | null): string {
   }
 }
 
+function AnomaliesSection({
+  anomalies,
+  isLoading,
+}: {
+  anomalies: AnomalyGroup[]
+  isLoading: boolean
+}) {
+  if (isLoading) {
+    return (
+      <Card className="p-4">
+        <div className="flex items-center text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+          Analyse des produits Shopify...
+        </div>
+      </Card>
+    )
+  }
+
+  const total = anomalies.length
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-4">
+        <div className="flex flex-wrap items-start gap-3">
+          <div className="p-2 rounded-lg bg-error/10 text-error shrink-0">
+            <AlertTriangle className="h-4 w-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-base font-semibold text-foreground">
+                Anomalies Shopify a corriger
+              </h2>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="Aide sur les anomalies"
+                      className="text-muted-foreground hover:text-foreground inline-flex"
+                    >
+                      <HelpCircle className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-[11px] leading-relaxed">
+                    Cette section detecte les erreurs de saisie dans vos fiches
+                    produits Shopify (SKU manquant, numero de commande a la place
+                    du nom, espaces ou accents dans le SKU). Corrigez directement
+                    dans Shopify : le prochain sync mettra a jour les donnees
+                    automatiquement.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              {total > 0 && (
+                <Badge variant="error" className="ml-1">
+                  {total} anomalie{total > 1 ? 's' : ''}
+                </Badge>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Problemes detectes dans vos produits Shopify sur les 6 derniers
+              mois. A corriger dans Shopify &gt; Produits.
+            </p>
+          </div>
+        </div>
+
+        {total === 0 ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground bg-success/5 border border-success/20 rounded-md p-3">
+            <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
+            <span>
+              Aucune anomalie detectee. Vos fiches produits Shopify semblent
+              propres.
+            </span>
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {anomalies.map((a) => (
+              <div
+                key={anomalyKey(a)}
+                className="rounded-md border border-border bg-background p-3 space-y-2"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={ANOMALY_VARIANTS[a.type]}>
+                    {ANOMALY_LABELS[a.type]}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">
+                    <strong className="text-foreground">{a.total_qty}</strong>{' '}
+                    unite(s) sur{' '}
+                    <strong className="text-foreground">
+                      {a.nb_occurrences}
+                    </strong>{' '}
+                    occurrence(s)
+                  </span>
+                </div>
+
+                <div className="text-sm space-y-1">
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                      SKU:
+                    </span>
+                    <span className="font-mono break-all">
+                      {a.raw_sku && a.raw_sku.length > 0 ? (
+                        a.raw_sku
+                      ) : (
+                        <span className="text-muted-foreground italic">
+                          (vide)
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Description:
+                    </span>
+                    <span className="break-words">
+                      {a.raw_description && a.raw_description.length > 0 ? (
+                        a.raw_description
+                      ) : (
+                        <span className="text-muted-foreground italic">
+                          (vide)
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                </div>
+
+                {a.sample_orders.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className="text-xs text-muted-foreground mr-1">
+                      Exemples:
+                    </span>
+                    {a.sample_orders.slice(0, 3).map((o) => (
+                      <Badge
+                        key={o.order_ref}
+                        variant="muted"
+                        className="font-mono text-[11px]"
+                      >
+                        {o.order_ref}
+                        {o.date ? ` - ${formatDate(o.date)}` : ''}
+                        {o.client ? ` - ${o.client}` : ''}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex items-start gap-2 bg-muted/50 border border-border rounded-md p-2.5">
+                  <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                  <p className="text-xs text-foreground leading-relaxed">
+                    {a.suggested_action}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function MappingClient() {
   const queryClient = useQueryClient()
 
@@ -118,6 +348,20 @@ export function MappingClient() {
     queryFn: fetchUnmapped,
     staleTime: 30 * 1000,
   })
+
+  const {
+    data: anomaliesData,
+    isLoading: isAnomaliesLoading,
+  } = useQuery({
+    queryKey: ['mapping', 'anomalies'],
+    queryFn: fetchAnomalies,
+    staleTime: 60 * 1000,
+  })
+
+  const anomalies = useMemo<AnomalyGroup[]>(
+    () => anomaliesData?.anomalies ?? [],
+    [anomaliesData]
+  )
 
   const { data: skusData } = useQuery({
     queryKey: ['skus', 'all'],
@@ -226,6 +470,9 @@ export function MappingClient() {
           seront mises a jour retroactivement.
         </p>
       </div>
+
+      {/* Anomalies Shopify section */}
+      <AnomaliesSection anomalies={anomalies} isLoading={isAnomaliesLoading} />
 
       {/* Summary + search */}
       <Card className="p-4">
