@@ -140,6 +140,23 @@ async function fetchSkus(): Promise<{ skus: SkuOption[] }> {
   return res.json()
 }
 
+async function dismissAnomaly(payload: {
+  anomaly_type: string
+  raw_sku: string | null
+  raw_description: string | null
+}) {
+  const res = await fetch('/api/mapping/anomalies/dismiss', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || 'Erreur lors de la validation')
+  }
+  return res.json()
+}
+
 async function resolveMapping(payload: ResolvePayload) {
   const res = await fetch('/api/mapping/resolve', {
     method: 'POST',
@@ -358,6 +375,48 @@ function AnomaliesSection({
   isLoading: boolean
   skus: SkuOption[]
 }) {
+  const queryClient = useQueryClient()
+  const dismissMutation = useMutation({
+    mutationFn: dismissAnomaly,
+    onMutate: async (payload) => {
+      // Optimistically remove the anomaly from the list so it disappears instantly
+      const key = ['mapping', 'anomalies']
+      await queryClient.cancelQueries({ queryKey: key })
+      const prev = queryClient.getQueryData<{
+        anomalies: AnomalyGroup[]
+        total_anomalies: number
+      }>(key)
+      if (prev) {
+        queryClient.setQueryData(key, {
+          ...prev,
+          anomalies: prev.anomalies.filter(
+            (a) =>
+              !(
+                a.type === payload.anomaly_type &&
+                (a.raw_sku ?? '') === (payload.raw_sku ?? '') &&
+                (a.raw_description ?? '') === (payload.raw_description ?? '')
+              )
+          ),
+          total_anomalies: Math.max(0, prev.total_anomalies - 1),
+        })
+      }
+      return { prev }
+    },
+    onError: (err, _vars, ctx) => {
+      // Rollback optimistic update
+      if (ctx?.prev) {
+        queryClient.setQueryData(['mapping', 'anomalies'], ctx.prev)
+      }
+      toast.error(err instanceof Error ? err.message : 'Erreur')
+    },
+    onSuccess: () => {
+      toast.success('Anomalie marquee comme corrigee')
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['mapping', 'anomalies'] })
+    },
+  })
+
   if (isLoading) {
     return (
       <Card className="p-4">
@@ -535,7 +594,7 @@ function AnomaliesSection({
                         </div>
                       </div>
                     )}
-                    <div className="mt-3">
+                    <div className="mt-3 flex flex-wrap gap-2">
                       <Button asChild variant="outline" size="sm">
                         <a
                           href="https://admin.shopify.com/products"
@@ -545,6 +604,25 @@ function AnomaliesSection({
                           <ExternalLink className="h-4 w-4 mr-2" />
                           Ouvrir Shopify Admin
                         </a>
+                      </Button>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        disabled={dismissMutation.isPending}
+                        onClick={() =>
+                          dismissMutation.mutate({
+                            anomaly_type: a.type,
+                            raw_sku: a.raw_sku,
+                            raw_description: a.raw_description,
+                          })
+                        }
+                      >
+                        {dismissMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="h-4 w-4 mr-2" />
+                        )}
+                        Marquer comme corrige
                       </Button>
                     </div>
                   </div>
