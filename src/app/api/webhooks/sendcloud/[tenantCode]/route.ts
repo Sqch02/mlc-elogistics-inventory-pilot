@@ -5,6 +5,7 @@ import { parseParcel } from '@/lib/sendcloud/client'
 import type { SendcloudParcel, ParsedShipment } from '@/lib/sendcloud/types'
 import { consumeStock } from '@/lib/stock/consume'
 import { getDestination } from '@/lib/utils/pricing'
+import { processShipmentItems } from '@/lib/utils/sku-mapping'
 
 // Sendcloud webhook payload structure
 interface SendcloudWebhookPayload {
@@ -261,16 +262,6 @@ export async function POST(
       .select('carrier, destination, weight_min_grams, weight_max_grams, price_eur')
       .eq('tenant_id', tenantId)
 
-    // Get SKU map for item matching
-    const { data: skus } = await adminClient
-      .from('skus')
-      .select('id, sku_code')
-      .eq('tenant_id', tenantId)
-
-    const skuMap = new Map<string, string>(
-      skus?.map((s: { sku_code: string; id: string }) => [s.sku_code.toLowerCase(), s.id]) || []
-    )
-
     const results = {
       processed: 0,
       errors: [] as string[],
@@ -389,31 +380,52 @@ export async function POST(
           }
         }
 
-        // Process items
-        if (parcel.items && parcel.items.length > 0 && shipment) {
-          for (const item of parcel.items) {
-            const skuId = skuMap.get(item.sku_code.toLowerCase())
-            if (skuId) {
-              await adminClient
-                .from('shipment_items')
-                .upsert(
-                  {
-                    tenant_id: tenantId,
-                    shipment_id: shipment.id,
-                    sku_id: skuId,
-                    qty: item.qty,
-                  },
-                  { onConflict: 'shipment_id,sku_id' }
-                )
+        // Process items via the robust SKU mapping helper.
+        // Mapped items go to shipment_items, unmapped items are recorded
+        // in unmapped_items (never lost). Stock is consumed for NEW shipments
+        // after mapping succeeds.
+        if (shipment) {
+          const rawJson = (parcel.raw_json as Record<string, unknown> | undefined) || {}
+          const parcelItems = Array.isArray(rawJson.parcel_items)
+            ? (rawJson.parcel_items as unknown[])
+            : []
 
-              if (isNewShipment) {
-                try {
-                  await consumeStock(tenantId, skuId, item.qty, shipment.id, 'shipment')
-                  console.log(`[Webhook] ${tenantCode}: Consumed stock for SKU ${item.sku_code} x${item.qty}`)
-                } catch (stockError) {
-                  console.error(`[Webhook] ${tenantCode}: Error consuming stock for SKU ${item.sku_code}:`, stockError)
+          if (parcelItems.length > 0) {
+            try {
+              const { mappedCount, unmappedCount } = await processShipmentItems(
+                adminClient,
+                tenantId,
+                shipment.id,
+                parcelItems,
+              )
+              console.log(
+                `[Webhook] ${tenantCode}: Items for ${parcel.sendcloud_id} - ${mappedCount} mapped, ${unmappedCount} unmapped`,
+              )
+
+              // Consume stock only for NEW shipments, using the freshly-mapped
+              // shipment_items so bundle/compound SKUs are handled consistently.
+              if (isNewShipment && mappedCount > 0) {
+                const { data: items } = await adminClient
+                  .from('shipment_items')
+                  .select('sku_id, qty')
+                  .eq('shipment_id', shipment.id)
+
+                for (const it of (items || []) as Array<{ sku_id: string; qty: number }>) {
+                  try {
+                    await consumeStock(tenantId, it.sku_id, it.qty, shipment.id, 'shipment')
+                  } catch (stockError) {
+                    console.error(
+                      `[Webhook] ${tenantCode}: Error consuming stock for sku_id ${it.sku_id}:`,
+                      stockError,
+                    )
+                  }
                 }
               }
+            } catch (err) {
+              console.error(
+                `[Webhook] ${tenantCode}: processShipmentItems error for ${parcel.sendcloud_id}:`,
+                err,
+              )
             }
           }
         }

@@ -20,6 +20,7 @@ import {
   BarChart3,
   PackagePlus,
   Shield,
+  Link2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -40,6 +41,7 @@ const baseNavigation = [
   { name: 'Expéditions', href: '/expeditions', icon: Truck, feature: null },
   { name: 'Retours', href: '/retours', icon: RotateCcw, feature: 'returnsModule' as const },
   { name: 'Produits & Stock', href: '/produits', icon: Package, feature: null },
+  { name: 'Centre de mapping', href: '/mapping', icon: Link2, feature: null, badge: 'unmappedCount' as const },
   { name: 'Bundles', href: '/bundles', icon: Boxes, feature: null },
   { name: 'Arrivages', href: '/arrivages', icon: PackagePlus, feature: null },
   { name: 'Emplacements', href: '/emplacements', icon: MapPin, feature: null },
@@ -59,6 +61,8 @@ interface SidebarContentProps {
 }
 
 function SidebarContent({ pathname, onClose, onLogout, userRole, isHubView }: SidebarContentProps) {
+  const [unmappedCount, setUnmappedCount] = useState<number>(0)
+
   // Filter navigation based on feature flags, user role, and hub view
   const navigation = useMemo(() => {
     return baseNavigation.filter((item) => {
@@ -74,6 +78,32 @@ function SidebarContent({ pathname, onClose, onLogout, userRole, isHubView }: Si
     })
   }, [userRole, isHubView])
 
+  // Fetch unmapped items count (refresh every 60s)
+  useEffect(() => {
+    if (isHubView) return
+    let cancelled = false
+
+    const fetchCount = async () => {
+      try {
+        const res = await fetch('/api/mapping/unmapped/count', { cache: 'no-store' })
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled && typeof data?.count === 'number') {
+          setUnmappedCount(data.count)
+        }
+      } catch {
+        // Silently ignore - badge just won't show
+      }
+    }
+
+    fetchCount()
+    const interval = setInterval(fetchCount, 60000)
+
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [isHubView])
 
   return (
     <>
@@ -109,6 +139,9 @@ function SidebarContent({ pathname, onClose, onLogout, userRole, isHubView }: Si
           const isActive = pathname === item.href ||
             (item.href !== '/' && pathname.startsWith(item.href))
 
+          const showUnmappedBadge =
+            'badge' in item && item.badge === 'unmappedCount' && unmappedCount > 0
+
           return (
             <Link
               key={item.name}
@@ -124,8 +157,21 @@ function SidebarContent({ pathname, onClose, onLogout, userRole, isHubView }: Si
                 "h-[18px] w-[18px] flex-shrink-0 transition-colors",
                 isActive ? "text-primary-foreground" : "text-muted-foreground group-hover:text-foreground"
               )} />
-              <span className="tracking-tight">{item.name}</span>
-              {isActive && (
+              <span className="tracking-tight flex-1">{item.name}</span>
+              {showUnmappedBadge && (
+                <span
+                  className={cn(
+                    'inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-semibold tabular-nums',
+                    isActive
+                      ? 'bg-white/20 text-primary-foreground'
+                      : 'bg-red-500 text-white'
+                  )}
+                  aria-label={`${unmappedCount} éléments non mappés`}
+                >
+                  {unmappedCount > 99 ? '99+' : unmappedCount}
+                </span>
+              )}
+              {isActive && !showUnmappedBadge && (
                 <div className="absolute right-3 w-1.5 h-1.5 rounded-full bg-primary-foreground/60" />
               )}
             </Link>

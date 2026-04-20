@@ -3,6 +3,7 @@ import { getAdminDb } from '@/lib/supabase/untyped'
 import { fetchAllParcels, fetchAllReturns, fetchAllIntegrationShipments } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials, ParsedShipment, ParsedReturn } from '@/lib/sendcloud/types'
 import { getDestination } from '@/lib/utils/pricing'
+import { processShipmentItems } from '@/lib/utils/sku-mapping'
 
 interface PricingRule {
   carrier: string
@@ -204,6 +205,66 @@ async function runSync() {
         if (shipmentError) {
           console.error(`[Cron] Shipments batch upsert error:`, shipmentError.message)
         }
+      }
+
+      // ============================================
+      // PROCESS SHIPMENT ITEMS (SKU mapping)
+      // ============================================
+      // For every shipment that has parcel_items in raw_json, resolve each
+      // item via map_shipment_item RPC. Mapped items go to shipment_items,
+      // unmapped items are recorded in unmapped_items (never lost).
+      const parcelsWithItems = parcels.filter((p) => {
+        const raw = p.raw_json as Record<string, unknown> | null | undefined
+        const items = raw?.parcel_items
+        return Array.isArray(items) && items.length > 0
+      })
+
+      if (parcelsWithItems.length > 0) {
+        // Fetch the DB IDs for the upserted shipments by sendcloud_id.
+        const sendcloudIds = parcelsWithItems.map((p) => p.sendcloud_id)
+        const { data: shipmentRows } = await adminClient
+          .from('shipments')
+          .select('id, sendcloud_id')
+          .eq('tenant_id', tenant.id)
+          .in('sendcloud_id', sendcloudIds)
+
+        const idBySendcloudId = new Map<string, string>(
+          (shipmentRows || []).map((r: { id: string; sendcloud_id: string }) => [
+            r.sendcloud_id,
+            r.id,
+          ]),
+        )
+
+        let totalMapped = 0
+        let totalUnmapped = 0
+
+        for (const parcel of parcelsWithItems) {
+          const shipmentId = idBySendcloudId.get(parcel.sendcloud_id)
+          if (!shipmentId) continue
+
+          const raw = parcel.raw_json as Record<string, unknown>
+          const parcelItems = raw.parcel_items as unknown[]
+
+          try {
+            const { mappedCount, unmappedCount } = await processShipmentItems(
+              adminClient,
+              tenant.id,
+              shipmentId,
+              parcelItems,
+            )
+            totalMapped += mappedCount
+            totalUnmapped += unmappedCount
+          } catch (err) {
+            console.error(
+              `[Cron] processShipmentItems error for parcel ${parcel.sendcloud_id}:`,
+              err,
+            )
+          }
+        }
+
+        console.log(
+          `[Cron] Items: ${totalMapped} mapped, ${totalUnmapped} unmapped (across ${parcelsWithItems.length} shipments)`,
+        )
       }
 
       // ============================================
