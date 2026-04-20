@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerDb } from '@/lib/supabase/untyped'
+import { getAdminDb } from '@/lib/supabase/untyped'
 import { requireTenant } from '@/lib/supabase/auth'
 
 interface PhysicalItem {
@@ -28,7 +28,7 @@ interface MonthlyVolume {
 export async function GET(request: NextRequest) {
   try {
     const tenantId = await requireTenant()
-    const supabase = await getServerDb()
+    const supabase = getAdminDb()
 
     const searchParams = request.nextUrl.searchParams
     const fromParam = searchParams.get('from') // Format: YYYY-MM-DD
