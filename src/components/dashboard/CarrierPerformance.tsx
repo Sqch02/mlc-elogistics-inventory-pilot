@@ -19,6 +19,7 @@ interface CarrierStats {
 interface CarrierPerformanceProps {
   data: CarrierStats[]
   totalCarriers: number
+  periodLabel?: string
 }
 
 // Color palette for carriers
@@ -33,7 +34,7 @@ const CARRIER_COLORS: Record<string, string> = {
   fedex: '#4D148C',
 }
 
-export function CarrierPerformance({ data, totalCarriers }: CarrierPerformanceProps) {
+export function CarrierPerformance({ data, totalCarriers, periodLabel }: CarrierPerformanceProps) {
   const getCarrierName = (carrier: string) => formatCarrierName(carrier)
 
   const getCarrierColor = (carrier: string) => {
@@ -72,7 +73,7 @@ export function CarrierPerformance({ data, totalCarriers }: CarrierPerformancePr
                   </TooltipTrigger>
                   <TooltipContent className="max-w-sm">
                     <p className="text-xs leading-relaxed">
-                      Donnees agregees sur les <strong>90 derniers jours</strong>,
+                      Donnees agregees sur la periode selectionnee,
                       par transporteur :
                       <br />
                       <br />
@@ -92,7 +93,7 @@ export function CarrierPerformance({ data, totalCarriers }: CarrierPerformancePr
                 </UITooltip>
               </TooltipProvider>
             </CardTitle>
-            <CardDescription>90 derniers jours • {totalCarriers} transporteurs</CardDescription>
+            <CardDescription>{periodLabel ? `${periodLabel} • ${totalCarriers} transporteurs` : `${totalCarriers} transporteurs`}</CardDescription>
           </div>
         </div>
       </CardHeader>

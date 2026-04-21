@@ -141,6 +141,15 @@ function formatEuro(value: number) {
   }).format(value)
 }
 
+function formatEuroPrecise(value: number) {
+  return new Intl.NumberFormat('fr-FR', {
+    style: 'currency',
+    currency: 'EUR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value)
+}
+
 function TrendBadge({ value, inverse = false }: { value: number; inverse?: boolean }) {
   const isPositive = inverse ? value < 0 : value > 0
   const Icon = value > 0 ? TrendingUp : TrendingDown
@@ -201,6 +210,22 @@ export default function AnalyticsPage() {
   const ytdCost = data.costTrend.data.reduce((sum, m) => sum + m.cost, 0)
   const ytdIndemnity = data.costTrend.data.reduce((sum, m) => sum + m.indemnity, 0)
   const avgCostPerShipment = ytdShipments > 0 ? ytdCost / ytdShipments : 0
+
+  // Human-readable period label matching the date range picker
+  const periodLabel = (() => {
+    if (!dateRange.from || !dateRange.to) return 'Periode selectionnee'
+    const fromStr = dateRange.from.toLocaleDateString('fr-FR', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    })
+    const toStr = dateRange.to.toLocaleDateString('fr-FR', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    })
+    return `Du ${fromStr} au ${toStr}`
+  })()
 
   return (
     <div className="space-y-6">
@@ -271,7 +296,7 @@ export default function AnalyticsPage() {
                     <p className="text-xs text-muted-foreground font-medium uppercase">Coût moyen / exp.</p>
                     <MetricInfo text="Cout total divise par le nombre d'expeditions sur la periode selectionnee." />
                   </div>
-                  <p className="text-2xl font-bold">{formatEuro(avgCostPerShipment)}</p>
+                  <p className="text-2xl font-bold">{formatEuroPrecise(avgCostPerShipment)}</p>
                   <p className="text-xs text-muted-foreground">sur la periode</p>
                 </div>
                 <div className="p-2 bg-emerald-100 rounded-lg text-emerald-600">
@@ -316,11 +341,13 @@ export default function AnalyticsPage() {
             data={data.costTrend.data}
             percentChange={data.costTrend.percentChange}
             shipmentsPercentChange={data.costTrend.shipmentsPercentChange}
+            periodLabel={periodLabel}
           />
 
           <CarrierPerformance
             data={data.carrierPerformance.data}
             totalCarriers={data.carrierPerformance.totalCarriers}
+            periodLabel={periodLabel}
           />
         </div>
       )}

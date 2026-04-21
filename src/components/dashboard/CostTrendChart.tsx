@@ -18,6 +18,7 @@ interface CostTrendChartProps {
   data: MonthlyData[]
   percentChange: number
   shipmentsPercentChange: number
+  periodLabel?: string
 }
 
 // Moved outside component to avoid recreation on each render
@@ -31,7 +32,7 @@ function TrendIcon({ value }: { value: number }) {
 const CHART_PRIMARY = '#1E3A5F'   // var(--color-primary)
 const CHART_SECONDARY = '#2A4A73' // var(--color-secondary)
 
-export function CostTrendChart({ data, percentChange, shipmentsPercentChange }: CostTrendChartProps) {
+export function CostTrendChart({ data, percentChange, shipmentsPercentChange, periodLabel }: CostTrendChartProps) {
   // Format month labels (YYYY-MM -> Jan, Feb, etc.)
   const chartData = data.map(d => {
     const [year, month] = d.month.split('-')
@@ -85,7 +86,7 @@ export function CostTrendChart({ data, percentChange, shipmentsPercentChange }: 
                 </UITooltip>
               </TooltipProvider>
             </CardTitle>
-            <CardDescription>Coûts transport sur 12 mois</CardDescription>
+            <CardDescription>{periodLabel || 'Coûts transport'}</CardDescription>
           </div>
           <div className="text-right">
             <p className="text-2xl font-bold">{formatEuro(currentMonth?.cost || 0)}</p>

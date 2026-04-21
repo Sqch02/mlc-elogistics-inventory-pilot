@@ -118,6 +118,8 @@ export function ProduitsClient() {
   const [historySkuId, setHistorySkuId] = useState<string | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [volumeOpen, setVolumeOpen] = useState(false)
+  const [thresholdOpen, setThresholdOpen] = useState(false)
+  const [thresholdValue, setThresholdValue] = useState(0)
   const [volumeData, setVolumeData] = useState<MonthlyVolumeData | null>(null)
   const [volumeLoading, setVolumeLoading] = useState(false)
   const [selectedSku, setSelectedSku] = useState<SKU | null>(null)
@@ -193,6 +195,26 @@ export function ProduitsClient() {
     })
     setCreateOpen(false)
     setFormData(defaultFormData)
+  }
+
+  // Quick edit: alert threshold only (accessible to clients too)
+  const openThreshold = (skuCode: string) => {
+    const sku = getFullSku(skuCode)
+    if (sku) {
+      setSelectedSku(sku)
+      setThresholdValue(sku.alert_threshold ?? 10)
+      setThresholdOpen(true)
+    }
+  }
+
+  const handleUpdateThreshold = async () => {
+    if (!selectedSku) return
+    await updateMutation.mutateAsync({
+      id: selectedSku.id,
+      alert_threshold: thresholdValue,
+    })
+    setThresholdOpen(false)
+    setSelectedSku(null)
   }
 
   // Edit
@@ -523,6 +545,10 @@ export function ProduitsClient() {
                         <DropdownMenuItem onClick={() => openVolume(sku.sku_code)}>
                           <BarChart3 className="h-4 w-4 mr-2" />
                           Volume mensuel
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openThreshold(sku.sku_code)}>
+                          <AlertTriangle className="h-4 w-4 mr-2" />
+                          Modifier seuil d&apos;alerte
                         </DropdownMenuItem>
                         {!isClient && (
                           <>
@@ -895,6 +921,49 @@ export function ProduitsClient() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={closeVolume}>Fermer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick threshold edit (accessible a tous) */}
+      <Dialog open={thresholdOpen} onOpenChange={setThresholdOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Seuil d&apos;alerte</DialogTitle>
+            <DialogDescription>
+              {selectedSku
+                ? `Alerte quand le stock de ${selectedSku.sku_code} descend sous ce niveau.`
+                : 'Definir le seuil sous lequel le produit sera marque comme critique.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="threshold_value">Seuil (unites)</Label>
+            <Input
+              id="threshold_value"
+              type="number"
+              min={0}
+              value={thresholdValue}
+              onChange={(e) =>
+                setThresholdValue(Math.max(0, parseInt(e.target.value) || 0))
+              }
+            />
+            <p className="text-xs text-muted-foreground">
+              Actuellement : {selectedSku?.alert_threshold ?? '—'} unites.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setThresholdOpen(false)}>
+              Annuler
+            </Button>
+            <Button
+              onClick={handleUpdateThreshold}
+              disabled={updateMutation.isPending}
+            >
+              {updateMutation.isPending && (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              )}
+              Enregistrer
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

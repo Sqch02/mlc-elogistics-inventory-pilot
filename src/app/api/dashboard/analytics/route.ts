@@ -96,7 +96,6 @@ export async function GET(request: Request) {
       : new Date(endDate.getFullYear(), endDate.getMonth() - 11, 1)
 
     const now = new Date()
-    const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
 
     // All 4 sections in parallel — every one is now a single RPC / single mat view read.
     const [costTrendResult, carrierResult, stockResult, skuSalesResult] =
@@ -113,12 +112,12 @@ export async function GET(request: Request) {
             return (data as MonthlyData[]) || []
           }),
 
-        // 2. Carrier performance — new RPC, aggregated server-side
+        // 2. Carrier performance — new RPC, aggregated server-side, filtered by user period
         adminClient
           .rpc('get_carrier_performance' as never, {
             p_tenant_id: tenantId,
-            p_start_date: ninetyDaysAgo.toISOString(),
-            p_end_date: now.toISOString(),
+            p_start_date: startDate.toISOString(),
+            p_end_date: endDate.toISOString(),
           } as never)
           .then(({ data, error }) => {
             if (error || !data) return [] as CarrierStats[]
@@ -164,13 +163,8 @@ export async function GET(request: Request) {
                   alert_threshold: m.alert_threshold || 10,
                 }
               })
-              .sort((a, b) => {
-                if (a.days_remaining === null && b.days_remaining === null)
-                  return a.current_stock - b.current_stock
-                if (a.days_remaining === null) return 1
-                if (b.days_remaining === null) return -1
-                return a.days_remaining - b.days_remaining
-              })
+              // Sort by best seller (highest avg daily consumption first)
+              .sort((a, b) => b.avg_daily_consumption - a.avg_daily_consumption)
           }),
 
         // 4. SKU sales — analytics_sku_sales RPC
