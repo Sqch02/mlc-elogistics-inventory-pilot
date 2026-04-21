@@ -163,17 +163,24 @@ async function getTenantByCode(adminClient: ReturnType<typeof getAdminDb>, tenan
     return null
   }
 
-  // Get webhook secret from tenant_settings
+  // Resolve webhook secret: prefer the dedicated field, otherwise fall back to
+  // the Sendcloud integration secret (which is what Sendcloud uses to sign
+  // payloads by default). This avoids a chicken-and-egg during onboarding.
   const { data: settings } = await adminClient
     .from('tenant_settings')
-    .select('sendcloud_webhook_secret')
+    .select('sendcloud_webhook_secret, sendcloud_secret')
     .eq('tenant_id', tenant.id)
     .single()
+
+  const webhookSecret =
+    settings?.sendcloud_webhook_secret ||
+    settings?.sendcloud_secret ||
+    null
 
   return {
     id: tenant.id,
     name: tenant.name,
-    webhookSecret: settings?.sendcloud_webhook_secret || null,
+    webhookSecret,
   }
 }
 
