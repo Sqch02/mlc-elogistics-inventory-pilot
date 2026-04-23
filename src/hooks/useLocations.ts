@@ -5,6 +5,8 @@ import { toast } from 'sonner'
 
 export interface Location {
   id: string
+  tenant_id?: string
+  tenant?: { id: string; name: string; code: string } | null
   code: string
   label: string | null
   active: boolean
@@ -20,8 +22,10 @@ export interface Location {
   assignment: {
     assigned_at: string
     sku: {
+      id?: string
       sku_code: string
       name: string
+      tenant_id?: string
       stock_snapshots: { qty_current: number }[]
     } | null
   } | null
@@ -44,7 +48,11 @@ export interface LocationStats {
   occupancyRate: number
 }
 
-async function fetchLocations(): Promise<{ locations: Location[]; stats: LocationStats }> {
+async function fetchLocations(): Promise<{
+  locations: Location[]
+  stats: LocationStats
+  mlcRoot: boolean
+}> {
   const response = await fetch('/api/locations')
   if (!response.ok) throw new Error('Failed to fetch locations')
   const data = await response.json()
@@ -61,7 +69,7 @@ async function fetchLocations(): Promise<{ locations: Location[]; stats: Locatio
       : 0,
   }
 
-  return { locations, stats }
+  return { locations, stats, mlcRoot: Boolean(data.mlcRoot) }
 }
 
 export function useLocations() {

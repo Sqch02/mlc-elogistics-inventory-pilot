@@ -40,10 +40,12 @@ export function EmplacementsClient() {
   const [formLabel, setFormLabel] = useState('')
   const [formActive, setFormActive] = useState(true)
   const [formSkuCode, setFormSkuCode] = useState('')
+  const [formContent, setFormContent] = useState('')
   const [formExpiryDate, setFormExpiryDate] = useState('')
 
   const { data, isLoading, isFetching, refetch } = useLocations()
-  const { data: skusData } = useSkus()
+  const isMlcRoot = Boolean(data?.mlcRoot)
+  const { data: skusData } = useSkus({ crossTenant: isMlcRoot })
 
   const createMutation = useCreateLocation()
   const updateMutation = useUpdateLocation()
@@ -63,12 +65,14 @@ export function EmplacementsClient() {
   const locations = useMemo(() => {
     let filtered = allLocations
 
-    // Filter by search (code, label, or SKU)
+    // Filter by search (code, label, SKU, contenu libre, client)
     if (searchInput.trim()) {
       const search = searchInput.toLowerCase()
       filtered = filtered.filter((loc) =>
         loc.code.toLowerCase().includes(search) ||
         loc.label?.toLowerCase().includes(search) ||
+        loc.content?.toLowerCase().includes(search) ||
+        loc.tenant?.name?.toLowerCase().includes(search) ||
         loc.assignment?.sku?.sku_code.toLowerCase().includes(search) ||
         loc.assignment?.sku?.name.toLowerCase().includes(search)
       )
@@ -144,6 +148,7 @@ export function EmplacementsClient() {
   const openAssign = (location: Location) => {
     setSelectedLocation(location)
     setFormSkuCode(location.assignment?.sku?.sku_code || '')
+    setFormContent(location.content || '')
     setAssignOpen(true)
   }
 
@@ -205,8 +210,8 @@ export function EmplacementsClient() {
       await updateMutation.mutateAsync({
         id: selectedLocation.id,
         sku_code: formSkuCode || null,
+        content: formContent.trim() ? formContent.trim() : null,
       })
-      toast.success(formSkuCode ? 'SKU assigne' : 'SKU desassigne')
       setAssignOpen(false)
     } catch {
       // Error handled by mutation
@@ -411,7 +416,10 @@ export function EmplacementsClient() {
                 <TableRow>
                   <TableHead className="pl-4 lg:pl-6 whitespace-nowrap">Code</TableHead>
                   <TableHead className="hidden sm:table-cell">Label</TableHead>
-                  <TableHead className="whitespace-nowrap">SKU</TableHead>
+                  {isMlcRoot && (
+                    <TableHead className="whitespace-nowrap hidden md:table-cell">Client</TableHead>
+                  )}
+                  <TableHead className="whitespace-nowrap">Contenu</TableHead>
                   <TableHead className="text-center whitespace-nowrap hidden md:table-cell">Qte</TableHead>
                   <TableHead className="whitespace-nowrap hidden md:table-cell">DLUO</TableHead>
                   <TableHead className="whitespace-nowrap hidden lg:table-cell">Assigne le</TableHead>
@@ -427,6 +435,17 @@ export function EmplacementsClient() {
                   <TableRow key={location.id} className="group">
                     <TableCell className="font-mono font-medium pl-4 lg:pl-6 text-xs lg:text-sm">{location.code}</TableCell>
                     <TableCell className="hidden sm:table-cell">{location.label || '-'}</TableCell>
+                    {isMlcRoot && (
+                      <TableCell className="hidden md:table-cell">
+                        {location.tenant ? (
+                          <Badge variant="muted" className="text-[11px]">
+                            {location.tenant.name}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">-</span>
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell>
                       {location.assignment?.sku ? (
                         <div>
@@ -434,7 +453,14 @@ export function EmplacementsClient() {
                           <span className="text-muted-foreground text-xs ml-1 hidden lg:inline">
                             {location.assignment.sku.name}
                           </span>
+                          {location.content && (
+                            <div className="text-[11px] text-muted-foreground mt-0.5 italic">
+                              + {location.content}
+                            </div>
+                          )}
                         </div>
+                      ) : location.content ? (
+                        <span className="text-xs italic">{location.content}</span>
                       ) : (
                         <span className="text-muted-foreground">-</span>
                       )}
@@ -640,26 +666,62 @@ export function EmplacementsClient() {
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Assigner un SKU</DialogTitle>
+            <DialogTitle>Contenu de l&apos;emplacement</DialogTitle>
             <DialogDescription>
-              Assignez un produit a l&apos;emplacement {selectedLocation?.code}.
+              Emplacement {selectedLocation?.code}. Vous pouvez assigner un SKU
+              du catalogue, saisir du texte libre (vrac, mix, etc.), ou les deux.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">SKU</label>
+              <label className="text-sm font-medium">SKU catalogue</label>
               <select
                 className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
                 value={formSkuCode}
                 onChange={(e) => setFormSkuCode(e.target.value)}
               >
-                <option value="">Aucun (liberer l&apos;emplacement)</option>
-                {skus.map((sku) => (
-                  <option key={sku.id} value={sku.sku_code}>
-                    {sku.sku_code} - {sku.name}
-                  </option>
-                ))}
+                <option value="">Aucun</option>
+                {isMlcRoot ? (
+                  // Group by tenant when viewing MLC PROJECT
+                  Object.entries(
+                    skus.reduce<Record<string, typeof skus>>((acc, sku) => {
+                      const key = sku.tenant?.name || 'Autres'
+                      if (!acc[key]) acc[key] = []
+                      acc[key].push(sku)
+                      return acc
+                    }, {})
+                  ).map(([tenantName, tenantSkus]) => (
+                    <optgroup key={tenantName} label={tenantName}>
+                      {tenantSkus.map((sku) => (
+                        <option key={sku.id} value={sku.sku_code}>
+                          {sku.sku_code} - {sku.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))
+                ) : (
+                  skus.map((sku) => (
+                    <option key={sku.id} value={sku.sku_code}>
+                      {sku.sku_code} - {sku.name}
+                    </option>
+                  ))
+                )}
               </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium" htmlFor="location-content">
+                Contenu libre (optionnel)
+              </label>
+              <Input
+                id="location-content"
+                placeholder="Ex: Palette vrac mix Florna/Anteos, boxes livres, etc."
+                value={formContent}
+                onChange={(e) => setFormContent(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Pour les cas ou ce n&apos;est pas un produit du catalogue (vrac,
+                palette melangee, etc.). Laisser vide si rien de particulier.
+              </p>
             </div>
           </div>
           <DialogFooter>

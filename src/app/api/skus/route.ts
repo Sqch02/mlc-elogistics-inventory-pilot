@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerDb } from '@/lib/supabase/untyped'
+import { getServerDb, getAdminDb } from '@/lib/supabase/untyped'
 import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
 import { auditCreate } from '@/lib/audit'
+
+const MLC_ROOT_TENANT_ID = '00000000-0000-0000-0000-000000000001'
 
 interface SKUWithStock {
   id: string
@@ -11,18 +13,24 @@ interface SKUWithStock {
   volume_m3: number | null
   alert_threshold: number
   created_at: string
+  tenant_id?: string
+  tenant?: { id: string; name: string; code: string } | null
   stock_snapshots: Array<{ qty_current: number; updated_at: string }> | null
 }
 
 // GET /api/skus - List all SKUs with stock (excludes bundle SKUs by default)
+// Supports cross-tenant listing when the caller is on the MLC root tenant
+// (used by the Emplacements page so an MLC operator can assign any client's SKU).
 export async function GET(request: NextRequest) {
   try {
     const tenantId = await requireTenant()
-    const supabase = await getServerDb()
+    const isMlcRoot = tenantId === MLC_ROOT_TENANT_ID
+    const crossTenant =
+      isMlcRoot && request.nextUrl.searchParams.get('cross_tenant') === 'true'
+    const supabase = crossTenant ? getAdminDb() : await getServerDb()
     const includeAll = request.nextUrl.searchParams.get('all') === 'true'
 
-    // Get all SKUs with stock
-    const { data, error } = await supabase
+    let skuQuery = supabase
       .from('skus')
       .select(`
         id,
@@ -32,11 +40,18 @@ export async function GET(request: NextRequest) {
         volume_m3,
         alert_threshold,
         created_at,
+        tenant_id,
+        tenant:tenants(id, name, code),
         stock_snapshots(qty_current, updated_at)
       `)
-      .eq('tenant_id', tenantId)
       .eq('active', true)
       .order('sku_code')
+
+    if (!crossTenant) {
+      skuQuery = skuQuery.eq('tenant_id', tenantId)
+    }
+
+    const { data, error } = await skuQuery
 
     if (error) throw error
 
@@ -44,11 +59,11 @@ export async function GET(request: NextRequest) {
 
     // Exclude bundles unless ?all=true
     if (!includeAll) {
-      // Get bundle SKU IDs to exclude them
-      const { data: bundles } = await supabase
-        .from('bundles')
-        .select('bundle_sku_id')
-        .eq('tenant_id', tenantId)
+      let bundlesQuery = supabase.from('bundles').select('bundle_sku_id')
+      if (!crossTenant) {
+        bundlesQuery = bundlesQuery.eq('tenant_id', tenantId)
+      }
+      const { data: bundles } = await bundlesQuery
 
       const bundleSkuIds = new Set((bundles || []).map((b: { bundle_sku_id: string }) => b.bundle_sku_id))
 
@@ -67,11 +82,13 @@ export async function GET(request: NextRequest) {
       volume_m3: sku.volume_m3,
       alert_threshold: sku.alert_threshold,
       created_at: sku.created_at,
+      tenant_id: sku.tenant_id,
+      tenant: sku.tenant || null,
       qty_current: sku.stock_snapshots?.[0]?.qty_current || 0,
       stock_updated_at: sku.stock_snapshots?.[0]?.updated_at || null,
     }))
 
-    return NextResponse.json({ skus })
+    return NextResponse.json({ skus, crossTenant })
   } catch (error) {
     console.error('Error fetching SKUs:', error)
     return NextResponse.json(

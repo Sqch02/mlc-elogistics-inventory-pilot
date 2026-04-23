@@ -13,18 +13,29 @@ export interface SKU {
   qty_current: number
   stock_updated_at: string | null
   created_at: string
+  tenant_id?: string
+  tenant?: { id: string; name: string; code: string } | null
 }
 
-async function fetchSkus(): Promise<{ skus: SKU[] }> {
-  const response = await fetch('/api/skus')
+interface UseSkusOptions {
+  all?: boolean
+  crossTenant?: boolean
+}
+
+async function fetchSkus(options: UseSkusOptions = {}): Promise<{ skus: SKU[]; crossTenant?: boolean }> {
+  const params = new URLSearchParams()
+  if (options.all) params.set('all', 'true')
+  if (options.crossTenant) params.set('cross_tenant', 'true')
+  const qs = params.toString() ? `?${params.toString()}` : ''
+  const response = await fetch(`/api/skus${qs}`)
   if (!response.ok) throw new Error('Failed to fetch SKUs')
   return response.json()
 }
 
-export function useSkus() {
+export function useSkus(options: UseSkusOptions = {}) {
   return useQuery({
-    queryKey: ['skus'],
-    queryFn: fetchSkus,
+    queryKey: ['skus', options],
+    queryFn: () => fetchSkus(options),
     staleTime: 2 * 60 * 1000,
   })
 }

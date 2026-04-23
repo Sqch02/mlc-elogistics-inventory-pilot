@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerDb } from '@/lib/supabase/untyped'
+import { getServerDb, getAdminDb } from '@/lib/supabase/untyped'
 import { requireTenant } from '@/lib/supabase/auth'
+
+const MLC_ROOT_TENANT_ID = '00000000-0000-0000-0000-000000000001'
 
 // PATCH /api/locations/[id] - Update a location
 export async function PATCH(
@@ -9,21 +11,27 @@ export async function PATCH(
 ) {
   try {
     const tenantId = await requireTenant()
-    const supabase = await getServerDb()
+    const isMlcRoot = tenantId === MLC_ROOT_TENANT_ID
+    // On MLC root the caller can touch any tenant's location (cross-tenant ops).
+    const supabase = isMlcRoot ? getAdminDb() : await getServerDb()
     const { id } = await params
     const body = await request.json()
 
-    // Verify location belongs to tenant
-    const { data: existing } = await supabase
+    // Verify the location exists; scope check applies only outside MLC root
+    const existingQuery = supabase
       .from('locations')
-      .select('id')
-      .eq('tenant_id', tenantId)
+      .select('id, tenant_id')
       .eq('id', id)
-      .single()
+    const { data: existing } = isMlcRoot
+      ? await existingQuery.single()
+      : await existingQuery.eq('tenant_id', tenantId).single()
 
     if (!existing) {
       return NextResponse.json({ error: 'Emplacement non trouvé' }, { status: 404 })
     }
+
+    // Effective tenant for downstream writes (assignment, sku lookup)
+    const locationTenantId: string = existing.tenant_id || tenantId
 
     const updateData: Record<string, unknown> = {}
     if (body.code !== undefined) updateData.code = body.code
@@ -64,13 +72,14 @@ export async function PATCH(
     // Handle SKU assignment
     if (body.sku_code !== undefined) {
       if (body.sku_code) {
-        // Find SKU by code FIRST before making any changes
-        const { data: sku } = await supabase
+        // On MLC root the SKU can belong to any tenant — look up globally.
+        const skuQuery = supabase
           .from('skus')
-          .select('id')
-          .eq('tenant_id', tenantId)
+          .select('id, tenant_id')
           .eq('sku_code', body.sku_code)
-          .single()
+        const { data: sku } = isMlcRoot
+          ? await skuQuery.limit(1).maybeSingle()
+          : await skuQuery.eq('tenant_id', tenantId).single()
 
         if (!sku) {
           return NextResponse.json(
@@ -85,9 +94,10 @@ export async function PATCH(
           .delete()
           .eq('location_id', id)
 
-        // Create new assignment
+        // Create new assignment. Anchor tenant_id on the location owner so RLS
+        // stays consistent with the location itself.
         await supabase.from('location_assignments').insert({
-          tenant_id: tenantId,
+          tenant_id: locationTenantId,
           location_id: id,
           sku_id: sku.id,
         })
