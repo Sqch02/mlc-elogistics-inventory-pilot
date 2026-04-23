@@ -39,14 +39,27 @@ export async function PATCH(
     if (body.status !== undefined) updateData.status = body.status
     if (body.max_weight_kg !== undefined) updateData.max_weight_kg = body.max_weight_kg
 
-    const { data: location, error } = await supabase
-      .from('locations')
-      .update(updateData)
-      .eq('id', id)
-      .select()
-      .single()
-
-    if (error) throw error
+    // Only issue the UPDATE query when at least one column changes — PostgREST
+    // rejects `.update({})` with a 400 which would surface as a generic 500 here.
+    let location: unknown = null
+    if (Object.keys(updateData).length > 0) {
+      const { data, error } = await supabase
+        .from('locations')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single()
+      if (error) throw error
+      location = data
+    } else {
+      // Assignment-only update — fetch current row so the response stays consistent
+      const { data } = await supabase
+        .from('locations')
+        .select()
+        .eq('id', id)
+        .single()
+      location = data
+    }
 
     // Handle SKU assignment
     if (body.sku_code !== undefined) {
