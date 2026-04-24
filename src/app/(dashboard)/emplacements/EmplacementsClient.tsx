@@ -23,7 +23,7 @@ import { features } from '@/lib/config/features'
 export function EmplacementsClient() {
   const [isExporting, setIsExporting] = useState(false)
   const [searchInput, setSearchInput] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'occupied' | 'empty'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'occupied' | 'empty' | 'inaccessible'>('all')
   const [viewMode, setViewMode] = useState<'table' | 'visual'>('table')
 
   // CRUD Dialog states
@@ -52,14 +52,41 @@ export function EmplacementsClient() {
   const deleteMutation = useDeleteLocation()
 
   const allLocations = data?.locations || []
-  const stats = data?.stats || {
-    total: 0,
-    occupied: 0,
-    empty: 0,
-    active: 0,
-    occupancyRate: 0,
-  }
   const skus = skusData?.skus || []
+
+  // Derive a display status that distinguishes "really free" from "blocked by
+  // warehouse layout" (label marque "Inaccessible") and considers a location
+  // occupied as soon as it carries free-text content, even without a SKU.
+  type DisplayStatus = 'occupied' | 'empty' | 'inaccessible'
+  const getDisplayStatus = (loc: Location): DisplayStatus => {
+    const label = (loc.label || '').toLowerCase()
+    if (label.includes('inaccessible') || loc.status === 'blocked' || loc.active === false) {
+      return 'inaccessible'
+    }
+    if (loc.assignment || (loc.content && loc.content.trim())) {
+      return 'occupied'
+    }
+    return 'empty'
+  }
+
+  // Recompute stats locally so cards match the display semantics (content
+  // counts as occupied, inaccessibles are split out of the Libres bucket).
+  const stats = useMemo(() => {
+    const total = allLocations.length
+    let occupied = 0
+    let empty = 0
+    let inaccessible = 0
+    for (const loc of allLocations) {
+      const ds = getDisplayStatus(loc)
+      if (ds === 'occupied') occupied++
+      else if (ds === 'inaccessible') inaccessible++
+      else empty++
+    }
+    const accessible = total - inaccessible
+    const occupancyRate = accessible > 0 ? Math.round((occupied / accessible) * 100) : 0
+    return { total, occupied, empty, inaccessible, active: accessible, occupancyRate }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allLocations])
 
   // Filter locations based on search and status
   const locations = useMemo(() => {
@@ -78,14 +105,12 @@ export function EmplacementsClient() {
       )
     }
 
-    // Filter by status
-    if (statusFilter === 'occupied') {
-      filtered = filtered.filter((loc) => loc.assignment !== null)
-    } else if (statusFilter === 'empty') {
-      filtered = filtered.filter((loc) => loc.assignment === null)
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter((loc) => getDisplayStatus(loc) === statusFilter)
     }
 
     return filtered
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allLocations, searchInput, statusFilter])
 
   const clearFilters = () => {
@@ -349,15 +374,16 @@ export function EmplacementsClient() {
 
         <Select
           value={statusFilter}
-          onValueChange={(v) => setStatusFilter(v as 'all' | 'occupied' | 'empty')}
+          onValueChange={(v) => setStatusFilter(v as 'all' | 'occupied' | 'empty' | 'inaccessible')}
         >
-          <SelectTrigger className="w-[140px]">
+          <SelectTrigger className="w-[160px]">
             <SelectValue placeholder="Statut" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Tous</SelectItem>
             <SelectItem value="occupied">Occupes</SelectItem>
             <SelectItem value="empty">Libres</SelectItem>
+            <SelectItem value="inaccessible">Inaccessibles</SelectItem>
           </SelectContent>
         </Select>
 
@@ -505,9 +531,28 @@ export function EmplacementsClient() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Badge variant={location.assignment ? 'success' : 'muted'} className="text-xs">
-                        {location.assignment ? 'Occupe' : 'Libre'}
-                      </Badge>
+                      {(() => {
+                        const ds = getDisplayStatus(location)
+                        if (ds === 'inaccessible') {
+                          return (
+                            <Badge variant="warning" className="text-xs">
+                              Inaccessible
+                            </Badge>
+                          )
+                        }
+                        if (ds === 'occupied') {
+                          return (
+                            <Badge variant="success" className="text-xs">
+                              Occupe
+                            </Badge>
+                          )
+                        }
+                        return (
+                          <Badge variant="muted" className="text-xs">
+                            Libre
+                          </Badge>
+                        )
+                      })()}
                     </TableCell>
                     <TableCell className="pr-4 lg:pr-6">
                       <DropdownMenu>
