@@ -10,6 +10,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { FileText, Receipt, Euro, AlertTriangle, CheckCircle, Loader2, MoreHorizontal, Download, Trash2, Send, CreditCard, FileDown, ChevronDown, ChevronUp, Package, Truck, Fuel, RotateCcw, Cpu, Warehouse, Calculator, Eye, Plus, X, BadgePercent } from 'lucide-react'
 import { useInvoices, useGenerateInvoice, useInvoicePreview, useUpdateInvoiceStatus, useDeleteInvoice, useAddAvoirLine, useDeleteAvoirLine, Invoice, PreviewShipment } from '@/hooks/useInvoices'
 import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ExportInvoicesButton, AccountingExportButton } from './FacturationActions'
@@ -101,6 +102,9 @@ export function FacturationClient() {
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null)
   const [expandedInvoices, setExpandedInvoices] = useState<Set<string>>(new Set())
   const [previewOpen, setPreviewOpen] = useState(false)
+  // Per-month overrides (filled in the generation dialog before clicking Generate)
+  const [fuelPctInput, setFuelPctInput] = useState('4')
+  const [storageDiscountInput, setStorageDiscountInput] = useState('20')
   const [avoirDialogOpen, setAvoirDialogOpen] = useState(false)
   const [avoirInvoiceId, setAvoirInvoiceId] = useState<string | null>(null)
   const [avoirType, setAvoirType] = useState(AVOIR_TYPES[0].value)
@@ -150,10 +154,18 @@ export function FacturationClient() {
   }
 
   const handleGenerate = () => {
-    if (dateFrom && dateTo) {
-      generateMutation.mutate({ date_from: dateFrom, date_to: dateTo })
-      setPreviewOpen(false)
-    }
+    if (!dateFrom || !dateTo) return
+    const fuelPct = parseFloat(fuelPctInput.replace(',', '.'))
+    const storagePct = parseFloat(storageDiscountInput.replace(',', '.'))
+    const stockVolume = previewMutation.data?.stock_volume_m3 ?? 0
+    generateMutation.mutate({
+      date_from: dateFrom,
+      date_to: dateTo,
+      fuel_surcharge_pct: Number.isFinite(fuelPct) ? fuelPct : undefined,
+      storage_m3: stockVolume > 0 ? Math.round(stockVolume * 100) / 100 : undefined,
+      storage_discount_pct: Number.isFinite(storagePct) ? storagePct : undefined,
+    })
+    setPreviewOpen(false)
   }
 
   const handleUpdateStatus = (id: string, status: string) => {
@@ -947,6 +959,47 @@ export function FacturationClient() {
               </div>
             </div>
           ) : null}
+
+          {previewMutation.data && (
+            <div className="border-t pt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="fuel-pct" className="text-xs">
+                  Surcharge Carburant CAP (%)
+                </Label>
+                <Input
+                  id="fuel-pct"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={fuelPctInput}
+                  onChange={(e) => setFuelPctInput(e.target.value)}
+                  className="h-8 text-sm"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Modifiable manuellement pour ce mois (defaut 4%).
+                </p>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="storage-discount" className="text-xs">
+                  Remise stockage (%)
+                </Label>
+                <Input
+                  id="storage-discount"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={storageDiscountInput}
+                  onChange={(e) => setStorageDiscountInput(e.target.value)}
+                  className="h-8 text-sm"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Stockage calcule sur {(previewMutation.data.stock_volume_m3 || 0).toFixed(2)} m3 detectes.
+                </p>
+              </div>
+            </div>
+          )}
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setPreviewOpen(false)}>

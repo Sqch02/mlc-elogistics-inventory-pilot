@@ -62,7 +62,21 @@ export async function POST(request: NextRequest) {
     const supabase = await getServerDb()
 
     const body = await request.json()
-    const { storage_m3 = 0, reception_quarters = 0 } = body
+    const {
+      storage_m3 = 0,
+      reception_quarters = 0,
+      // Per-month overrides — fall back to tenant_billing_config defaults if absent
+      fuel_surcharge_pct: fuelOverride,
+      storage_discount_pct: storageDiscountOverride,
+    } = body as {
+      storage_m3?: number
+      reception_quarters?: number
+      fuel_surcharge_pct?: number
+      storage_discount_pct?: number
+      date_from?: string
+      date_to?: string
+      month?: string
+    }
 
     // Support both: { date_from, date_to } (new) or { month } (legacy)
     let month: string
@@ -103,9 +117,18 @@ export async function POST(request: NextRequest) {
       software_fee_eur: billingConfig?.software_fee_eur ?? 49.00,
       storage_fee_per_m3: billingConfig?.storage_fee_per_m3 ?? 25.00,
       reception_fee_per_15min: billingConfig?.reception_fee_per_15min ?? 30.00,
-      fuel_surcharge_pct: billingConfig?.fuel_surcharge_pct ?? 4.00,
+      // Per-month override wins over tenant default
+      fuel_surcharge_pct:
+        typeof fuelOverride === 'number' && Number.isFinite(fuelOverride)
+          ? fuelOverride
+          : (billingConfig?.fuel_surcharge_pct ?? 4.00),
       vat_rate_pct: billingConfig?.vat_rate_pct ?? invoiceSettings.default_vat_rate ?? 20.00,
     }
+    // Discount applied to storage line for this invoice (0 by default)
+    const storageDiscountPct =
+      typeof storageDiscountOverride === 'number' && Number.isFinite(storageDiscountOverride)
+        ? Math.max(0, Math.min(100, storageDiscountOverride))
+        : 0
 
     // Parse date range
     const [year, monthNum] = month.split('-').map(Number)
@@ -297,8 +320,10 @@ export async function POST(request: NextRequest) {
     const softwareFee = config.software_fee_eur
     const softwareVat = Math.round(softwareFee * vatRate * 100) / 100
 
-    // 2. Storage fee (per m3)
-    const storageFee = storage_m3 * config.storage_fee_per_m3
+    // 2. Storage fee (per m3) — apply optional discount for this invoice
+    const storageGross = storage_m3 * config.storage_fee_per_m3
+    const storageDiscountAmount = storageGross * (storageDiscountPct / 100)
+    const storageFee = Math.round((storageGross - storageDiscountAmount) * 100) / 100
     const storageVat = Math.round(storageFee * vatRate * 100) / 100
 
     // 3. Reception fee (per 15min quarter)
@@ -413,11 +438,17 @@ export async function POST(request: NextRequest) {
 
     // 2. Storage line (if applicable)
     if (storage_m3 > 0) {
+      // Build description matching the historical format the customer expects:
+      //   Stockage & Assurance (53m3 x 25€ (20% de remise))
+      const storageDescription =
+        storageDiscountPct > 0
+          ? `Stockage & Assurance (${storage_m3}m3 x ${config.storage_fee_per_m3}€ (${storageDiscountPct}% de remise))`
+          : `Stockage & Assurance (${storage_m3}m3 x ${config.storage_fee_per_m3}€)`
       lines.push({
         tenant_id: tenantId,
         invoice_id: invoiceId,
         line_type: 'storage',
-        description: `Stockage & Assurance - Calculé au m³ (${storage_m3} m³)`,
+        description: storageDescription,
         carrier: null,
         weight_min_grams: null,
         weight_max_grams: null,

@@ -141,11 +141,18 @@ export function useGenerateInvoice() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ date_from, date_to }: { date_from: string; date_to: string }) => {
+    mutationFn: async (params: {
+      date_from: string
+      date_to: string
+      fuel_surcharge_pct?: number
+      storage_m3?: number
+      storage_discount_pct?: number
+      reception_quarters?: number
+    }) => {
       const response = await fetch('/api/invoices/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date_from, date_to }),
+        body: JSON.stringify(params),
       })
       if (!response.ok) throw new Error('Erreur lors de la génération de la facture')
       const data = await response.json()
