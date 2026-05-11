@@ -255,12 +255,22 @@ export async function POST(request: NextRequest) {
       const prefix = isReturn ? 'RETOUR|' : ''
 
       if (rule) {
-        // Matched a pricing rule — group by zone/delivery/weight bracket
+        // Matched a pricing rule — group by zone/delivery/carrier/weight bracket.
+        // Carrier is part of the key so two carriers in the same weight bracket
+        // (e.g. Colis Privé @5,91€ vs Colissimo @6,91€ in DOMICILE FR 0-250g)
+        // produce two separate invoice lines instead of being averaged together
+        // under a single misleading unit price.
         const weightBracket = formatWeightBracket(rule.weight_min_grams, rule.weight_max_grams)
-        const key = `${prefix}${zone}|${deliveryType}|${rule.weight_min_grams}|${rule.weight_max_grams}`
+        const carrierKey = (shipment.carrier || 'unknown').toLowerCase()
+        const key = `${prefix}${zone}|${deliveryType}|${carrierKey}|${rule.weight_min_grams}|${rule.weight_max_grams}`
         const existing = shippingGroups.get(key)
 
-        const baseDescription = buildShippingDescription(zone, deliveryType as 'DOMICILE' | 'POINT RELAIS', weightBracket)
+        const baseDescription = buildShippingDescription(
+          zone,
+          deliveryType as 'DOMICILE' | 'POINT RELAIS',
+          weightBracket,
+          shipment.carrier,
+        )
         const description = isReturn ? `RETOUR ${baseDescription}` : baseDescription
 
         if (existing) {

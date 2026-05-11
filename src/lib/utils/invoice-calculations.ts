@@ -215,13 +215,44 @@ export function formatWeightBracket(minGrams: number, maxGrams: number): string 
 }
 
 /**
- * Build shipping line description for zone-based grouping
+ * Build shipping line description for zone-based grouping.
+ * If carrier is provided, it's appended so two carriers in the same weight
+ * bracket appear on separate lines (avoids mixed unit prices in the invoice).
  */
+const CARRIER_LABELS: Record<string, string> = {
+  colisprive: 'Colis Privé',
+  colis_prive: 'Colis Privé',
+  colissimo: 'Colissimo',
+  chronopost: 'Chronopost',
+  mondial_relay: 'Mondial Relay',
+  mondialrelay: 'Mondial Relay',
+  dhl: 'DHL',
+  ups: 'UPS',
+  gls: 'GLS',
+  dpd: 'DPD',
+  fedex: 'FedEx',
+  delivengo: 'Delivengo',
+}
+
+function formatCarrierLabel(carrier: string): string {
+  const key = carrier.toLowerCase().trim()
+  if (CARRIER_LABELS[key]) return CARRIER_LABELS[key]
+  // Fallback: capitalize first letter of each word
+  return carrier
+    .split(/[\s_-]+/)
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w))
+    .join(' ')
+}
+
 export function buildShippingDescription(
   zone: DestinationZone,
   deliveryType: DeliveryType,
-  weightBracket: string
+  weightBracket: string,
+  carrier?: string | null
 ): string {
   const zoneLabel = getZoneLabel(zone)
+  if (carrier) {
+    return `${deliveryType} ${zoneLabel} ${formatCarrierLabel(carrier)} ${weightBracket}`
+  }
   return `${deliveryType} ${zoneLabel} ${weightBracket}`
 }

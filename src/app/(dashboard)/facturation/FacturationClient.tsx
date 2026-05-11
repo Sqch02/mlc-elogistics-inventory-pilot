@@ -63,15 +63,15 @@ const lineTypeConfig: Record<string, { icon: React.ElementType; label: string; c
   shipping: { icon: Truck, label: 'Expédition', color: 'text-green-600 bg-green-100' },
   fuel_surcharge: { icon: Fuel, label: 'Carburant', color: 'text-amber-600 bg-amber-100' },
   returns: { icon: RotateCcw, label: 'Retours', color: 'text-gray-600 bg-gray-100' },
-  avoir: { icon: BadgePercent, label: 'Avoir', color: 'text-red-600 bg-red-100' },
-  avoir_technique: { icon: BadgePercent, label: 'Avoir', color: 'text-red-600 bg-red-100' },
-  avoir_incident_hme: { icon: BadgePercent, label: 'Avoir', color: 'text-red-600 bg-red-100' },
-  avoir_incident_transport: { icon: BadgePercent, label: 'Avoir', color: 'text-red-600 bg-red-100' },
-  avoir_reduction_volume: { icon: BadgePercent, label: 'Avoir', color: 'text-red-600 bg-red-100' },
-  avoir_remboursement_surcharge: { icon: BadgePercent, label: 'Avoir', color: 'text-red-600 bg-red-100' },
-  avoir_autre: { icon: BadgePercent, label: 'Avoir', color: 'text-red-600 bg-red-100' },
-  charge: { icon: Receipt, label: 'Dépense', color: 'text-blue-600 bg-blue-100' },
-  charge_custom: { icon: Receipt, label: 'Dépense', color: 'text-blue-600 bg-blue-100' },
+  avoir: { icon: BadgePercent, label: 'Avoir', color: 'text-blue-600 bg-blue-100' },
+  avoir_technique: { icon: BadgePercent, label: 'Avoir', color: 'text-blue-600 bg-blue-100' },
+  avoir_incident_hme: { icon: BadgePercent, label: 'Avoir', color: 'text-blue-600 bg-blue-100' },
+  avoir_incident_transport: { icon: BadgePercent, label: 'Avoir', color: 'text-blue-600 bg-blue-100' },
+  avoir_reduction_volume: { icon: BadgePercent, label: 'Avoir', color: 'text-blue-600 bg-blue-100' },
+  avoir_remboursement_surcharge: { icon: BadgePercent, label: 'Avoir', color: 'text-blue-600 bg-blue-100' },
+  avoir_autre: { icon: BadgePercent, label: 'Avoir', color: 'text-blue-600 bg-blue-100' },
+  charge: { icon: Receipt, label: 'Dépense', color: 'text-red-600 bg-red-100' },
+  charge_custom: { icon: Receipt, label: 'Dépense', color: 'text-red-600 bg-red-100' },
 }
 
 // Predefined avoir types
@@ -741,7 +741,7 @@ export function FacturationClient() {
                                       const isCharge = line.line_type?.startsWith('charge')
                                       const isManualLine = isAvoir || isCharge
                                       return (
-                                        <TableRow key={idx} className={`text-sm ${isAvoir ? 'bg-red-50/50' : isCharge ? 'bg-blue-50/50' : ''}`}>
+                                        <TableRow key={idx} className={`text-sm ${isAvoir ? 'bg-blue-50/50' : isCharge ? 'bg-red-50/50' : ''}`}>
                                           <TableCell className="py-2">
                                             <div className="flex items-center gap-1.5">
                                               <div className={`p-1 rounded ${ltConfig.color}`}>
@@ -761,7 +761,7 @@ export function FacturationClient() {
                                           <TableCell className="py-2 text-xs text-right">
                                             {isManualLine ? '0,00 €' : `${Number(line.unit_price_eur || 0).toFixed(2)} €`}
                                           </TableCell>
-                                          <TableCell className={`py-2 text-xs text-right font-medium ${isAvoir ? 'text-red-600' : isCharge ? 'text-blue-600' : ''}`}>
+                                          <TableCell className={`py-2 text-xs text-right font-medium ${isAvoir ? 'text-blue-600' : isCharge ? 'text-red-600' : ''}`}>
                                             {Number(line.total_eur).toFixed(2)} €
                                           </TableCell>
                                           {inv.status === 'draft' && !isClient && (
@@ -808,7 +808,7 @@ export function FacturationClient() {
                                   <Button
                                     variant="outline"
                                     size="sm"
-                                    className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                                    className="text-red-600 border-red-200 hover:bg-red-50"
                                     onClick={() => openChargeDialog(inv.id)}
                                   >
                                     <Plus className="mr-1.5 h-3.5 w-3.5" />
@@ -817,7 +817,7 @@ export function FacturationClient() {
                                   <Button
                                     variant="outline"
                                     size="sm"
-                                    className="text-red-600 border-red-200 hover:bg-red-50"
+                                    className="text-blue-600 border-blue-200 hover:bg-blue-50"
                                     onClick={() => openAvoirDialog(inv.id)}
                                   >
                                     <Plus className="mr-1.5 h-3.5 w-3.5" />
