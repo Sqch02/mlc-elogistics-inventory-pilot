@@ -382,11 +382,16 @@ export async function POST(request: NextRequest) {
 
       invoiceId = existingInvoice.id
 
-      // Delete existing lines
+      // Delete existing AUTO-GENERATED lines only. Avoirs/depenses (line_type
+      // starting with 'avoir' or 'charge') are saisis manuellement et doivent
+      // etre conserves quand on regenere la facture, sinon on les perd a chaque
+      // recalcul.
       await supabase
         .from('invoice_lines')
         .delete()
         .eq('invoice_id', invoiceId)
+        .not('line_type', 'like', 'avoir%')
+        .not('line_type', 'like', 'charge%')
     } else {
       // Generate invoice number from tenant settings
       const prefix = invoiceSettings.invoice_prefix || 'FAC'

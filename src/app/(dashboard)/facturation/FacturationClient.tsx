@@ -734,7 +734,20 @@ export function FacturationClient() {
                                     </TableRow>
                                   </TableHeader>
                                   <TableBody>
-                                    {inv.invoice_lines.map((line, idx) => {
+                                    {(() => {
+                                      // Sort so manual lines (avoirs + depenses) always appear at the
+                                      // bottom of the table, regardless of insertion order in DB.
+                                      const sortedLines = [...inv.invoice_lines].sort((a, b) => {
+                                        const rank = (t?: string | null) => {
+                                          if (!t) return 0
+                                          if (t.startsWith('avoir')) return 2
+                                          if (t.startsWith('charge')) return 2
+                                          return 0
+                                        }
+                                        return rank(a.line_type) - rank(b.line_type)
+                                      })
+                                      return sortedLines
+                                    })().map((line, idx) => {
                                       const ltConfig = lineTypeConfig[line.line_type || 'shipping'] || { icon: FileText, label: line.line_type, color: 'text-gray-600 bg-gray-100' }
                                       const Icon = ltConfig.icon
                                       const isAvoir = line.line_type?.startsWith('avoir')
