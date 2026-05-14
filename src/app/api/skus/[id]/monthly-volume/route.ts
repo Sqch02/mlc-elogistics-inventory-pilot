@@ -111,7 +111,7 @@ export async function GET(
       avgVolume,
     }, {
       headers: {
-        'Cache-Control': 'private, max-age=300, stale-while-revalidate=600',
+        'Cache-Control': 'private, no-store',
       },
     })
   } catch (error) {

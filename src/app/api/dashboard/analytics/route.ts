@@ -80,7 +80,7 @@ export async function GET(request: Request) {
     if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
       return NextResponse.json(cached.data, {
         headers: {
-          'Cache-Control': 'private, max-age=300, stale-while-revalidate=600',
+          'Cache-Control': 'private, no-store',
           'X-Cache': 'HIT',
         },
       })

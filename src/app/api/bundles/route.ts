@@ -27,8 +27,11 @@ export async function GET() {
       throw error
     }
 
+    // no-store : la donnee est scopee tenant et le tenant peut changer en cours
+    // de session (super_admin qui switch). Cacher cote navigateur sur la meme
+    // URL renvoyait les bundles du tenant precedent.
     return NextResponse.json({ bundles }, {
-      headers: { 'Cache-Control': 'private, max-age=300, stale-while-revalidate=600' }
+      headers: { 'Cache-Control': 'private, no-store' }
     })
   } catch (error) {
     console.error('Get bundles error:', error)

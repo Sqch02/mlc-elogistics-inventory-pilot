@@ -54,7 +54,7 @@ export async function GET() {
       .sort((a, b) => b.shipmentCount - a.shipmentCount)
 
     return NextResponse.json({ carriers }, {
-      headers: { 'Cache-Control': 'private, max-age=600, stale-while-revalidate=1200' }
+      headers: { 'Cache-Control': 'private, no-store' }
     })
   } catch (error) {
     console.error('Carriers error:', error)
