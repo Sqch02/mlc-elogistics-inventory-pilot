@@ -169,6 +169,16 @@ export async function POST(request: NextRequest) {
       request.headers
     )
 
+    // Refresh the SKU metrics materialized view so the new product appears in
+    // the Produits & Stock list immediately (otherwise it only shows after the
+    // next cron refresh, which surprised users creating their first SKU).
+    try {
+      await supabase.rpc('refresh_sku_metrics')
+    } catch (refreshError) {
+      // Non-blocking : the cron will pick it up at the next 5-min interval.
+      console.error('[skus] refresh_sku_metrics failed:', refreshError)
+    }
+
     return NextResponse.json({
       success: true,
       message: 'SKU créé avec succès',
