@@ -130,7 +130,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create SKU
+    // Create SKU — l'INSERT declenche le trigger remap_on_sku_insert qui peut
+    // creer un snapshot avec qty_current negatif (decrement des ventes
+    // historiques retro-mappees sur ce nouveau SKU). On UPSERT ensuite le
+    // snapshot a la valeur "stock initial" saisie par l'utilisateur, qui
+    // represente le stock physique reel au moment de la creation. L'historique
+    // de consommation reste trace via shipment_items pour les analytics 30/90j.
     const { data: sku, error: skuError } = await supabase
       .from('skus')
       .insert({
@@ -146,17 +151,21 @@ export async function POST(request: NextRequest) {
 
     if (skuError) throw skuError
 
-    // Create initial stock snapshot
+    const initialQty = Number.isFinite(qty_initial) ? qty_initial : 0
     const { error: stockError } = await supabase
       .from('stock_snapshots')
-      .insert({
-        tenant_id: tenantId,
-        sku_id: sku.id,
-        qty_current: qty_initial || 0,
-      })
+      .upsert(
+        {
+          tenant_id: tenantId,
+          sku_id: sku.id,
+          qty_current: initialQty,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'sku_id' }
+      )
 
     if (stockError) {
-      console.error('Error creating stock snapshot:', stockError)
+      console.error('Error setting initial stock snapshot:', stockError)
     }
 
     // Audit log
