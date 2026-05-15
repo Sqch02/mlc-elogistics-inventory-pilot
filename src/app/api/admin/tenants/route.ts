@@ -109,8 +109,12 @@ export async function POST(request: Request) {
       )
     }
 
-    // Generate code if not provided
-    const code = body.code || generateTenantCode(body.name)
+    // Generate code if not provided. Always trim + uppercase so the value
+    // matches what the webhook lookup expects (whitespace caused a 404 once).
+    const code = (body.code || generateTenantCode(body.name) || '')
+      .toString()
+      .trim()
+      .toUpperCase()
 
     // Create tenant with all fields
     const { data: tenant, error } = await db

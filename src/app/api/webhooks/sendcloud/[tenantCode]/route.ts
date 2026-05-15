@@ -146,11 +146,13 @@ async function getTenantByCode(adminClient: ReturnType<typeof getAdminDb>, tenan
   name: string
   webhookSecret: string | null
 } | null> {
-  // First try to find by code
+  // First try to find by code (trim + upper to be tolerant of trailing spaces
+  // that may have been entered at tenant creation time)
+  const normalizedCode = tenantCode.trim().toUpperCase()
   const { data: tenant, error } = await adminClient
     .from('tenants')
     .select('id, name, code, is_active')
-    .eq('code', tenantCode.toUpperCase())
+    .eq('code', normalizedCode)
     .single()
 
   if (error || !tenant) {
