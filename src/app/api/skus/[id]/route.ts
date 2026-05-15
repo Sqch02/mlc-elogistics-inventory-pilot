@@ -121,6 +121,14 @@ export async function PATCH(
       request.headers
     )
 
+    // Refresh mv_sku_metrics so changes (alert threshold, name, etc.) appear
+    // immediately on Produits & Stock + Analytics.
+    try {
+      await supabase.rpc('refresh_sku_metrics')
+    } catch (refreshError) {
+      console.error('[sku-patch] refresh_sku_metrics failed:', refreshError)
+    }
+
     return NextResponse.json({
       success: true,
       message: 'SKU mis à jour',

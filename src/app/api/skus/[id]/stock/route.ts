@@ -90,6 +90,15 @@ export async function PATCH(
 
     console.log(`[Stock] SKU ${sku.sku_code}: ${previousQty} → ${newQty} (${reason || 'manual adjustment'})`)
 
+    // Refresh mv_sku_metrics so the new value shows up immediately on the
+    // Produits & Stock + Dashboard pages (otherwise it stayed stuck at the
+    // previous snapshot until the next cron tick).
+    try {
+      await supabase.rpc('refresh_sku_metrics')
+    } catch (refreshError) {
+      console.error('[Stock] refresh_sku_metrics failed:', refreshError)
+    }
+
     return NextResponse.json({
       success: true,
       message: 'Stock mis à jour',
