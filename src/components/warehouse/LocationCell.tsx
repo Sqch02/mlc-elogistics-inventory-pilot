@@ -79,11 +79,13 @@ export function LocationCell({ location, onClick }: LocationCellProps) {
           </div>
         ) : null}
 
-        {/* Date de péremption */}
+        {/* Date de péremption — equipe entrepot a besoin de la voir d'un coup
+            d'oeil pour planifier les commandes (demande Florna). On garde la
+            colorimétrie pour les DLUO depassees / proches. */}
         {location.expiry_date && !isBlocked && (
           <div className={cn(
-            'text-[9px] mt-0.5',
-            isExpired ? 'text-red-600 font-bold' : isExpiringSoon ? 'text-orange-600' : 'text-gray-500'
+            'text-[10px] font-semibold mt-0.5 leading-tight',
+            isExpired ? 'text-red-600' : isExpiringSoon ? 'text-orange-600' : 'text-gray-700'
           )}>
             {formatDate(location.expiry_date)}
           </div>
