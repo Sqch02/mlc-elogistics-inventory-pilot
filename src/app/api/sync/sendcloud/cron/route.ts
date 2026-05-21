@@ -4,6 +4,7 @@ import { fetchAllParcels, fetchAllReturns, fetchAllIntegrationShipments } from '
 import type { SendcloudCredentials, ParsedShipment, ParsedReturn } from '@/lib/sendcloud/types'
 import { getDestination } from '@/lib/utils/pricing'
 import { processShipmentItems } from '@/lib/utils/sku-mapping'
+import { consumeStock } from '@/lib/stock/consume'
 
 interface PricingRule {
   carrier: string
@@ -197,7 +198,25 @@ async function runSync() {
         }
       })
 
+      // Identify which sendcloud_ids already exist BEFORE the upsert, so we
+      // know which shipments are truly new and need stock consumption afterwards.
+      // Without this the cron silently re-creates shipment_items without ever
+      // decrementing stock — bug reported by Quentin on REBORN21 le 21/05.
+      const newSendcloudIds = new Set<string>()
       if (shipmentsToUpsert.length > 0) {
+        const incomingIds = shipmentsToUpsert.map((s) => s.sendcloud_id)
+        const { data: existingRows } = await adminClient
+          .from('shipments')
+          .select('sendcloud_id')
+          .eq('tenant_id', tenant.id)
+          .in('sendcloud_id', incomingIds)
+        const existing = new Set(
+          (existingRows || []).map((r: { sendcloud_id: string }) => r.sendcloud_id),
+        )
+        for (const id of incomingIds) {
+          if (!existing.has(id)) newSendcloudIds.add(id)
+        }
+
         const { error: shipmentError } = await adminClient
           .from('shipments')
           .upsert(shipmentsToUpsert, { onConflict: 'sendcloud_id' })
@@ -254,6 +273,27 @@ async function runSync() {
             )
             totalMapped += mappedCount
             totalUnmapped += unmappedCount
+
+            // Consume stock only for shipments that were created during THIS
+            // sync run (mirrors the webhook's isNewShipment logic). Skipping
+            // this caused REBORN21 stock to drift on 21/05.
+            if (newSendcloudIds.has(parcel.sendcloud_id) && mappedCount > 0) {
+              const { data: items } = await adminClient
+                .from('shipment_items')
+                .select('sku_id, qty')
+                .eq('shipment_id', shipmentId)
+
+              for (const it of (items || []) as Array<{ sku_id: string; qty: number }>) {
+                try {
+                  await consumeStock(tenant.id, it.sku_id, it.qty, shipmentId, 'shipment')
+                } catch (stockError) {
+                  console.error(
+                    `[Cron] Error consuming stock for sku_id ${it.sku_id} on parcel ${parcel.sendcloud_id}:`,
+                    stockError,
+                  )
+                }
+              }
+            }
           } catch (err) {
             console.error(
               `[Cron] processShipmentItems error for parcel ${parcel.sendcloud_id}:`,
