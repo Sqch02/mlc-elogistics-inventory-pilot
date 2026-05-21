@@ -80,12 +80,16 @@ export function LocationCell({ location, onClick }: LocationCellProps) {
         ) : null}
 
         {/* Date de péremption — equipe entrepot a besoin de la voir d'un coup
-            d'oeil pour planifier les commandes (demande Florna). On garde la
-            colorimétrie pour les DLUO depassees / proches. */}
+            d'oeil pour planifier les commandes (demande Florna). Chip blanc
+            avec texte noir bold pour contraste max sur fond bleu/orange. */}
         {location.expiry_date && !isBlocked && (
           <div className={cn(
-            'text-[10px] font-semibold mt-0.5 leading-tight',
-            isExpired ? 'text-red-600' : isExpiringSoon ? 'text-orange-600' : 'text-gray-700'
+            'mt-1 px-1.5 py-0.5 rounded text-[11px] font-bold leading-none',
+            isExpired
+              ? 'bg-red-100 text-red-700 ring-1 ring-red-300'
+              : isExpiringSoon
+                ? 'bg-orange-100 text-orange-700 ring-1 ring-orange-300'
+                : 'bg-white text-gray-900 ring-1 ring-gray-200 shadow-sm'
           )}>
             {formatDate(location.expiry_date)}
           </div>
