@@ -25,6 +25,14 @@ const AISLES = [
 // Niveaux d'étage (0 = sol, 1 = milieu, 2 = haut)
 const LEVELS = ['2', '1', '0']
 
+// Racks situés sous l'allée centrale : on inverse l'ordre des niveaux et des
+// colonnes pour coller au plan papier de l'entrepôt. Niveau 2 (le plus haut
+// physiquement) doit etre le plus eloigne de l'allee pour faciliter la
+// lecture par l'equipe entrepot. Demande Aurelien / equipe HME.
+const LOWER_HALF_RACKS = new Set(['B', 'D', 'F'])
+const isLowerHalfRack = (letter: string | null | undefined) =>
+  !!letter && LOWER_HALF_RACKS.has(letter)
+
 export function WarehouseVisualMap({ onLocationClick, onCreateLocation }: WarehouseVisualMapProps) {
   const { data: zones, isLoading } = useLocationsByZone()
   const [activeAisle, setActiveAisle] = useState<string>('ALLEE1')
@@ -191,6 +199,7 @@ const AisleView = memo(function AisleView({ aisle, locationsByRack, maxColsByRac
           onLocationClick={onLocationClick}
           onCreateLocation={onCreateLocation}
           isReversed={true} // Colonnes de droite à gauche pour le rack du haut
+          reverseLevels={isLowerHalfRack(aisle.topRack)}
         />
 
         {/* Allée centrale */}
@@ -214,7 +223,8 @@ const AisleView = memo(function AisleView({ aisle, locationsByRack, maxColsByRac
             maxCols={Math.max(bottomMaxCols, maxCols)}
             onLocationClick={onLocationClick}
             onCreateLocation={onCreateLocation}
-            isReversed={false}
+            isReversed={isLowerHalfRack(aisle.bottomRack)}
+            reverseLevels={isLowerHalfRack(aisle.bottomRack)}
           />
         )}
       </div>
@@ -229,12 +239,14 @@ interface RackViewProps {
   onLocationClick: (location: Location) => void
   onCreateLocation?: (code: string) => void
   isReversed: boolean
+  reverseLevels: boolean
 }
 
-const RackView = memo(function RackView({ rackLetter, rackData, maxCols, onLocationClick, onCreateLocation, isReversed }: RackViewProps) {
+const RackView = memo(function RackView({ rackLetter, rackData, maxCols, onLocationClick, onCreateLocation, isReversed, reverseLevels }: RackViewProps) {
+  const orderedLevels = reverseLevels ? [...LEVELS].reverse() : LEVELS
   return (
     <div className="space-y-0">
-      {LEVELS.map((level, levelIdx) => {
+      {orderedLevels.map((level, levelIdx) => {
         const levelData = rackData?.get(level)
         const levelLabel = level === '0' ? 'Sol' : `Niv. ${level}`
 
