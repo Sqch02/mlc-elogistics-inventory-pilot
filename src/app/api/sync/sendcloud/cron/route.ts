@@ -305,6 +305,21 @@ async function runSync() {
         console.log(
           `[Cron] Items: ${totalMapped} mapped, ${totalUnmapped} unmapped (across ${parcelsWithItems.length} shipments)`,
         )
+
+        // Refresh mv_sku_metrics tout de suite apres consumeStock pour ce
+        // tenant. Le refresh_all_analytics_views global en fin de runSync
+        // est parfois ko (timeout sur v_physical_shipment_items), donc on
+        // ne peut pas compter dessus pour garder la vue stock a jour. Bug
+        // observe sur REBORN21 le 27/05 (stock decremente en base mais UI
+        // affichait l'ancienne valeur).
+        try {
+          await adminClient.rpc('refresh_sku_metrics')
+        } catch (refreshError) {
+          console.error(
+            `[Cron] refresh_sku_metrics post-consumeStock failed for tenant ${tenant.id}:`,
+            refreshError,
+          )
+        }
       }
 
       // ============================================

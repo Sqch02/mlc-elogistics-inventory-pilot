@@ -276,6 +276,10 @@ export async function POST(
       errors: [] as string[],
     }
 
+    // Track whether any stock was decremented in this batch so we know if
+    // mv_sku_metrics needs a refresh at the end.
+    let stockConsumedInBatch = false
+
     // Process each parcel
     for (const rawParcel of parcels) {
       try {
@@ -422,6 +426,7 @@ export async function POST(
                 for (const it of (items || []) as Array<{ sku_id: string; qty: number }>) {
                   try {
                     await consumeStock(tenantId, it.sku_id, it.qty, shipment.id, 'shipment')
+                    stockConsumedInBatch = true
                   } catch (stockError) {
                     console.error(
                       `[Webhook] ${tenantCode}: Error consuming stock for sku_id ${it.sku_id}:`,
@@ -442,6 +447,22 @@ export async function POST(
         const message = error instanceof Error ? error.message : 'Unknown error'
         results.errors.push(message)
         console.error('[Webhook]', tenantCode, ': Error processing parcel:', message)
+      }
+    }
+
+    // Refresh mv_sku_metrics si du stock a ete consomme dans ce batch. Sans
+    // ca, l'UI continue d'afficher l'ancien stock jusqu'au prochain cron
+    // (bug observe sur REBORN21 le 27/05). On le fait ici plutot que par
+    // parcelle pour eviter N refresh quand plusieurs parcels arrivent dans
+    // le meme webhook.
+    if (stockConsumedInBatch) {
+      try {
+        await adminClient.rpc('refresh_sku_metrics')
+      } catch (refreshError) {
+        console.error(
+          `[Webhook] ${tenantCode}: refresh_sku_metrics failed:`,
+          refreshError,
+        )
       }
     }
 
