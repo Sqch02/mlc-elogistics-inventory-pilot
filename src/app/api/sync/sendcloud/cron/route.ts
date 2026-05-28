@@ -101,31 +101,116 @@ async function runSync() {
       const parcels = Array.from(shipmentMap.values())
 
       // ============================================
-      // CLEANUP: Delete old UUID records when parcel has same order_ref
+      // DEDUPE 1/2: Drop UUID parcels in the current batch whose order_ref
+      // already has a numeric counterpart in DB (UUID-arrives-after-numeric
+      // pattern, frequent on ANTEOS). Without this, the UUID would be upserted
+      // and its items would consumeStock a second time even though the numeric
+      // has already done it.
       // ============================================
-      // When an integration shipment (UUID) becomes a parcel (numeric ID),
-      // we need to delete the old UUID record to avoid duplicates
+      const uuidWithOrderRef = parcels
+        .filter(p => p.order_ref && p.sendcloud_id.includes('-'))
+        .map(p => ({ id: p.sendcloud_id, ref: p.order_ref as string }))
+
+      if (uuidWithOrderRef.length > 0) {
+        const orderRefs = uuidWithOrderRef.map(x => x.ref)
+        const { data: existingNumerics } = await adminClient
+          .from('shipments')
+          .select('order_ref')
+          .eq('tenant_id', tenant.id)
+          .in('order_ref', orderRefs)
+          .not('sendcloud_id', 'like', '%-%')
+
+        if (existingNumerics && existingNumerics.length > 0) {
+          const refsWithNumeric = new Set(
+            (existingNumerics as Array<{ order_ref: string }>).map(r => r.order_ref),
+          )
+          const idsToSkip = new Set(
+            uuidWithOrderRef.filter(x => refsWithNumeric.has(x.ref)).map(x => x.id),
+          )
+          if (idsToSkip.size > 0) {
+            console.log(`[Cron] Skipping ${idsToSkip.size} UUID parcels (numeric counterpart already in DB)`)
+            for (let i = parcels.length - 1; i >= 0; i--) {
+              if (idsToSkip.has(parcels[i].sendcloud_id)) parcels.splice(i, 1)
+            }
+          }
+        }
+      }
+
+      // ============================================
+      // DEDUPE 2/2: When a numeric parcel arrives now and a UUID record for
+      // the same order_ref already exists in DB, delete the UUID. CRITICAL:
+      // also REVERSE the stock_movements caused by the UUID, otherwise stock
+      // stays decremented and the numeric's consumeStock will decrement again
+      // -> double consumption (bug observed on ANTEOS 2KG/3KG 28/05).
+      // ============================================
       const parcelOrderRefs = parcels
-        .filter(p => p.order_ref && !p.sendcloud_id.includes('-')) // Numeric sendcloud_id (not UUID)
+        .filter(p => p.order_ref && !p.sendcloud_id.includes('-'))
         .map(p => p.order_ref)
         .filter((ref): ref is string => ref !== null)
 
       if (parcelOrderRefs.length > 0) {
-        // Find and delete old UUID records for these order_refs
         const { data: oldUuidRecords } = await adminClient
           .from('shipments')
           .select('id, sendcloud_id, order_ref')
           .eq('tenant_id', tenant.id)
           .in('order_ref', parcelOrderRefs)
-          .like('sendcloud_id', '%-%') // UUID format contains dashes
+          .like('sendcloud_id', '%-%')
 
         if (oldUuidRecords && oldUuidRecords.length > 0) {
-          console.log(`[Cron] Cleaning up ${oldUuidRecords.length} old UUID records that became parcels`)
-          const oldIds = oldUuidRecords.map((r: { id: string }) => r.id)
-          await adminClient
-            .from('shipments')
-            .delete()
-            .in('id', oldIds)
+          const oldIds = (oldUuidRecords as Array<{ id: string }>).map(r => r.id)
+          console.log(`[Cron] Cleaning up ${oldIds.length} old UUID records that became parcels`)
+
+          // Step 1: collect stock_movements caused by these UUID shipments so
+          // we can reverse them in the snapshot before deletion.
+          const { data: uuidMovements } = await adminClient
+            .from('stock_movements')
+            .select('sku_id, adjustment')
+            .eq('tenant_id', tenant.id)
+            .eq('movement_type', 'shipment')
+            .in('reference_id', oldIds)
+
+          if (uuidMovements && uuidMovements.length > 0) {
+            const reverseBySku = new Map<string, number>()
+            for (const m of uuidMovements as Array<{ sku_id: string; adjustment: number }>) {
+              reverseBySku.set(m.sku_id, (reverseBySku.get(m.sku_id) ?? 0) + -m.adjustment)
+            }
+
+            for (const [skuId, delta] of reverseBySku) {
+              const { data: snap } = await adminClient
+                .from('stock_snapshots')
+                .select('qty_current')
+                .eq('tenant_id', tenant.id)
+                .eq('sku_id', skuId)
+                .maybeSingle()
+              const before = (snap?.qty_current as number | undefined) ?? 0
+              const after = before + delta
+              await adminClient
+                .from('stock_snapshots')
+                .upsert(
+                  {
+                    tenant_id: tenant.id,
+                    sku_id: skuId,
+                    qty_current: after,
+                    updated_at: new Date().toISOString(),
+                  },
+                  { onConflict: 'tenant_id,sku_id' },
+                )
+              await adminClient.from('stock_movements').insert({
+                tenant_id: tenant.id,
+                sku_id: skuId,
+                movement_type: 'manual',
+                qty_before: before,
+                qty_after: after,
+                adjustment: delta,
+                reason: 'Auto-reverse: doublon UUID/numeric Sendcloud, UUID supprimee',
+                reference_type: 'manual',
+              })
+            }
+          }
+
+          // Step 2: delete the UUID shipments (cascade delete shipment_items
+          // and unmapped_items via FK).
+          await adminClient.from('shipments').delete().in('id', oldIds)
         }
       }
 
