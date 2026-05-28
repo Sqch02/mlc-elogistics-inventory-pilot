@@ -155,7 +155,13 @@ export function WarehouseVisualMap({ onLocationClick, onCreateLocation }: Wareho
         </div>
         <div className="flex items-center gap-1.5">
           <span className="w-3 h-3 rounded bg-gray-100 border border-gray-300" />
-          <span>Vide</span>
+          <span>Libre</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded bg-gray-200 border border-gray-300 relative overflow-hidden">
+            <span className="absolute inset-0 bg-gradient-to-br from-transparent via-gray-400 to-transparent" />
+          </span>
+          <span>N&apos;existe pas</span>
         </div>
       </div>
 
@@ -196,6 +202,7 @@ const AisleView = memo(function AisleView({ aisle, locationsByRack, maxColsByRac
           rackLetter={aisle.topRack}
           rackData={topRackData}
           maxCols={maxCols}
+          rackOwnMaxCol={topMaxCols}
           onLocationClick={onLocationClick}
           onCreateLocation={onCreateLocation}
           isReversed={true} // Colonnes de droite à gauche pour le rack du haut
@@ -221,6 +228,7 @@ const AisleView = memo(function AisleView({ aisle, locationsByRack, maxColsByRac
             rackLetter={aisle.bottomRack}
             rackData={bottomRackData ?? undefined}
             maxCols={Math.max(bottomMaxCols, maxCols)}
+            rackOwnMaxCol={bottomMaxCols}
             onLocationClick={onLocationClick}
             onCreateLocation={onCreateLocation}
             isReversed={isLowerHalfRack(aisle.bottomRack)}
@@ -236,13 +244,19 @@ interface RackViewProps {
   rackLetter: string
   rackData: Map<string, Map<number, Location>> | undefined
   maxCols: number
+  // Nombre reel de colonnes pour CE rack en particulier. Au-dela, on rend une
+  // cellule "n'existe pas" hachuree au lieu d'un placeholder "+ Creer" pour
+  // eviter la confusion (demande Quentin: certains racks s'arretent plus tot
+  // que le rack en face dans la meme allee, et le placeholder donnait
+  // l'impression qu'on pouvait y stocker).
+  rackOwnMaxCol: number
   onLocationClick: (location: Location) => void
   onCreateLocation?: (code: string) => void
   isReversed: boolean
   reverseLevels: boolean
 }
 
-const RackView = memo(function RackView({ rackLetter, rackData, maxCols, onLocationClick, onCreateLocation, isReversed, reverseLevels }: RackViewProps) {
+const RackView = memo(function RackView({ rackLetter, rackData, maxCols, rackOwnMaxCol, onLocationClick, onCreateLocation, isReversed, reverseLevels }: RackViewProps) {
   const orderedLevels = reverseLevels ? [...LEVELS].reverse() : LEVELS
   return (
     <div className="space-y-0">
@@ -286,7 +300,34 @@ const RackView = memo(function RackView({ rackLetter, rackData, maxCols, onLocat
                   )
                 }
 
-                // Cellule vide/placeholder - cliquable pour créer
+                // Au-dela de la largeur reelle du rack: cellule "n'existe pas"
+                // hachuree, non cliquable. Garde l'alignement visuel avec le
+                // rack en face mais sans induire en erreur sur les positions
+                // disponibles.
+                if (col > rackOwnMaxCol) {
+                  return (
+                    <div
+                      key={col}
+                      aria-disabled
+                      title="Cet emplacement n'existe pas physiquement"
+                      className="w-24 h-20 rounded border border-gray-200 bg-gray-100 text-gray-400 flex flex-col items-center justify-center relative overflow-hidden select-none"
+                    >
+                      {/* Bandes diagonales pour signaler "n'existe pas" */}
+                      <div
+                        className="absolute inset-0 opacity-60"
+                        style={{
+                          backgroundImage:
+                            'repeating-linear-gradient(45deg, transparent 0 6px, rgba(156,163,175,0.45) 6px 7px)',
+                        }}
+                      />
+                      <span className="text-[9px] font-mono relative z-10 line-through decoration-gray-500">
+                        {code}
+                      </span>
+                    </div>
+                  )
+                }
+
+                // Cellule vide dans la zone reelle du rack - cliquable pour créer
                 return (
                   <div
                     key={col}

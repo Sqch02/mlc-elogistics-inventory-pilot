@@ -85,7 +85,7 @@ export function EditLocationDialog({ location, open, onOpenChange }: EditLocatio
 
   const statusOptions = [
     { value: 'occupied', label: 'Occupé', color: 'bg-blue-100 text-blue-700' },
-    { value: 'empty', label: 'Vide', color: 'bg-gray-100 text-gray-700' },
+    { value: 'empty', label: 'Libre', color: 'bg-gray-100 text-gray-700' },
     { value: 'blocked', label: 'Bloqué', color: 'bg-orange-100 text-orange-700' },
   ] as const
 
