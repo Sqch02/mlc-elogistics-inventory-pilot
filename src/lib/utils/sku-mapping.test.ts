@@ -217,7 +217,10 @@ describe('resolveAndCreateShipmentItem', () => {
     expect(itemUpsertMock).toHaveBeenCalledTimes(1)
   })
 
-  it('accumulates qty when an existing shipment_item is found for the same (shipment, sku)', async () => {
+  it('replaces qty (no accumulation) when reprocessing the same (shipment, sku) pair', async () => {
+    // REPLACE semantics: bug fixed 28/05 on R21 (qty was accumulated to 2 when
+    // webhook + cron both processed the same parcel with qty=1). Re-running
+    // the upsert with the same Sendcloud payload must yield the same qty.
     const { client, itemUpsertMock } = createMockAdminClient({
       resolvedSkuId: 'sku-uuid-1',
       existingShipmentItem: { id: 'existing-row-id', qty: 3 },
@@ -231,9 +234,32 @@ describe('resolveAndCreateShipmentItem', () => {
       qty: 2,
     })
 
-    // Should upsert with qty = 3 (existing) + 2 (new) = 5
+    // Upserted with qty = 2 (the raw item qty), not 3+2=5.
     expect(itemUpsertMock).toHaveBeenCalledWith(
-      expect.objectContaining({ qty: 5 }),
+      expect.objectContaining({ qty: 2 }),
+      expect.any(Object),
+    )
+  })
+
+  it('processShipmentItems aggregates qty across duplicate sku entries in the same batch', async () => {
+    // Sendcloud sometimes emits two parcel_items for the same SKU instead of
+    // one with qty=N. Within a single processing call we MUST sum these so
+    // they don't overwrite each other (the REPLACE upsert would otherwise
+    // keep only the last one).
+    const { client, itemUpsertMock } = createMockAdminClient({
+      resolvedSkuId: 'sku-uuid-1',
+    })
+
+    const result = await processShipmentItems(client, 'tenant-1', 'shipment-1', [
+      { sku: 'FLRN-001', quantity: 2 },
+      { sku: 'FLRN-001', quantity: 3 },
+    ])
+
+    expect(result).toEqual({ mappedCount: 1, unmappedCount: 0 })
+    // Single upsert with aggregated qty = 2 + 3 = 5
+    expect(itemUpsertMock).toHaveBeenCalledTimes(1)
+    expect(itemUpsertMock).toHaveBeenCalledWith(
+      expect.objectContaining({ qty: 5, sku_id: 'sku-uuid-1' }),
       expect.any(Object),
     )
   })
