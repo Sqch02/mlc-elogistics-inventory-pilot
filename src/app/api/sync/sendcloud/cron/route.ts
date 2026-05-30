@@ -316,7 +316,7 @@ async function runSync() {
 
         const { error: shipmentError } = await adminClient
           .from('shipments')
-          .upsert(shipmentsToUpsert, { onConflict: 'sendcloud_id' })
+          .upsert(shipmentsToUpsert, { onConflict: 'tenant_id,sendcloud_id' })
 
         if (shipmentError) {
           console.error(`[Cron] Shipments batch upsert error:`, shipmentError.message)

@@ -434,7 +434,7 @@ export async function POST(
               date_updated: parcel.date_updated,
               date_announced: parcel.date_announced,
             },
-            { onConflict: 'sendcloud_id' }
+            { onConflict: 'tenant_id,sendcloud_id' }
           )
           .select('id')
           .single()

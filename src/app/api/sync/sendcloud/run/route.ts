@@ -212,7 +212,7 @@ export async function POST() {
               has_error: parcel.has_error,
               error_message: parcel.error_message,
             },
-            { onConflict: 'sendcloud_id' }
+            { onConflict: 'tenant_id,sendcloud_id' }
           )
           .select('id')
           .single()
