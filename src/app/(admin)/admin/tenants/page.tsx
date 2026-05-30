@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Plus, Settings, Building2, MapPin, Users } from 'lucide-react'
 import { format } from 'date-fns'
+import { toast } from 'sonner'
 import { fr } from 'date-fns/locale'
 
 interface Tenant {
@@ -78,7 +79,9 @@ export default function AdminTenantsPage() {
         setNewCode('')
         fetchTenants()
       } else if (data.error) {
-        alert(data.error)
+        // P2-a11y / UX: replaced window.alert with sonner toast for consistency
+        // with the rest of the app (avoids a native modal that traps focus).
+        toast.error(data.error)
       }
     } catch {
       // error handled by catch block
