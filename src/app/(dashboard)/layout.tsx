@@ -36,7 +36,10 @@ export default async function DashboardLayout({
       <Sidebar userRole={user.role} isHubView={isHubView} />
       <div className="flex-1 flex flex-col overflow-hidden lg:ml-[260px]">
         <DashboardShell user={user}>
-          <main id="main-content" className="flex-1 overflow-y-auto bg-background p-4 lg:p-6" aria-live="polite">
+          {/* aria-live="polite" was removed: screen readers were announcing
+              every DOM change (table re-renders, mutation responses) in a loop.
+              For ponctual feedback, we rely on the Sonner toaster instead. */}
+          <main id="main-content" className="flex-1 overflow-y-auto bg-background p-4 lg:p-6">
             <div className="max-w-[1280px] mx-auto w-full">
               <QueryProvider>
                 <ErrorBoundary>
