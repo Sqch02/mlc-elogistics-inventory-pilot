@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb, getAdminDb } from '@/lib/supabase/untyped'
-import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
+import { requireTenant, getCurrentUser, requireRole } from '@/lib/supabase/auth'
 import { auditCreate } from '@/lib/audit'
 
 const MLC_ROOT_TENANT_ID = '00000000-0000-0000-0000-000000000001'
@@ -101,6 +101,9 @@ export async function GET(request: NextRequest) {
 // POST /api/skus - Create a new SKU
 export async function POST(request: NextRequest) {
   try {
+    // P1-secu: mutating route requires admin/ops role.
+    await requireRole(['super_admin', 'admin', 'ops'])
+
     const tenantId = await requireTenant()
     const user = await getCurrentUser()
     const supabase = await getServerDb()

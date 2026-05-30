@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb, getAdminDb } from '@/lib/supabase/untyped'
 import { getFastTenantId } from '@/lib/supabase/fast-auth'
+import { requireRole } from '@/lib/supabase/auth'
 
 // The MLC master tenant owns the warehouse. When viewing Emplacements as MLC,
 // we aggregate locations across all tenants so a single page covers the full
@@ -91,6 +92,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: Request) {
   try {
+    // P1-secu: mutating route requires admin/ops role - previously any
+    // authenticated user (including 'client' view-only Florna users) could
+    // create locations.
+    await requireRole(['super_admin', 'admin', 'ops'])
+
     const tenantId = await getFastTenantId()
     if (!tenantId) {
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })
