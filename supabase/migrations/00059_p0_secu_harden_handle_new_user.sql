@@ -39,11 +39,11 @@ CREATE OR REPLACE FUNCTION public.handle_new_user()
 AS $function$
 DECLARE
   v_invitation RECORD;
-  v_meta_tenant_id uuid;
-  v_meta_role text;
-  v_tenant_id uuid;
-  v_role text;
 BEGIN
+  -- Strict policy: a signup MUST have a matching tenant_invitations row.
+  -- The admin "create user" flow has to create the invitation first, then
+  -- call signUp. We never trust client-supplied raw_user_meta_data, because
+  -- a public signup can put anything in there.
   SELECT * INTO v_invitation
   FROM tenant_invitations
   WHERE lower(email) = lower(NEW.email)
@@ -51,31 +51,21 @@ BEGIN
     AND (expires_at IS NULL OR expires_at > now())
   LIMIT 1;
 
-  IF v_invitation.id IS NOT NULL THEN
-    v_tenant_id := v_invitation.tenant_id;
-    v_role := v_invitation.role;
-    UPDATE tenant_invitations SET used_at = now() WHERE id = v_invitation.id;
-  ELSE
-    v_meta_tenant_id := NULLIF(NEW.raw_user_meta_data->>'tenant_id', '')::uuid;
-    v_meta_role := NULLIF(NEW.raw_user_meta_data->>'role', '');
-
-    IF v_meta_tenant_id IS NOT NULL
-       AND v_meta_role IN ('admin', 'ops', 'sav', 'client')
-       AND EXISTS (SELECT 1 FROM tenants WHERE id = v_meta_tenant_id) THEN
-      v_tenant_id := v_meta_tenant_id;
-      v_role := v_meta_role;
-    ELSE
-      RAISE EXCEPTION 'No invitation found for email % and signups are disabled', NEW.email
-        USING ERRCODE = '23514';
-    END IF;
+  IF v_invitation.id IS NULL THEN
+    RAISE EXCEPTION 'No invitation found for email % - admin must create a tenant_invitations row first', NEW.email
+      USING ERRCODE = '23514';
   END IF;
 
-  IF v_role = 'super_admin' THEN
-    v_role := 'admin';
+  IF v_invitation.role = 'super_admin' THEN
+    -- Belt-and-suspenders: tenant_invitations.role has CHECK constraint
+    -- excluding super_admin, but enforce again here.
+    RAISE EXCEPTION 'super_admin role cannot be assigned via invitation';
   END IF;
+
+  UPDATE tenant_invitations SET used_at = now() WHERE id = v_invitation.id;
 
   INSERT INTO profiles (id, tenant_id, email, role)
-  VALUES (NEW.id, v_tenant_id, NEW.email, v_role);
+  VALUES (NEW.id, v_invitation.tenant_id, NEW.email, v_invitation.role);
 
   RETURN NEW;
 END;
