@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireTenant, requireRole } from '@/lib/supabase/auth'
 import { getAdminDb } from '@/lib/supabase/untyped'
 
 export async function GET() {
@@ -73,6 +73,11 @@ export async function GET() {
 
 export async function PATCH(request: NextRequest) {
   try {
+    // P1-secu: company settings (SIRET, IBAN, invoice_next_number, invoice_prefix)
+    // restricted to admin and super_admin. Previously any authenticated user
+    // could rewrite them.
+    await requireRole(['super_admin', 'admin'])
+
     const tenantId = await requireTenant()
     const adminClient = getAdminDb()
     const body = await request.json()
