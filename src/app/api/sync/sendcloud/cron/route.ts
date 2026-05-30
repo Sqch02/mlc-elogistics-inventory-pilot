@@ -33,9 +33,21 @@ async function runSync() {
     return
   }
 
-  const results: Array<{ tenantId: string; success: boolean; shipments?: number; returns?: number; error?: string }> = []
+  const results: Array<{ tenantId: string; success: boolean; shipments?: number; returns?: number; error?: string; skipped?: string }> = []
 
   for (const tenant of tenants) {
+    // P0-cron: try to take an advisory lock per tenant. If a previous cron
+    // tick is still running (jitter, retry, or a redeploy mid-sync), we skip
+    // this tenant rather than running concurrently and double-consuming stock.
+    const { data: lockAcquired } = await adminClient.rpc('try_cron_tenant_lock', {
+      p_tenant_id: tenant.id,
+    })
+    if (lockAcquired === false) {
+      console.warn(`[Cron] Skipping tenant ${tenant.id}: previous sync still holds the lock`)
+      results.push({ tenantId: tenant.id, success: true, shipments: 0, returns: 0, skipped: 'lock_held' })
+      continue
+    }
+
     try {
       console.log(`\n[Cron] ======= TENANT: ${tenant.id} =======`)
 
@@ -474,12 +486,39 @@ async function runSync() {
       console.log(`[Cron] Tenant ${tenant.id} done in ${duration}ms`)
 
     } catch (error) {
+      const errMsg = error instanceof Error ? error.message : 'Unknown error'
       console.error(`[Cron] Error for tenant ${tenant.id}:`, error)
+
+      // P0-cron: persist sync_runs row with status='failure' so the
+      // /api/sync/sendcloud/status endpoint and the freshness alerts see the
+      // failure. Previously errors were only pushed to `results[]` and lost
+      // when the process exited.
+      try {
+        await adminClient.from('sync_runs').insert({
+          tenant_id: tenant.id,
+          source: 'sendcloud',
+          status: 'failure',
+          ended_at: new Date().toISOString(),
+          error_text: errMsg,
+          stats_json: { error: errMsg },
+        })
+      } catch (logErr) {
+        console.error('[Cron] Failed to persist sync_runs failure row:', logErr)
+      }
+
       results.push({
         tenantId: tenant.id,
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errMsg,
       })
+    } finally {
+      // Release the per-tenant advisory lock - if the tenant errored or
+      // returned early, we still need to free it for the next tick.
+      try {
+        await adminClient.rpc('release_cron_tenant_lock', { p_tenant_id: tenant.id })
+      } catch (unlockErr) {
+        console.error('[Cron] Failed to release advisory lock:', unlockErr)
+      }
     }
   }
 
