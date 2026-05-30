@@ -32,7 +32,7 @@ Corriger les 5 problemes critiques/hauts identifies lors du 2eme audit sans cass
 ### Fix 4 : Renforcer validation cron secret
 - **Fichier** : `src/app/api/sync/sendcloud/cron/route.ts`
 - **Action** : Changer la logique pour toujours exiger le secret (pas seulement en production)
-- **Risque** : Tres faible. Le secret `CRON_SECRET=mlc-cron-2024` est deja configure en prod. En dev, on peut garder un fallback si pas de secret.
+- **Risque** : Tres faible. Le secret `CRON_SECRET=<see Render env>  ` est deja configure en prod. En dev, on peut garder un fallback si pas de secret.
 - **Verification** : `npm run build`
 
 ### Fix 5 : Supprimer console.error frontend (9 instances)

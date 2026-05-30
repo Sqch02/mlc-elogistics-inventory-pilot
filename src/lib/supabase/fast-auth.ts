@@ -1,5 +1,6 @@
 import { createClient } from './server'
 import { cookies } from 'next/headers'
+import { signCookieValue, verifyAndParseCookieValue } from './cookie-signing'
 
 interface CachedProfile {
   id: string
@@ -12,8 +13,12 @@ interface CachedProfile {
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 
 /**
- * Fast authentication that caches profile in an encrypted cookie
- * Reduces DB calls from 2 to 0 for cached users
+ * Fast authentication that caches profile in an HMAC-signed cookie.
+ * Reduces DB calls from 2 to 0 for cached users.
+ *
+ * P0-secu: the cookie value is HMAC-signed (see cookie-signing.ts) so a user
+ * cannot edit their role/tenant_id via DevTools and trick the middleware into
+ * letting them through.
  */
 export async function getFastUser(): Promise<CachedProfile | null> {
   const cookieStore = await cookies()
@@ -27,13 +32,9 @@ export async function getFastUser(): Promise<CachedProfile | null> {
 
   // Check if we have a valid cached profile that matches the current user
   if (cachedProfile?.value && user) {
-    try {
-      const profile = JSON.parse(cachedProfile.value) as CachedProfile
-      if (profile.exp > Date.now() && profile.id === user.id) {
-        return profile
-      }
-    } catch {
-      // Invalid cache, continue to fetch
+    const profile = verifyAndParseCookieValue<CachedProfile>(cachedProfile.value)
+    if (profile && profile.exp > Date.now() && profile.id === user.id) {
+      return profile
     }
   }
 
@@ -73,9 +74,9 @@ export async function getFastUser(): Promise<CachedProfile | null> {
     exp: Date.now() + CACHE_TTL
   }
 
-  // Cache in cookie for subsequent requests
+  // Cache in cookie for subsequent requests — HMAC-signed to prevent tampering.
   try {
-    cookieStore.set('_profile_cache', JSON.stringify(cachedData), {
+    cookieStore.set('_profile_cache', signCookieValue(cachedData), {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
