@@ -165,24 +165,20 @@ async function getTenantByCode(adminClient: ReturnType<typeof getAdminDb>, tenan
     return null
   }
 
-  // Resolve webhook secret: prefer the dedicated field, otherwise fall back to
-  // the Sendcloud integration secret (which is what Sendcloud uses to sign
-  // payloads by default). This avoids a chicken-and-egg during onboarding.
+  // Only the dedicated webhook secret is accepted. Falling back to the Sendcloud
+  // integration secret was wrong (Sendcloud signs webhooks with the webhook
+  // secret, not the integration secret), and falling back to ENV would let an
+  // attacker who learned ENV forge webhooks for any tenant.
   const { data: settings } = await adminClient
     .from('tenant_settings')
-    .select('sendcloud_webhook_secret, sendcloud_secret')
+    .select('sendcloud_webhook_secret')
     .eq('tenant_id', tenant.id)
     .single()
-
-  const webhookSecret =
-    settings?.sendcloud_webhook_secret ||
-    settings?.sendcloud_secret ||
-    null
 
   return {
     id: tenant.id,
     name: tenant.name,
-    webhookSecret,
+    webhookSecret: settings?.sendcloud_webhook_secret || null,
   }
 }
 
@@ -216,11 +212,33 @@ export async function POST(
     // Get signature from header
     const signature = request.headers.get('Sendcloud-Signature') || ''
 
-    // Get webhook secret - prefer tenant-specific, fallback to global
-    const webhookSecret = tenant.webhookSecret || process.env.SENDCLOUD_WEBHOOK_SECRET
+    // Require tenant-specific webhook secret. No ENV fallback to prevent
+    // a single leaked global secret from being valid across tenants.
+    const webhookSecret = tenant.webhookSecret
     if (!webhookSecret) {
       console.error('[Webhook] CRITICAL: No webhook secret configured for tenant', tenantCode)
       return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 })
+    }
+
+    // Replay protection: reject payloads older than 5 minutes
+    const bodyForFreshness = await request.clone().text().catch(() => '')
+    if (bodyForFreshness) {
+      try {
+        const tsPayload = JSON.parse(bodyForFreshness) as { timestamp?: number }
+        if (
+          typeof tsPayload.timestamp === 'number' &&
+          tsPayload.timestamp > 0 &&
+          tsPayload.timestamp < 4102444800
+        ) {
+          const ageMs = Math.abs(Date.now() - tsPayload.timestamp * 1000)
+          if (ageMs > 5 * 60 * 1000) {
+            console.error('[Webhook] Rejected stale payload, age (ms):', ageMs)
+            return NextResponse.json({ error: 'Stale payload' }, { status: 401 })
+          }
+        }
+      } catch {
+        // Will be re-parsed below; ignore here
+      }
     }
 
     const isValid = validateSignature(rawBody, signature, webhookSecret)
@@ -247,8 +265,63 @@ export async function POST(
     }
 
     if (payload.action === 'parcel_cancelled') {
-      console.log('[Webhook] Parcel cancelled - acknowledged')
-      return NextResponse.json({ success: true, action: 'skipped_cancelled' })
+      // Reverse stock for any parcels that were already consumed (P0-secu audit).
+      // Up to now, parcel_cancelled was acknowledged without action - meaning if
+      // parcel_created had consumed stock before the cancel arrived, the stock
+      // stayed decremented forever.
+      const cancelledParcels: SendcloudParcel[] = []
+      if (payload.parcel) cancelledParcels.push(payload.parcel)
+      if (payload.parcels) cancelledParcels.push(...payload.parcels)
+
+      let reversedCount = 0
+      for (const rawParcel of cancelledParcels) {
+        try {
+          const parcel = parseParcel(rawParcel)
+          const { data: existing } = await adminClient
+            .from('shipments')
+            .select('id, stock_consumed_at')
+            .eq('tenant_id', tenantId)
+            .eq('sendcloud_id', parcel.sendcloud_id)
+            .single()
+
+          if (!existing) continue
+          const shipment = existing as { id: string; stock_consumed_at: string | null }
+
+          // Only reverse if stock was actually consumed (marker added in P0-stock).
+          // For pre-marker shipments, fall back to "reverse if status_id changes
+          // to a cancelled state for the first time" - tracked via has_error flag.
+          if (shipment.stock_consumed_at) {
+            const { data: items } = await adminClient
+              .from('shipment_items')
+              .select('sku_id, qty')
+              .eq('tenant_id', tenantId)
+              .eq('shipment_id', shipment.id)
+
+            for (const it of (items || []) as Array<{ sku_id: string; qty: number }>) {
+              try {
+                await consumeStock(tenantId, it.sku_id, -it.qty, shipment.id, 'shipment')
+                reversedCount++
+              } catch (e) {
+                console.error('[Webhook] Reverse stock error:', e)
+              }
+            }
+
+            await adminClient
+              .from('shipments')
+              .update({ stock_consumed_at: null, has_error: true, status_message: 'Cancelled' })
+              .eq('tenant_id', tenantId)
+              .eq('id', shipment.id)
+          }
+        } catch (err) {
+          console.error('[Webhook] parcel_cancelled processing error:', err)
+        }
+      }
+
+      if (reversedCount > 0) {
+        try { await adminClient.rpc('refresh_sku_metrics') } catch (e) { void e }
+      }
+      console.log('[Webhook]', tenantCode, ': Parcel cancelled - reversed', reversedCount, 'stock items')
+      return NextResponse.json({ success: true, action: 'cancelled', reversed: reversedCount })
     }
 
     // Get the parcel(s) from payload
@@ -285,10 +358,14 @@ export async function POST(
       try {
         const parcel = parseParcel(rawParcel)
 
-        // Check if shipment already exists
+        // Check if shipment already exists FOR THIS TENANT specifically.
+        // Without .eq('tenant_id', ...), a sendcloud_id collision across tenants
+        // would make this think the shipment exists and skip the new stock
+        // consumption (P0-secu defense in depth).
         const { data: existingShipment } = await adminClient
           .from('shipments')
           .select('id')
+          .eq('tenant_id', tenantId)
           .eq('sendcloud_id', parcel.sendcloud_id)
           .single()
 

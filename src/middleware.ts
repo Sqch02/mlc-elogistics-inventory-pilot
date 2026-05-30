@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { verifyAndParseCookieValue } from '@/lib/supabase/cookie-signing'
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -55,20 +56,19 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Use cached profile cookie instead of DB query (~200-500ms saved per request)
-  // The layout's getFastUser() handles full verification + tenant_active check
+  // Use cached profile cookie instead of DB query (~200-500ms saved per request).
+  // The cookie is HMAC-signed (see cookie-signing.ts) so a user cannot edit
+  // their role via DevTools.
   let cachedRole: string | null = null
   if (user) {
     const profileCookie = request.cookies.get('_profile_cache')?.value
-    if (profileCookie) {
-      try {
-        const parsed = JSON.parse(profileCookie)
-        if (parsed.id === user.id && parsed.exp > Date.now()) {
-          cachedRole = parsed.role
-        }
-      } catch {
-        // Invalid cache, skip
-      }
+    const parsed = verifyAndParseCookieValue<{
+      id: string
+      role: string
+      exp: number
+    }>(profileCookie)
+    if (parsed && parsed.id === user.id && parsed.exp > Date.now()) {
+      cachedRole = parsed.role
     }
   }
 

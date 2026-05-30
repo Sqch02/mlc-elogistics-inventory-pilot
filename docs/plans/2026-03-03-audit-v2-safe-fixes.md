@@ -217,7 +217,7 @@ New code:
 ```
 
 **Why this is safe:**
-- Production already has `CRON_SECRET=mlc-cron-2024` configured on Render.
+- Production has `CRON_SECRET` configured on Render (value redacted from docs).
 - The change makes validation unconditional instead of only in production.
 - Dev environments need to add `CRON_SECRET` to `.env.local` (minor, documented).
 - If `CRON_SECRET` is missing, the endpoint returns 500 instead of silently accepting all requests.
