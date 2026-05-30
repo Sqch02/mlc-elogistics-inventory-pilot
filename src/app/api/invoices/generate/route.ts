@@ -363,7 +363,27 @@ export async function POST(request: NextRequest) {
     let invoiceId: string
 
     if (existingInvoice) {
-      // Update existing invoice
+      // P0-fact: Re-fetch full status; refuse to overwrite sent/paid invoices.
+      // Previously this code silently UPDATEd any existing invoice including
+      // ones already sent or paid, and reset status to 'draft'. Violation of
+      // French fiscal compliance (emitted invoices must be immutable).
+      const { data: fullInvoice } = await supabase
+        .from('invoices_monthly')
+        .select('id, status, invoice_number')
+        .eq('id', existingInvoice.id)
+        .single()
+
+      const status = (fullInvoice as { status: string } | null)?.status
+      if (status && status !== 'draft') {
+        return NextResponse.json(
+          {
+            error: `La facture ${(fullInvoice as { invoice_number: string }).invoice_number} a deja le statut "${status}". Cree un avoir pour ajuster, ne regenere pas.`,
+          },
+          { status: 409 }
+        )
+      }
+
+      // Update existing draft invoice
       await supabase
         .from('invoices_monthly')
         .update({

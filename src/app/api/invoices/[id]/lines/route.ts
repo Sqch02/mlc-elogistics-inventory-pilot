@@ -93,7 +93,7 @@ export async function POST(
     }
 
     // Recalculate invoice totals
-    await recalculateInvoiceTotals(supabase, invoiceId)
+    await recalculateInvoiceTotals(supabase, invoiceId, tenantId)
 
     return NextResponse.json({
       success: true,
@@ -182,7 +182,7 @@ export async function DELETE(
     }
 
     // Recalculate invoice totals
-    await recalculateInvoiceTotals(supabase, invoiceId)
+    await recalculateInvoiceTotals(supabase, invoiceId, tenantId)
 
     return NextResponse.json({ success: true, message: 'Avoir supprimé' })
   } catch (error) {
@@ -198,7 +198,19 @@ export async function DELETE(
  * Recalculate invoice totals from all lines
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function recalculateInvoiceTotals(supabase: any, invoiceId: string) {
+async function recalculateInvoiceTotals(supabase: any, invoiceId: string, tenantId: string) {
+  // Read the tenant's VAT rate from billing config. Previously hardcoded at
+  // 20% which silently overrode reduced/exempt VAT tenants any time a line was
+  // added or deleted (audit P0-fact finding).
+  const { data: billingConfigData } = await supabase
+    .from('tenant_billing_config')
+    .select('vat_rate_pct')
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+
+  const billingConfig = billingConfigData as { vat_rate_pct: number } | null
+  const vatRate = (billingConfig?.vat_rate_pct ?? 20) / 100
+
   const { data: lines } = await supabase
     .from('invoice_lines')
     .select('total_eur')
@@ -212,7 +224,6 @@ async function recalculateInvoiceTotals(supabase: any, invoiceId: string) {
       0
     ) * 100
   ) / 100
-  const vatRate = 0.20
   const vatAmount = Math.round(subtotalHt * vatRate * 100) / 100
   const totalTtc = Math.round((subtotalHt + vatAmount) * 100) / 100
 
