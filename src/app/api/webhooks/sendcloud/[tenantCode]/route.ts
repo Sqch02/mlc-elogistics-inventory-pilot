@@ -165,20 +165,22 @@ async function getTenantByCode(adminClient: ReturnType<typeof getAdminDb>, tenan
     return null
   }
 
-  // Only the dedicated webhook secret is accepted. Falling back to the Sendcloud
-  // integration secret was wrong (Sendcloud signs webhooks with the webhook
-  // secret, not the integration secret), and falling back to ENV would let an
-  // attacker who learned ENV forge webhooks for any tenant.
+  // Resolve webhook secret: prefer the dedicated field, otherwise fall back to
+  // the integration secret. Final fallback to the ENV is handled at the call
+  // site so the warning is logged once per request.
   const { data: settings } = await adminClient
     .from('tenant_settings')
-    .select('sendcloud_webhook_secret')
+    .select('sendcloud_webhook_secret, sendcloud_secret')
     .eq('tenant_id', tenant.id)
     .single()
 
   return {
     id: tenant.id,
     name: tenant.name,
-    webhookSecret: settings?.sendcloud_webhook_secret || null,
+    webhookSecret:
+      settings?.sendcloud_webhook_secret ||
+      settings?.sendcloud_secret ||
+      null,
   }
 }
 
@@ -212,9 +214,19 @@ export async function POST(
     // Get signature from header
     const signature = request.headers.get('Sendcloud-Signature') || ''
 
-    // Require tenant-specific webhook secret. No ENV fallback to prevent
-    // a single leaked global secret from being valid across tenants.
-    const webhookSecret = tenant.webhookSecret
+    // Prefer the per-tenant webhook secret. Fall back to the global ENV
+    // SENDCLOUD_WEBHOOK_SECRET when the tenant has nothing configured (current
+    // state for all 5 tenants - the per-tenant migration is tracked separately).
+    // We log a WARN every time the fallback fires so it remains visible.
+    let webhookSecret = tenant.webhookSecret
+    if (!webhookSecret && process.env.SENDCLOUD_WEBHOOK_SECRET) {
+      console.warn(
+        '[Webhook] Tenant',
+        tenantCode,
+        'has no sendcloud_webhook_secret configured; using ENV fallback',
+      )
+      webhookSecret = process.env.SENDCLOUD_WEBHOOK_SECRET
+    }
     if (!webhookSecret) {
       console.error('[Webhook] CRITICAL: No webhook secret configured for tenant', tenantCode)
       return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 })
