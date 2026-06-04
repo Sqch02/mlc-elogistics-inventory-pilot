@@ -39,6 +39,10 @@ interface BillingConfig {
   reception_fee_per_15min: number
   fuel_surcharge_pct: number
   vat_rate_pct: number
+  arrivage_billing_mode: 'palette' | 'colis' | 'vrac' | null
+  arrivage_palette_price_eur: number | null
+  arrivage_box_price_eur: number | null
+  arrivage_unit_price_eur: number | null
 }
 
 interface InvoiceLine {
@@ -123,6 +127,10 @@ export async function POST(request: NextRequest) {
           ? fuelOverride
           : (billingConfig?.fuel_surcharge_pct ?? 4.00),
       vat_rate_pct: billingConfig?.vat_rate_pct ?? invoiceSettings.default_vat_rate ?? 20.00,
+      arrivage_billing_mode: billingConfig?.arrivage_billing_mode ?? null,
+      arrivage_palette_price_eur: billingConfig?.arrivage_palette_price_eur ?? null,
+      arrivage_box_price_eur: billingConfig?.arrivage_box_price_eur ?? null,
+      arrivage_unit_price_eur: billingConfig?.arrivage_unit_price_eur ?? null,
     }
     // Discount applied to storage line for this invoice (0 by default)
     const storageDiscountPct =
@@ -340,6 +348,56 @@ export async function POST(request: NextRequest) {
     const receptionFee = reception_quarters * config.reception_fee_per_15min
     const receptionVat = Math.round(receptionFee * vatRate * 100) / 100
 
+    // 3bis. Reception arrivage: facture les arrivages physiques du mois
+    // (inbound_restock acceptes recus dans la fenetre date) selon le mode
+    // configure cote tenant_billing_config (palette / colis / vrac).
+    // - palette : on compte les arrivages uniques par group_id (chaque ligne
+    //   du group_id porte la meme nb_palettes, donc on prend une fois par groupe)
+    // - colis   : non implemente cote DB (manque colonne nb_colis) -> reste 0
+    // - vrac    : somme des accepted_qty sur les arrivages du mois
+    let arrivageFee = 0
+    let arrivageQuantity = 0
+    let arrivageDescription = ''
+    if (config.arrivage_billing_mode) {
+      const { data: inbounds } = await supabase
+        .from('inbound_restock')
+        .select('group_id, nb_palettes, accepted_qty, supplier, received_at')
+        .eq('tenant_id', tenantId)
+        .eq('status', 'accepted')
+        .gte('received_at', startOfMonth.toISOString())
+        .lte('received_at', endOfMonth.toISOString())
+
+      const rows = (inbounds || []) as Array<{
+        group_id: string | null
+        nb_palettes: number | null
+        accepted_qty: number | null
+        supplier: string | null
+      }>
+
+      if (config.arrivage_billing_mode === 'palette') {
+        // Dedup par group_id pour ne pas compter 3x les memes palettes
+        const seen = new Map<string, { palettes: number; supplier: string | null }>()
+        for (const r of rows) {
+          const key = r.group_id || `_no_group_${Math.random()}`
+          if (!seen.has(key)) {
+            seen.set(key, { palettes: r.nb_palettes || 0, supplier: r.supplier })
+          }
+        }
+        arrivageQuantity = Array.from(seen.values()).reduce((s, v) => s + v.palettes, 0)
+        const palettePrice = config.arrivage_palette_price_eur ?? 0
+        arrivageFee = Math.round(arrivageQuantity * palettePrice * 100) / 100
+        const suppliers = Array.from(new Set(Array.from(seen.values()).map(v => v.supplier).filter(Boolean)))
+        arrivageDescription = `Réception arrivage palette - ${arrivageQuantity} palettes${suppliers.length ? ' - ' + suppliers.join(', ') : ''}`
+      } else if (config.arrivage_billing_mode === 'vrac') {
+        arrivageQuantity = rows.reduce((s, r) => s + (r.accepted_qty || 0), 0)
+        const unitPrice = config.arrivage_unit_price_eur ?? 0
+        arrivageFee = Math.round(arrivageQuantity * unitPrice * 100) / 100
+        arrivageDescription = `Réception arrivage vrac - ${arrivageQuantity} unités`
+      }
+      // 'colis' a implementer quand le schema inbound_restock aura nb_colis
+    }
+    const arrivageVat = Math.round(arrivageFee * vatRate * 100) / 100
+
     // 4. Shipping total (already calculated - includes both outbound and returns)
     const shippingVat = shippingTotalEur * vatRate
 
@@ -348,7 +406,7 @@ export async function POST(request: NextRequest) {
     const fuelSurchargeVat = Math.round(fuelSurcharge * vatRate * 100) / 100
 
     // Calculate totals - round HT first, then compute TVA on rounded HT to avoid floating-point drift
-    const subtotalHt = Math.round((softwareFee + storageFee + receptionFee + shippingTotalEur + fuelSurcharge) * 100) / 100
+    const subtotalHt = Math.round((softwareFee + storageFee + receptionFee + arrivageFee + shippingTotalEur + fuelSurcharge) * 100) / 100
     const totalVat = Math.round(subtotalHt * vatRate * 100) / 100
     const totalTtc = Math.round((subtotalHt + totalVat) * 100) / 100
 
@@ -510,6 +568,30 @@ export async function POST(request: NextRequest) {
         unit_price_eur: config.reception_fee_per_15min,
         total_eur: receptionFee,
         vat_amount: receptionVat,
+      })
+    }
+
+    // 3bis. Reception arrivage line (palette / colis / vrac), auto si config tenant set
+    if (arrivageFee > 0) {
+      const unitPrice =
+        config.arrivage_billing_mode === 'palette'
+          ? (config.arrivage_palette_price_eur ?? 0)
+          : config.arrivage_billing_mode === 'colis'
+            ? (config.arrivage_box_price_eur ?? 0)
+            : (config.arrivage_unit_price_eur ?? 0)
+      lines.push({
+        tenant_id: tenantId,
+        invoice_id: invoiceId,
+        line_type: 'reception_arrivage',
+        description: arrivageDescription,
+        carrier: null,
+        weight_min_grams: null,
+        weight_max_grams: null,
+        shipment_count: 0,
+        quantity: arrivageQuantity,
+        unit_price_eur: unitPrice,
+        total_eur: arrivageFee,
+        vat_amount: arrivageVat,
       })
     }
 
