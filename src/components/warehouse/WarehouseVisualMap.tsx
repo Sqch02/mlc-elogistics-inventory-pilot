@@ -14,12 +14,16 @@ interface WarehouseVisualMapProps {
   onCreateLocation?: (code: string) => void
 }
 
-// Configuration des allées avec leurs racks
+// Configuration des allées avec leurs racks.
+// flipColumns: l'allée 3 est orientée à l'inverse des allées 1/2 dans
+// l'entrepôt physique - les colonnes 001 sont côté fenêtre, donc à GAUCHE
+// sur le plan (demande Quentin 12/06). On inverse l'ordre d'affichage des
+// colonnes pour ses deux racks (E et F) sans toucher aux autres allées.
 const AISLES = [
-  { id: 'ALLEE1', label: 'Allée 1', topRack: 'A', bottomRack: 'B' },
-  { id: 'ALLEE2', label: 'Allée 2', topRack: 'C', bottomRack: 'D' },
-  { id: 'ALLEE3', label: 'Allée 3', topRack: 'E', bottomRack: 'F' },
-  { id: 'ZONEG', label: 'Zone G', topRack: 'G', bottomRack: null },
+  { id: 'ALLEE1', label: 'Allée 1', topRack: 'A', bottomRack: 'B', flipColumns: false },
+  { id: 'ALLEE2', label: 'Allée 2', topRack: 'C', bottomRack: 'D', flipColumns: false },
+  { id: 'ALLEE3', label: 'Allée 3', topRack: 'E', bottomRack: 'F', flipColumns: true },
+  { id: 'ZONEG', label: 'Zone G', topRack: 'G', bottomRack: null, flipColumns: false },
 ]
 
 // Niveaux d'étage (0 = sol, 1 = milieu, 2 = haut)
@@ -180,7 +184,7 @@ export function WarehouseVisualMap({ onLocationClick, onCreateLocation }: Wareho
 }
 
 interface AisleViewProps {
-  aisle: { id: string; label: string; topRack: string; bottomRack: string | null }
+  aisle: { id: string; label: string; topRack: string; bottomRack: string | null; flipColumns: boolean }
   locationsByRack: Map<string, Map<string, Map<number, Location>>>
   maxColsByRack: Map<string, number>
   onLocationClick: (location: Location) => void
@@ -205,7 +209,7 @@ const AisleView = memo(function AisleView({ aisle, locationsByRack, maxColsByRac
           rackOwnMaxCol={topMaxCols}
           onLocationClick={onLocationClick}
           onCreateLocation={onCreateLocation}
-          isReversed={true} // Colonnes de droite à gauche pour le rack du haut
+          isReversed={!aisle.flipColumns} // Colonnes de droite à gauche pour le rack du haut (sauf allée flippée)
           reverseLevels={isLowerHalfRack(aisle.topRack)}
         />
 
@@ -231,7 +235,7 @@ const AisleView = memo(function AisleView({ aisle, locationsByRack, maxColsByRac
             rackOwnMaxCol={bottomMaxCols}
             onLocationClick={onLocationClick}
             onCreateLocation={onCreateLocation}
-            isReversed={isLowerHalfRack(aisle.bottomRack)}
+            isReversed={aisle.flipColumns ? !isLowerHalfRack(aisle.bottomRack) : isLowerHalfRack(aisle.bottomRack)}
             reverseLevels={isLowerHalfRack(aisle.bottomRack)}
           />
         )}
