@@ -50,6 +50,7 @@ import {
   Copy,
   CheckCircle2,
   ExternalLink,
+  Globe,
 } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
@@ -82,6 +83,8 @@ interface TenantSettings {
   payment_terms: string | null
   bank_details: string | null
   default_vat_rate: number | null
+  default_hs_code: string | null
+  default_origin_country: string | null
 }
 
 interface User {
@@ -115,6 +118,8 @@ export default function TenantDetailPage() {
     payment_terms: null,
     bank_details: null,
     default_vat_rate: 20.00,
+    default_hs_code: null,
+    default_origin_country: 'FR',
   })
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
@@ -179,6 +184,8 @@ export default function TenantDetailPage() {
         payment_terms: data.settings?.payment_terms || null,
         bank_details: data.settings?.bank_details || null,
         default_vat_rate: data.settings?.default_vat_rate || 20.00,
+        default_hs_code: data.settings?.default_hs_code || null,
+        default_origin_country: data.settings?.default_origin_country || 'FR',
       })
       setTenantForm({
         name: data.tenant?.name || '',
@@ -773,6 +780,53 @@ export default function TenantDetailPage() {
                       setSettings({ ...settings, sync_enabled: checked })
                     }
                   />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Customs Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Globe className="h-4 w-4" />
+                  Douane
+                </CardTitle>
+                <CardDescription>
+                  Code douanier par defaut pour les envois hors UE (Suisse, UK...)
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="default_hs_code">Code douanier (SH)</Label>
+                    <Input
+                      id="default_hs_code"
+                      value={settings.default_hs_code || ''}
+                      onChange={(e) =>
+                        setSettings({ ...settings, default_hs_code: e.target.value || null })
+                      }
+                      placeholder="Ex: 21069098"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Code SH (systeme harmonise) des produits de ce client. Sert de
+                      reference et de valeur par defaut pour les declarations douanieres.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="default_origin_country">Pays d&apos;origine</Label>
+                    <Input
+                      id="default_origin_country"
+                      value={settings.default_origin_country || ''}
+                      onChange={(e) =>
+                        setSettings({ ...settings, default_origin_country: e.target.value.toUpperCase() || null })
+                      }
+                      placeholder="FR"
+                      maxLength={2}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Code pays ISO a 2 lettres (FR par defaut).
+                    </p>
+                  </div>
                 </div>
               </CardContent>
             </Card>

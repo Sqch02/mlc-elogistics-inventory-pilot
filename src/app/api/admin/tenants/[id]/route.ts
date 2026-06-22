@@ -133,7 +133,8 @@ export async function PATCH(
     const settingsFieldNames = [
       'sendcloud_api_key', 'sendcloud_secret', 'sendcloud_webhook_secret', 'sync_enabled',
       'invoice_prefix', 'invoice_next_number', 'payment_terms',
-      'bank_details', 'default_vat_rate'
+      'bank_details', 'default_vat_rate',
+      'default_hs_code', 'default_origin_country'
     ]
 
     for (const field of settingsFieldNames) {
