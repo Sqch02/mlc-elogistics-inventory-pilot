@@ -123,19 +123,37 @@ export async function GET(request: NextRequest) {
     interface ShipmentRow { id: string }
     interface ItemRow { shipment_id: string; qty: number; skus: { sku_code: string; name: string } | null }
     const shipmentIds = ((shipments || []) as ShipmentRow[]).map((s) => s.id)
-    let itemsByShipment = new Map<string, Array<{ qty: number; skus: { sku_code: string; name: string } | null }>>()
+    const itemsByShipment = new Map<string, Array<{ qty: number; skus: { sku_code: string; name: string } | null }>>()
     if (shipmentIds.length > 0) {
-      const { data: items } = await db
-        .from('shipment_items')
-        .select('shipment_id, qty, skus(sku_code, name)')
-        .eq('tenant_id', tenantId)
-        .in('shipment_id', shipmentIds)
-
-      itemsByShipment = new Map()
-      for (const it of ((items || []) as unknown as ItemRow[])) {
-        const arr = itemsByShipment.get(it.shipment_id) || []
-        arr.push({ qty: it.qty, skus: it.skus })
-        itemsByShipment.set(it.shipment_id, arr)
+      // Chunk the IN() query. The export fetches pages of 1000 shipments; a
+      // single .in() with 1000 UUIDs builds a URL too long for PostgREST and
+      // the query silently returns nothing, leaving the export SKU/articles
+      // columns empty (signale par Quentin 24/06). 200 IDs per chunk stays
+      // well within URL limits. Chunks run in parallel.
+      const CHUNK = 200
+      const chunks: string[][] = []
+      for (let i = 0; i < shipmentIds.length; i += CHUNK) {
+        chunks.push(shipmentIds.slice(i, i + CHUNK))
+      }
+      const chunkResults = await Promise.all(
+        chunks.map((slice) =>
+          db
+            .from('shipment_items')
+            .select('shipment_id, qty, skus(sku_code, name)')
+            .eq('tenant_id', tenantId)
+            .in('shipment_id', slice),
+        ),
+      )
+      for (const { data: items, error: itemsErr } of chunkResults) {
+        if (itemsErr) {
+          console.error('[shipments] items chunk error:', itemsErr.message)
+          continue
+        }
+        for (const it of ((items || []) as unknown as ItemRow[])) {
+          const arr = itemsByShipment.get(it.shipment_id) || []
+          arr.push({ qty: it.qty, skus: it.skus })
+          itemsByShipment.set(it.shipment_id, arr)
+        }
       }
     }
 
@@ -148,7 +166,6 @@ export async function GET(request: NextRequest) {
     const rpcStats = rpcRes.data
     const rpcError = rpcRes.error
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let stats: { totalCost: number; totalValue: number; missingPricing: number }
 
     if (!rpcError && rpcStats) {
