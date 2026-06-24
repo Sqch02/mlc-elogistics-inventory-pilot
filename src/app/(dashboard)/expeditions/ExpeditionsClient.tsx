@@ -601,9 +601,27 @@ export function ExpeditionsClient() {
       }
 
       const exportData = allShipments.map((s) => {
+        // Line items (SKU + qty) per shipment. The API already returns
+        // shipment_items; we surface them here so the export lets Quentin
+        // verifier le stock par article (demande 24/06).
+        const items = (s.shipment_items || []) as Array<{
+          qty: number
+          skus: { sku_code: string; name: string } | null
+        }>
+        const skuList = items
+          .map((i) => i.skus?.sku_code || i.skus?.name || '?')
+          .join(' | ')
+        const articlesList = items
+          .map((i) => `${i.skus?.sku_code || i.skus?.name || '?'} x${i.qty}`)
+          .join(' | ')
+        const nbArticles = items.reduce((sum, i) => sum + (Number(i.qty) || 0), 0)
+
         const base: Record<string, string | number> = {
           date: s.shipped_at ? formatDate(s.shipped_at) : '',
           reference: s.order_ref || '',
+          sku: skuList,
+          articles: articlesList,
+          nb_articles: nbArticles,
           destinataire: s.recipient_name || '',
           email: s.recipient_email || '',
           telephone: s.recipient_phone || '',
