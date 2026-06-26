@@ -33,12 +33,17 @@ const COLORS = [
 ]
 
 export function SkuSalesChart({ data, totalSkus, totalQuantity }: SkuSalesChartProps) {
-  // Prepare data for chart - truncate long names
-  const chartData = data.map((item, index) => ({
-    ...item,
-    shortCode: item.sku_code.length > 15 ? item.sku_code.slice(0, 15) + '...' : item.sku_code,
-    fill: COLORS[index % COLORS.length],
-  }))
+  // Prepare data for chart. On affiche le NOM du produit (pas le code SKU
+  // technique) : la cliente veut voir "combien de Perte de Poids vendus", pas
+  // "FLRN-PPOIDS-FBCG" (demande Florna 25/06).
+  const chartData = data.map((item, index) => {
+    const label = item.name || item.sku_code
+    return {
+      ...item,
+      shortName: label.length > 24 ? label.slice(0, 24) + '…' : label,
+      fill: COLORS[index % COLORS.length],
+    }
+  })
 
   const maxQuantity = Math.max(...data.map(d => d.quantity_sold), 1)
 
@@ -49,7 +54,7 @@ export function SkuSalesChart({ data, totalSkus, totalQuantity }: SkuSalesChartP
           <div>
             <CardTitle className="flex items-center gap-2 text-lg font-semibold">
               <Package className="h-5 w-5 text-muted-foreground" />
-              Produits vendus par SKU
+              Unités vendues par produit
               <TooltipProvider>
                 <UITooltip>
                   <TooltipTrigger asChild>
@@ -74,7 +79,7 @@ export function SkuSalesChart({ data, totalSkus, totalQuantity }: SkuSalesChartP
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant="muted">{totalSkus} SKUs</Badge>
+            <Badge variant="muted">{totalSkus} produits</Badge>
             <Badge variant="success">{totalQuantity.toLocaleString('fr-FR')} unites</Badge>
           </div>
         </div>
@@ -91,7 +96,7 @@ export function SkuSalesChart({ data, totalSkus, totalQuantity }: SkuSalesChartP
               <BarChart
                 data={chartData}
                 layout="vertical"
-                margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
+                margin={{ top: 5, right: 40, left: 140, bottom: 5 }}
               >
                 <XAxis
                   type="number"
@@ -101,9 +106,9 @@ export function SkuSalesChart({ data, totalSkus, totalQuantity }: SkuSalesChartP
                 />
                 <YAxis
                   type="category"
-                  dataKey="shortCode"
+                  dataKey="shortName"
                   tick={{ fontSize: 11 }}
-                  width={95}
+                  width={135}
                 />
                 <Tooltip
                   content={({ active, payload }) => {
