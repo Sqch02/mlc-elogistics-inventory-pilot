@@ -75,7 +75,7 @@ export function SkuSalesChart({ data, totalSkus, totalQuantity }: SkuSalesChartP
               </TooltipProvider>
             </CardTitle>
             <CardDescription>
-              Top 10 des produits les plus expedies sur la periode
+              Tous les produits, du plus vendu au moins vendu, sur la periode
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -91,7 +91,7 @@ export function SkuSalesChart({ data, totalSkus, totalQuantity }: SkuSalesChartP
             <p>Aucune vente sur cette periode</p>
           </div>
         ) : (
-          <div className="h-[350px]">
+          <div style={{ height: Math.max(300, data.length * 42 + 40) }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={chartData}

@@ -196,7 +196,8 @@ export async function GET(request: Request) {
     const carrierStats = carrierResult
     const stockForecast = stockResult
     const skuSalesAll = skuSalesResult
-    const skuSalesData = skuSalesAll.slice(0, 10)
+    // Florna veut TOUS les produits, pas seulement le top 10 (demande 29/06).
+    const skuSalesData = skuSalesAll
     const totalSkusSold = skuSalesAll.length
     const totalQuantitySold = skuSalesAll.reduce(
       (sum, s) => sum + s.quantity_sold,
