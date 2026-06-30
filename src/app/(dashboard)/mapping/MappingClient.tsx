@@ -42,6 +42,13 @@ import {
   Link as LinkIcon,
 } from 'lucide-react'
 
+interface SkuSuggestion {
+  sku_id: string
+  sku_code: string
+  name: string
+  score: number
+}
+
 interface UnmappedGroup {
   raw_sku: string | null
   raw_description: string | null
@@ -51,6 +58,7 @@ interface UnmappedGroup {
   first_seen: string | null
   last_seen: string | null
   sample_orders: string[]
+  suggestions?: SkuSuggestion[]
 }
 
 type AnomalyType =
@@ -781,6 +789,17 @@ export function MappingClient() {
     })
   }
 
+  // Couche 3: confirmer la suggestion en 1 clic -> cree la regle et resout.
+  const confirmSuggestion = (group: UnmappedGroup, skuId: string) => {
+    resolveMutation.mutate({
+      action: 'map_to_sku',
+      raw_sku: group.raw_sku,
+      raw_description: group.raw_description,
+      raw_variant_id: group.raw_variant_id,
+      target_sku_id: skuId,
+    })
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -882,6 +901,27 @@ export function MappingClient() {
                       </p>
                     )}
 
+                    {(() => {
+                      const suggs = group.suggestions ?? []
+                      const top = suggs[0]
+                      const strong = suggs.filter((s) => s.score >= 0.9)
+                      if (!top) return null
+                      return (
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                          <span className="text-xs text-muted-foreground">Suggestion :</span>
+                          {strong.length >= 2 ? (
+                            <Badge variant="warning" className="text-[11px]">
+                              Plusieurs produits ({strong.map((s) => s.name).join(' + ')}) — pack ?
+                            </Badge>
+                          ) : (
+                            <Badge variant="success" className="text-[11px]">
+                              {top.name} ({Math.round(top.score * 100)}%)
+                            </Badge>
+                          )}
+                        </div>
+                      )
+                    })()}
+
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground pt-1">
                       <span>
                         <strong className="text-foreground">{group.total_qty}</strong> unite(s)
@@ -908,8 +948,26 @@ export function MappingClient() {
 
                   {/* Actions column */}
                   <div className="flex flex-col sm:flex-row lg:flex-col gap-2 lg:w-[220px] shrink-0">
+                    {(() => {
+                      const suggs = group.suggestions ?? []
+                      const top = suggs[0]
+                      const isPack = suggs.filter((s) => s.score >= 0.9).length >= 2
+                      if (!top || isPack) return null
+                      return (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          className="w-full bg-emerald-600 hover:bg-emerald-700"
+                          onClick={() => confirmSuggestion(group, top.sku_id)}
+                          disabled={resolveMutation.isPending}
+                        >
+                          <CheckCircle2 className="h-4 w-4 mr-2" />
+                          Confirmer : {top.name}
+                        </Button>
+                      )
+                    })()}
                     <Button
-                      variant="default"
+                      variant="outline"
                       size="sm"
                       className="w-full"
                       onClick={() => openMap(group)}

@@ -17,6 +17,13 @@ interface ShipmentRow {
   order_ref: string | null
 }
 
+export interface SkuSuggestion {
+  sku_id: string
+  sku_code: string
+  name: string
+  score: number
+}
+
 export interface UnmappedGroup {
   raw_sku: string | null
   raw_description: string | null
@@ -26,6 +33,7 @@ export interface UnmappedGroup {
   first_seen: string | null
   last_seen: string | null
   sample_orders: string[]
+  suggestions: SkuSuggestion[]
 }
 
 // GET /api/mapping/unmapped - Aggregated unmapped items for the current tenant
@@ -116,7 +124,7 @@ export async function GET() {
       }
     }
 
-    const groups: UnmappedGroup[] = Array.from(groupMap.values())
+    const baseGroups = Array.from(groupMap.values())
       .map((g) => ({
         raw_sku: g.raw_sku,
         raw_description: g.raw_description,
@@ -128,6 +136,28 @@ export async function GET() {
         sample_orders: g.order_refs,
       }))
       .sort((a, b) => b.total_qty - a.total_qty)
+
+    // Couche 3: attach a best-guess product suggestion to each group so the
+    // admin can valider en 1 clic (suggest_skus_for_label = mots-cles + trigram).
+    const groups: UnmappedGroup[] = await Promise.all(
+      baseGroups.map(async (g) => {
+        let suggestions: SkuSuggestion[] = []
+        try {
+          const { data: sugg } = await adminClient.rpc('suggest_skus_for_label', {
+            p_tenant_id: tenantId,
+            p_raw_sku: g.raw_sku,
+            p_raw_description: g.raw_description,
+            p_raw_variant_id: g.raw_variant_id,
+          })
+          suggestions = ((sugg || []) as Array<{ sku_id: string; sku_code: string; name: string; score: number }>).map(
+            (s) => ({ sku_id: s.sku_id, sku_code: s.sku_code, name: s.name, score: Number(s.score) })
+          )
+        } catch (e) {
+          console.error('[api/mapping/unmapped] suggestion error:', e)
+        }
+        return { ...g, suggestions }
+      })
+    )
 
     return NextResponse.json({ groups })
   } catch (error) {
