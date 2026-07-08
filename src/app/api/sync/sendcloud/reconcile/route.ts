@@ -100,6 +100,14 @@ async function reconcileTenant(
       const best = pickBestParcel(parcels)
       if (!best) {
         res.noParcelFound++
+        // Stamp it so we don't re-probe this parcel-less order every run
+        // (old abandoned On Hold orders that were never actually shipped).
+        if (!dryRun) {
+          await adminClient
+            .from('shipments')
+            .update({ reconcile_checked_at: new Date().toISOString() })
+            .eq('id', row.id)
+        }
         continue
       }
 
@@ -122,6 +130,7 @@ async function reconcileTenant(
             shipped_at: best.shipped_at,
             has_error: best.has_error,
             error_message: best.error_message,
+            reconcile_checked_at: new Date().toISOString(),
           })
           .eq('id', row.id)
         if (error) {
