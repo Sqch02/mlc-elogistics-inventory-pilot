@@ -35,7 +35,6 @@ interface StuckRow {
   id: string
   order_ref: string
   sendcloud_id: string
-  status_message: string | null
 }
 
 interface ReconcileResult {
@@ -82,42 +81,19 @@ async function reconcileTenant(
     samples: [],
   }
 
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  // 1. Genuine stuck orders only: On Hold UUID rows with NO numeric sibling,
+  // older than 24h. The RPC does the NOT EXISTS in SQL so we never churn on the
+  // thousands of already-tracked duplicates (which would otherwise fill every
+  // batch and starve the real backlog).
+  const { data: candidates } = await adminClient.rpc('reconcile_stuck_candidates', {
+    p_tenant_id: tenantId,
+    p_limit: limit,
+  })
+  const toProcess = (candidates || []) as StuckRow[]
+  res.scanned = toProcess.length
+  if (toProcess.length === 0) return res
 
-  // 1. Oldest-first batch of stuck On Hold integration (UUID) rows.
-  const { data: stuckRows } = await adminClient
-    .from('shipments')
-    .select('id, order_ref, sendcloud_id, status_message')
-    .eq('tenant_id', tenantId)
-    .eq('is_return', false)
-    .eq('status_message', 'On Hold')
-    .like('sendcloud_id', '%-%')
-    .not('order_ref', 'is', null)
-    .lt('created_at', cutoff)
-    .order('created_at', { ascending: true })
-    .limit(limit)
-
-  const rows = (stuckRows || []) as StuckRow[]
-  res.scanned = rows.length
-  if (rows.length === 0) return res
-
-  // 2. Drop any order that already has a numeric sibling row: the real parcel
-  // is tracked there, so touching the UUID would create a double count.
-  const orderRefs = rows.map((r) => r.order_ref)
-  const { data: siblings } = await adminClient
-    .from('shipments')
-    .select('order_ref')
-    .eq('tenant_id', tenantId)
-    .in('order_ref', orderRefs)
-    .not('sendcloud_id', 'like', '%-%')
-
-  const refsWithSibling = new Set(
-    ((siblings || []) as Array<{ order_ref: string }>).map((s) => s.order_ref),
-  )
-  const toProcess = rows.filter((r) => !refsWithSibling.has(r.order_ref))
-  res.skippedHasSibling = rows.length - toProcess.length
-
-  // 3. For each remaining stuck order, ask Sendcloud for its real parcel status.
+  // 2. For each stuck order, ask Sendcloud for its real parcel status.
   for (const row of toProcess) {
     try {
       const parcels = await fetchParcelsByOrderNumber(credentials, row.order_ref)
