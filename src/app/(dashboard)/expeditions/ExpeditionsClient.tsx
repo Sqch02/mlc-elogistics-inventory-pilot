@@ -64,36 +64,51 @@ function getStatusBadge(statusId: number | null, statusMessage: string | null) {
 
   if (!statusId) return <Badge variant="muted">Inconnu</Badge>
 
-  // Sendcloud status IDs: https://support.sendcloud.com/hc/en-us/articles/360024799612-Parcel-statuses
+  // Sendcloud status IDs. Libelles cales sur les vrais status_message observes
+  // dans nos donnees (status_id 11 = "Delivered" = Livre, pas "Annonce").
   const statusColors: Record<number, { variant: 'success' | 'warning' | 'error' | 'info' | 'muted' | 'blue' | 'cyan' | 'purple' | 'indigo', label: string }> = {
-    // Initial states
-    1: { variant: 'muted', label: 'Brouillon' },
+    // Preparation
     1000: { variant: 'cyan', label: 'Prêt' },
-    1001: { variant: 'cyan', label: 'En attente' },
+    1001: { variant: 'cyan', label: "En cours d'annonce" },
+    1: { variant: 'info', label: 'Annoncé' },
+    1002: { variant: 'error', label: 'Échec annonce' },
 
-    // In progress states
-    11: { variant: 'blue', label: 'Annoncé' },
-    12: { variant: 'indigo', label: 'En transit' },
-    22: { variant: 'indigo', label: 'Centre de tri' },
+    // En transit
+    3: { variant: 'indigo', label: 'En transit' },
+    7: { variant: 'indigo', label: 'Centre de tri' },
+    22: { variant: 'indigo', label: 'Pris en charge' },
+    91: { variant: 'indigo', label: 'En transit' },
+    62990: { variant: 'indigo', label: 'Centre de tri' },
+    62989: { variant: 'blue', label: 'En douane' },
     31: { variant: 'blue', label: 'En douane' },
     32: { variant: 'warning', label: 'Douane bloquée' },
 
-    // Delivery states
+    // En livraison / point relais
+    92: { variant: 'purple', label: 'En livraison' },
     13: { variant: 'purple', label: 'En livraison' },
-    62: { variant: 'purple', label: 'Livré au voisin' },
-    80: { variant: 'blue', label: 'Point relais' },
+    12: { variant: 'blue', label: 'À retirer (relais)' },
 
-    // Final states
-    3: { variant: 'success', label: 'Livré' },
-    4: { variant: 'success', label: 'Livré' },
+    // Livre
+    11: { variant: 'success', label: 'Livré' },
+    62: { variant: 'success', label: 'Livré au voisin' },
 
-    // Problem states
-    91: { variant: 'warning', label: 'Exception' },
-    92: { variant: 'warning', label: 'Retour' },
+    // Retard / anomalies non bloquantes
+    4: { variant: 'warning', label: 'Retard livraison' },
+    62994: { variant: 'info', label: 'Date modifiée' },
+    62995: { variant: 'info', label: 'Adresse modifiée' },
+    1337: { variant: 'warning', label: 'Statut inconnu' },
+    62996: { variant: 'warning', label: 'Exception' },
+    62992: { variant: 'warning', label: 'Retourné' },
+
+    // Problemes / echecs
+    8: { variant: 'warning', label: 'Échec livraison' },
+    80: { variant: 'error', label: 'Non livrable' },
     93: { variant: 'warning', label: 'Non livrable' },
     99: { variant: 'error', label: 'Perdu' },
+    62991: { variant: 'error', label: 'Refusé' },
+    62997: { variant: 'error', label: 'Adresse invalide' },
 
-    // Cancelled
+    // Annule
     2000: { variant: 'error', label: 'Annulé' },
     2001: { variant: 'error', label: 'Refusé' },
   }
