@@ -278,6 +278,39 @@ export async function fetchAllParcels(
   return allParcels
 }
 
+// Fetch the real parcel(s) for a given order number. Used by the reconciliation
+// job to resolve orders stuck as "On Hold" integration rows: the delivered/shipped
+// parcel exists in Sendcloud but was never re-fetched by the incremental cron.
+export async function fetchParcelsByOrderNumber(
+  credentials: SendcloudCredentials,
+  orderNumber: string,
+): Promise<ParsedShipment[]> {
+  // No parcels in mock mode - reconciliation is a real-API-only concern.
+  if (process.env.SENDCLOUD_USE_MOCK === 'true') {
+    return []
+  }
+
+  const auth = Buffer.from(`${credentials.apiKey}:${credentials.secret}`).toString('base64')
+  const params = new URLSearchParams()
+  params.set('order_number', orderNumber)
+  const url = `${SENDCLOUD_API_URL}/parcels?${params.toString()}`
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/json',
+    },
+  })
+
+  if (!response.ok) {
+    const error = await response.text()
+    throw new Error(`Sendcloud API error (order_number=${orderNumber}): ${response.status} - ${error}`)
+  }
+
+  const data: SendcloudResponse = await response.json()
+  return (data.parcels || []).map(parseParcel)
+}
+
 // ============================================
 // INTEGRATION SHIPMENTS (Orders "On Hold")
 // ============================================
