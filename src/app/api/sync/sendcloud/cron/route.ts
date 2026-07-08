@@ -5,6 +5,7 @@ import type { SendcloudCredentials, ParsedShipment, ParsedReturn } from '@/lib/s
 import { getDestination } from '@/lib/utils/pricing'
 import { processShipmentItems } from '@/lib/utils/sku-mapping'
 import { consumeStock } from '@/lib/stock/consume'
+import { reconcileTenant } from '@/lib/sendcloud/reconcile'
 
 interface PricingRule {
   carrier: string
@@ -458,6 +459,24 @@ async function runSync() {
         if (returnsError) {
           console.error(`[Cron] Returns batch upsert error:`, returnsError.message)
         }
+      }
+
+      // ============================================
+      // RECONCILE STUCK "ON HOLD" ORDERS (Mondial Relay status bug)
+      // ============================================
+      // Small best-effort batch each tick: catch deliveries whose manual
+      // "Delivered" flip in Sendcloud never came back down as a parcel. Isolated
+      // in try/catch so it can never break the main sync. The status changes it
+      // writes are picked up by the refresh_all_analytics_views at end of run.
+      try {
+        const rec = await reconcileTenant(adminClient, tenant.id, credentials, 15, false)
+        if (rec.updated > 0 || rec.errors > 0) {
+          console.log(
+            `[Cron] Reconcile tenant ${tenant.id}: ${rec.updated} rattrapees, ${rec.noParcelFound} sans colis, ${rec.errors} erreurs`,
+          )
+        }
+      } catch (recErr) {
+        console.error(`[Cron] Reconcile step failed for tenant ${tenant.id}:`, recErr)
       }
 
       // ============================================
