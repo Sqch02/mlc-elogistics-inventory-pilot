@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireTenant, requireRole, getCurrentUser } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 
-interface InboundEntry {
+interface InboundRestockEntry {
   status: string
   qty: number
   sku_id: string
@@ -30,15 +30,13 @@ export async function PATCH(
     const { action, accepted_qty, note } = body
 
     // Fetch current entry
-    const { data: entry, error: fetchError } = await adminClient
+    const { data: entryData, error: fetchError } = await adminClient
       .from('inbound_restock')
       .select('*')
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .single() as unknown as {
-        data: InboundEntry | null
-        error: { message: string } | null
-      }
+      .single()
+    const entry = entryData as unknown as InboundRestockEntry | null
 
     if (fetchError || !entry) {
       return NextResponse.json({ error: 'Arrivage non trouve' }, { status: 404 })
@@ -74,14 +72,13 @@ export async function PATCH(
       if (updateError) throw updateError
 
       // Update stock_snapshots
-      const { data: snapshot } = await adminClient
+      const { data: snapshotData } = await adminClient
         .from('stock_snapshots')
         .select('id, qty_current')
         .eq('sku_id', entry.sku_id)
         .eq('tenant_id', tenantId)
-        .single() as unknown as {
-          data: StockSnapshot | null
-        }
+        .single()
+      const snapshot = snapshotData as unknown as StockSnapshot | null
 
       if (snapshot) {
         await adminClient

@@ -508,9 +508,12 @@ export async function fetchIntegrationShipments(
   }
 
   if (nextUrl) {
-    throw new SendcloudPaginationLimitError(
-      `integration ${integrationId} shipments`,
-      maxPages,
+    // Unlike parcels/returns, this endpoint is a non-incremental snapshot: the
+    // next cron tick starts again at page 1 and does not advance a cursor. A
+    // bounded partial result is therefore recoverable and must not prevent
+    // fresh parcel updates for the whole tenant.
+    console.warn(
+      `[Sendcloud] Integration ${integrationId} still has data after ${maxPages} pages; continuing with ${allShipments.length} pending shipments`,
     )
   }
 

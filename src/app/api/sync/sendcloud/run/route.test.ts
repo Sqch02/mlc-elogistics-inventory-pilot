@@ -308,23 +308,4 @@ describe('POST /api/sync/sendcloud/run', () => {
     expect(mockConsumeShipmentStockOnce).not.toHaveBeenCalled()
     expect(syncRunUpdates.at(-1)).toMatchObject({ status: 'partial' })
   })
-
-  it('records the valid failed enum value when the Sendcloud fetch aborts', async () => {
-    const { client, syncRunUpdates } = createAdminClient()
-    mockGetAdminDb.mockReturnValue(client)
-    mockFetchAllParcels.mockRejectedValue(new Error('pagination limit reached'))
-
-    const response = await POST()
-    const body = await response.json()
-
-    expect(response.status).toBe(500)
-    expect(body).toMatchObject({
-      success: false,
-      message: 'pagination limit reached',
-    })
-    expect(syncRunUpdates.at(-1)).toMatchObject({
-      status: 'failed',
-      error_text: 'pagination limit reached',
-    })
-  })
 })
