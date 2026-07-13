@@ -2000,6 +2000,13 @@ export type Database = {
         }
         Returns: string
       }
+      map_shipment_items_batch: {
+        Args: { p_items: Json; p_tenant_id: string }
+        Returns: {
+          item_index: number
+          sku_id: string
+        }[]
+      }
       normalize_label: { Args: { p_txt: string }; Returns: string }
       reconcile_stuck_candidates: {
         Args: { p_limit: number; p_tenant_id: string }
@@ -2033,6 +2040,14 @@ export type Database = {
               still_unmapped: number
             }[]
           }
+      reverse_duplicate_shipment_stock: {
+        Args: { p_shipment_ids: string[]; p_tenant_id: string }
+        Returns: {
+          shipments_deleted: number
+          skus_reversed: number
+          units_reversed: number
+        }[]
+      }
       suggest_skus_for_label: {
         Args: {
           p_raw_description: string
