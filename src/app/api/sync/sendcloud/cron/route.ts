@@ -75,6 +75,7 @@ async function runSync() {
         .from('pricing_rules')
         .select('carrier, destination, weight_min_grams, weight_max_grams, price_eur')
         .eq('tenant_id', tenant.id)
+        .order('weight_min_grams', { ascending: true })
 
       // ============================================
       // FETCH DATA (parallel)

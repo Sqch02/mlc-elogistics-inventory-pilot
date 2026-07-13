@@ -223,6 +223,7 @@ export async function POST(request: NextRequest) {
       .from('pricing_rules')
       .select('carrier, destination, weight_min_grams, weight_max_grams, price_eur')
       .eq('tenant_id', tenantId)
+      .order('weight_min_grams', { ascending: true })
 
     // Group shipments by destination zone + delivery type + weight bracket
     const shippingGroups = new Map<

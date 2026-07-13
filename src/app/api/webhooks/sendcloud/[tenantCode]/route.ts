@@ -343,6 +343,7 @@ export async function POST(
       .from('pricing_rules')
       .select('carrier, destination, weight_min_grams, weight_max_grams, price_eur')
       .eq('tenant_id', tenantId)
+      .order('weight_min_grams', { ascending: true })
 
     const results = {
       processed: 0,
