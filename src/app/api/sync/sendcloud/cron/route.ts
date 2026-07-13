@@ -28,6 +28,39 @@ export async function fetchCronData(
   ])
 }
 
+const ANALYTICS_REFRESH_RPCS = [
+  'refresh_physical_items_view',
+  'refresh_dashboard_daily',
+  'refresh_sku_metrics',
+] as const
+
+export async function refreshCronAnalytics(
+  adminClient: ReturnType<typeof getAdminDb>,
+): Promise<{ refreshed: string[]; failed: string[] }> {
+  const refreshed: string[] = []
+  const failed: string[] = []
+
+  // Keep the dependency order: SKU consumption metrics read from the physical
+  // items view. Each RPC is isolated so a timeout cannot block later views.
+  for (const rpcName of ANALYTICS_REFRESH_RPCS) {
+    try {
+      const { error } = await adminClient.rpc(rpcName)
+      if (error) {
+        failed.push(rpcName)
+        console.error(`[Cron] ${rpcName} failed:`, error)
+      } else {
+        refreshed.push(rpcName)
+        console.log(`[Cron] ${rpcName} completed`)
+      }
+    } catch (error) {
+      failed.push(rpcName)
+      console.error(`[Cron] ${rpcName} failed:`, error)
+    }
+  }
+
+  return { refreshed, failed }
+}
+
 // Background sync function - runs after response is sent
 async function runSync() {
   const startTime = Date.now()
