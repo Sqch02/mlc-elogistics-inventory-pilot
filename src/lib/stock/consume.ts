@@ -1,215 +1,192 @@
 /**
  * Stock Consumption Logic
- * Handles decrementing stock for both simple SKUs and bundles
+ *
+ * P1-stock: toute la mutation de stock passe desormais par le RPC atomique
+ * `apply_stock_delta` (verrou FOR UPDATE + GREATEST(0,..) + decomposition bundle
+ * recursive + trace stock_movements). L'ancien decrementSkuStock etait un
+ * read-modify-write non atomique (lost-update sous acces concurrent webhook+cron).
+ *
+ * La consommation au niveau d'une EXPEDITION passe par consumeShipmentStockOnce,
+ * qui pose un verrou logique idempotent via un compare-and-swap sur
+ * shipments.stock_consumed_at : quel que soit l'ordre webhook/cron/sync manuel,
+ * une expedition n'est consommee qu'UNE fois. La reprise sur annulation
+ * (restockShipmentStock) fait le CAS inverse.
  */
 
 import { getAdminDb } from '@/lib/supabase/untyped'
 
-interface BundleComponent {
-  component_sku_id: string
-  qty_component: number
-  skus: { sku_code: string } | null
-}
-
 interface StockConsumptionResult {
   sku_id: string
-  sku_code: string
   qty_consumed: number
   qty_before: number
   qty_after: number
   is_bundle_component: boolean
-  bundle_sku_code?: string
+}
+
+interface DeltaRow {
+  sku_id: string
+  qty_before: number
+  qty_after: number
+  was_bundle: boolean
 }
 
 /**
- * Consume stock for a SKU (handles both simple SKUs and bundles)
- *
- * @param tenantId - Tenant ID
- * @param skuId - The SKU ID being shipped
- * @param qty - Quantity shipped
- * @param referenceId - Reference ID (shipment ID)
- * @param referenceType - Reference type (e.g., 'shipment')
- * @returns Array of stock consumption results
+ * Apply an atomic stock delta for one (bundle or simple) SKU via apply_stock_delta.
+ * Negative qty consumes, e.g. consumeStock(t, sku, 3) removes 3 units.
  */
 export async function consumeStock(
   tenantId: string,
   skuId: string,
   qty: number,
   referenceId?: string,
-  referenceType?: string
+  referenceType?: string,
 ): Promise<StockConsumptionResult[]> {
   const adminClient = getAdminDb()
-  const results: StockConsumptionResult[] = []
 
-  // Get SKU info
-  const { data: sku } = await adminClient
-    .from('skus')
-    .select('id, sku_code')
-    .eq('id', skuId)
-    .single()
+  const { data, error } = await adminClient.rpc('apply_stock_delta', {
+    p_tenant_id: tenantId,
+    p_sku_id: skuId,
+    p_delta: -qty,
+    p_reason: qty >= 0 ? 'Expédition' : 'Annulation colis',
+    p_reference_id: referenceId ?? null,
+    p_reference_type: referenceType ?? null,
+    p_movement_type: qty >= 0 ? 'shipment' : 'restock',
+  })
 
-  if (!sku) {
-    console.warn(`[Stock] SKU ${skuId} not found`)
-    return results
+  if (error) {
+    console.error(`[Stock] apply_stock_delta error for sku ${skuId}:`, error.message)
+    return []
   }
 
-  // Check if this SKU is a bundle
-  const { data: bundle } = await adminClient
-    .from('bundles')
-    .select(`
-      id,
-      bundle_components(
-        component_sku_id,
-        qty_component,
-        skus:component_sku_id(sku_code)
-      )
-    `)
-    .eq('bundle_sku_id', skuId)
-    .eq('tenant_id', tenantId)
-    .single()
-
-  if (bundle && bundle.bundle_components && (bundle.bundle_components as BundleComponent[]).length > 0) {
-    // It's a bundle - consume each component
-    console.log(`[Stock] ${sku.sku_code} is a bundle with ${(bundle.bundle_components as BundleComponent[]).length} components`)
-
-    for (const component of bundle.bundle_components as BundleComponent[]) {
-      const totalQty = component.qty_component * qty
-      const componentResult = await decrementSkuStock(
-        adminClient,
-        tenantId,
-        component.component_sku_id,
-        totalQty,
-        referenceId,
-        referenceType,
-        `Bundle ${sku.sku_code} x${qty}`
-      )
-
-      if (componentResult) {
-        results.push({
-          ...componentResult,
-          is_bundle_component: true,
-          bundle_sku_code: sku.sku_code,
-        })
-      }
-    }
-  } else {
-    // Simple SKU - consume directly
-    const result = await decrementSkuStock(
-      adminClient,
-      tenantId,
-      skuId,
-      qty,
-      referenceId,
-      referenceType,
-      'Expédition'
-    )
-
-    if (result) {
-      results.push({
-        ...result,
-        is_bundle_component: false,
-      })
-    }
-  }
-
-  return results
-}
-
-/**
- * Decrement stock for a single SKU
- */
-async function decrementSkuStock(
-  adminClient: ReturnType<typeof getAdminDb>,
-  tenantId: string,
-  skuId: string,
-  qty: number,
-  referenceId?: string,
-  referenceType?: string,
-  reason?: string
-): Promise<Omit<StockConsumptionResult, 'is_bundle_component' | 'bundle_sku_code'> | null> {
-  // Get SKU info
-  const { data: sku } = await adminClient
-    .from('skus')
-    .select('sku_code')
-    .eq('id', skuId)
-    .single()
-
-  if (!sku) {
-    console.warn(`[Stock] Component SKU ${skuId} not found`)
-    return null
-  }
-
-  // Get current stock
-  const { data: currentStock } = await adminClient
-    .from('stock_snapshots')
-    .select('qty_current')
-    .eq('sku_id', skuId)
-    .single()
-
-  const qtyBefore = currentStock?.qty_current || 0
-  const qtyAfter = Math.max(0, qtyBefore - qty)
-
-  // Update stock
-  const { error: stockError } = await adminClient
-    .from('stock_snapshots')
-    .upsert({
-      tenant_id: tenantId,
-      sku_id: skuId,
-      qty_current: qtyAfter,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'sku_id' })
-
-  if (stockError) {
-    console.error(`[Stock] Error updating stock for ${sku.sku_code}:`, stockError)
-    return null
-  }
-
-  // Log movement
-  await adminClient
-    .from('stock_movements')
-    .insert({
-      tenant_id: tenantId,
-      sku_id: skuId,
-      qty_before: qtyBefore,
-      qty_after: qtyAfter,
-      adjustment: -qty,
-      movement_type: 'shipment',
-      reason: reason || 'Expédition',
-      reference_id: referenceId || null,
-      reference_type: referenceType || null,
-    })
-
-  console.log(`[Stock] ${sku.sku_code}: ${qtyBefore} → ${qtyAfter} (-${qty})`)
-
-  return {
-    sku_id: skuId,
-    sku_code: sku.sku_code,
+  return ((data ?? []) as DeltaRow[]).map((r) => ({
+    sku_id: r.sku_id,
     qty_consumed: qty,
-    qty_before: qtyBefore,
-    qty_after: qtyAfter,
-  }
+    qty_before: r.qty_before,
+    qty_after: r.qty_after,
+    is_bundle_component: r.was_bundle,
+  }))
 }
 
 /**
- * Process stock consumption for all items in a shipment
+ * Consume stock for ALL items of a shipment, exactly once.
+ *
+ * Compare-and-swap on shipments.stock_consumed_at: the first caller to flip it
+ * from NULL to now() wins and performs the consumption; any concurrent or later
+ * caller (the classic webhook-vs-cron race on a freshly-created parcel) sees a
+ * non-NULL value, claims nothing, and skips. This replaces the non-atomic
+ * `isNewShipment` existence check as the source of idempotency.
+ *
+ * Callers should still gate on "this shipment is new AND has mapped items" to
+ * avoid marking an all-unmapped shipment as consumed before its items resolve.
+ *
+ * @returns { consumed } false if another path already consumed this shipment.
+ */
+export async function consumeShipmentStockOnce(
+  tenantId: string,
+  shipmentId: string,
+): Promise<{ consumed: boolean; count: number }> {
+  const adminClient = getAdminDb()
+
+  // Atomic claim.
+  const { data: claimed } = await adminClient
+    .from('shipments')
+    .update({ stock_consumed_at: new Date().toISOString() })
+    .eq('tenant_id', tenantId)
+    .eq('id', shipmentId)
+    .is('stock_consumed_at', null)
+    .select('id')
+
+  if (!claimed || claimed.length === 0) {
+    return { consumed: false, count: 0 }
+  }
+
+  const { data: items } = await adminClient
+    .from('shipment_items')
+    .select('sku_id, qty')
+    .eq('tenant_id', tenantId)
+    .eq('shipment_id', shipmentId)
+
+  let count = 0
+  for (const it of (items ?? []) as Array<{ sku_id: string; qty: number }>) {
+    try {
+      await adminClient.rpc('apply_stock_delta', {
+        p_tenant_id: tenantId,
+        p_sku_id: it.sku_id,
+        p_delta: -it.qty,
+        p_reason: 'Expédition',
+        p_reference_id: shipmentId,
+        p_reference_type: 'shipment',
+        p_movement_type: 'shipment',
+      })
+      count++
+    } catch (e) {
+      console.error(`[Stock] consume error sku ${it.sku_id} shipment ${shipmentId}:`, e)
+    }
+  }
+
+  return { consumed: true, count }
+}
+
+/**
+ * Reverse the stock consumption of a shipment (parcel cancelled), exactly once.
+ *
+ * CAS in the other direction: only a shipment currently marked consumed
+ * (stock_consumed_at IS NOT NULL) is restocked, and the marker is cleared in the
+ * same atomic step so two cancel events cannot double-restock.
+ *
+ * @returns { restocked } false if the shipment was not consumed / already reversed.
+ */
+export async function restockShipmentStock(
+  tenantId: string,
+  shipmentId: string,
+): Promise<{ restocked: boolean; count: number }> {
+  const adminClient = getAdminDb()
+
+  const { data: claimed } = await adminClient
+    .from('shipments')
+    .update({ stock_consumed_at: null })
+    .eq('tenant_id', tenantId)
+    .eq('id', shipmentId)
+    .not('stock_consumed_at', 'is', null)
+    .select('id')
+
+  if (!claimed || claimed.length === 0) {
+    return { restocked: false, count: 0 }
+  }
+
+  const { data: items } = await adminClient
+    .from('shipment_items')
+    .select('sku_id, qty')
+    .eq('tenant_id', tenantId)
+    .eq('shipment_id', shipmentId)
+
+  let count = 0
+  for (const it of (items ?? []) as Array<{ sku_id: string; qty: number }>) {
+    try {
+      await adminClient.rpc('apply_stock_delta', {
+        p_tenant_id: tenantId,
+        p_sku_id: it.sku_id,
+        p_delta: it.qty,
+        p_reason: 'Annulation colis',
+        p_reference_id: shipmentId,
+        p_reference_type: 'shipment',
+        p_movement_type: 'restock',
+      })
+      count++
+    } catch (e) {
+      console.error(`[Stock] restock error sku ${it.sku_id} shipment ${shipmentId}:`, e)
+    }
+  }
+
+  return { restocked: true, count }
+}
+
+/**
+ * Process stock consumption for all items in a shipment (idempotent per shipment).
  */
 export async function consumeStockForShipment(
   tenantId: string,
   shipmentId: string,
-  items: Array<{ sku_id: string; qty: number }>
-): Promise<StockConsumptionResult[]> {
-  const allResults: StockConsumptionResult[] = []
-
-  for (const item of items) {
-    const results = await consumeStock(
-      tenantId,
-      item.sku_id,
-      item.qty,
-      shipmentId,
-      'shipment'
-    )
-    allResults.push(...results)
-  }
-
-  return allResults
+): Promise<{ consumed: boolean; count: number }> {
+  return consumeShipmentStockOnce(tenantId, shipmentId)
 }

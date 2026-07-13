@@ -4,7 +4,7 @@ import { fetchAllParcels, fetchAllReturns, fetchAllIntegrationShipments } from '
 import type { SendcloudCredentials, ParsedShipment, ParsedReturn } from '@/lib/sendcloud/types'
 import { getDestination } from '@/lib/utils/pricing'
 import { processShipmentItems } from '@/lib/utils/sku-mapping'
-import { consumeStock } from '@/lib/stock/consume'
+import { consumeShipmentStockOnce } from '@/lib/stock/consume'
 import { reconcileTenant } from '@/lib/sendcloud/reconcile'
 
 interface PricingRule {
@@ -376,20 +376,16 @@ async function runSync() {
             // sync run (mirrors the webhook's isNewShipment logic). Skipping
             // this caused REBORN21 stock to drift on 21/05.
             if (newSendcloudIds.has(parcel.sendcloud_id) && mappedCount > 0) {
-              const { data: items } = await adminClient
-                .from('shipment_items')
-                .select('sku_id, qty')
-                .eq('shipment_id', shipmentId)
-
-              for (const it of (items || []) as Array<{ sku_id: string; qty: number }>) {
-                try {
-                  await consumeStock(tenant.id, it.sku_id, it.qty, shipmentId, 'shipment')
-                } catch (stockError) {
-                  console.error(
-                    `[Cron] Error consuming stock for sku_id ${it.sku_id} on parcel ${parcel.sendcloud_id}:`,
-                    stockError,
-                  )
-                }
+              // Idempotent CAS on stock_consumed_at: even if the webhook processes
+              // this same freshly-created parcel concurrently, only one path
+              // actually consumes it (fixes the isNewShipment TOCTOU double-count).
+              try {
+                await consumeShipmentStockOnce(tenant.id, shipmentId)
+              } catch (stockError) {
+                console.error(
+                  `[Cron] Error consuming stock for parcel ${parcel.sendcloud_id}:`,
+                  stockError,
+                )
               }
             }
           } catch (err) {

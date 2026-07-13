@@ -3,7 +3,7 @@ import { createHmac } from 'crypto'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { parseParcel } from '@/lib/sendcloud/client'
 import type { SendcloudParcel, ParsedShipment } from '@/lib/sendcloud/types'
-import { consumeStock } from '@/lib/stock/consume'
+import { consumeShipmentStockOnce, restockShipmentStock } from '@/lib/stock/consume'
 import { getDestination } from '@/lib/utils/pricing'
 import { processShipmentItems } from '@/lib/utils/sku-mapping'
 
@@ -291,38 +291,26 @@ export async function POST(
           const parcel = parseParcel(rawParcel)
           const { data: existing } = await adminClient
             .from('shipments')
-            .select('id, stock_consumed_at')
+            .select('id')
             .eq('tenant_id', tenantId)
             .eq('sendcloud_id', parcel.sendcloud_id)
             .single()
 
           if (!existing) continue
-          const shipment = existing as { id: string; stock_consumed_at: string | null }
+          const shipmentId = (existing as { id: string }).id
 
-          // Only reverse if stock was actually consumed (marker added in P0-stock).
-          // For pre-marker shipments, fall back to "reverse if status_id changes
-          // to a cancelled state for the first time" - tracked via has_error flag.
-          if (shipment.stock_consumed_at) {
-            const { data: items } = await adminClient
-              .from('shipment_items')
-              .select('sku_id, qty')
-              .eq('tenant_id', tenantId)
-              .eq('shipment_id', shipment.id)
-
-            for (const it of (items || []) as Array<{ sku_id: string; qty: number }>) {
-              try {
-                await consumeStock(tenantId, it.sku_id, -it.qty, shipment.id, 'shipment')
-                reversedCount++
-              } catch (e) {
-                console.error('[Webhook] Reverse stock error:', e)
-              }
-            }
-
+          // Atomic CAS reset inside restockShipmentStock: only a shipment still
+          // marked consumed (stock_consumed_at NOT NULL) is reversed, and the
+          // marker is cleared in the same step, so two cancel events cannot
+          // double-restock.
+          const { restocked, count } = await restockShipmentStock(tenantId, shipmentId)
+          if (restocked) {
+            reversedCount += count
             await adminClient
               .from('shipments')
-              .update({ stock_consumed_at: null, has_error: true, status_message: 'Cancelled' })
+              .update({ has_error: true, status_message: 'Cancelled' })
               .eq('tenant_id', tenantId)
-              .eq('id', shipment.id)
+              .eq('id', shipmentId)
           }
         } catch (err) {
           console.error('[Webhook] parcel_cancelled processing error:', err)
@@ -507,21 +495,14 @@ export async function POST(
               // Consume stock only for NEW shipments, using the freshly-mapped
               // shipment_items so bundle/compound SKUs are handled consistently.
               if (isNewShipment && mappedCount > 0) {
-                const { data: items } = await adminClient
-                  .from('shipment_items')
-                  .select('sku_id, qty')
-                  .eq('shipment_id', shipment.id)
-
-                for (const it of (items || []) as Array<{ sku_id: string; qty: number }>) {
-                  try {
-                    await consumeStock(tenantId, it.sku_id, it.qty, shipment.id, 'shipment')
-                    stockConsumedInBatch = true
-                  } catch (stockError) {
-                    console.error(
-                      `[Webhook] ${tenantCode}: Error consuming stock for sku_id ${it.sku_id}:`,
-                      stockError,
-                    )
-                  }
+                try {
+                  const { consumed } = await consumeShipmentStockOnce(tenantId, shipment.id)
+                  if (consumed) stockConsumedInBatch = true
+                } catch (stockError) {
+                  console.error(
+                    `[Webhook] ${tenantCode}: Error consuming stock for ${parcel.sendcloud_id}:`,
+                    stockError,
+                  )
                 }
               }
             } catch (err) {
