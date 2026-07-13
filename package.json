@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "db:types": "npx supabase gen types typescript --project-id uhdalineygyrdvnlnsar --schema public > src/types/database.generated.ts",
     "dev": "next dev",
     "build": "next build",
     "start": "next start -p $PORT",

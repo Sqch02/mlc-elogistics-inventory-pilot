@@ -1,5 +1,6 @@
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AdminClient = any
+import type { createAdminClient } from '@/lib/supabase/admin'
+
+type AdminClient = ReturnType<typeof createAdminClient>
 
 interface ReversalRow {
   shipments_deleted: number
@@ -27,10 +28,7 @@ async function reverseDuplicateShipmentStockLegacy(
     .in('reference_id', shipmentIds)
 
   const reverseBySku = new Map<string, number>()
-  for (const movement of (uuidMovements ?? []) as Array<{
-    sku_id: string
-    adjustment: number
-  }>) {
+  for (const movement of uuidMovements ?? []) {
     reverseBySku.set(
       movement.sku_id,
       (reverseBySku.get(movement.sku_id) ?? 0) - movement.adjustment,
@@ -44,9 +42,9 @@ async function reverseDuplicateShipmentStockLegacy(
       p_sku_id: skuId,
       p_delta: delta,
       p_reason: 'Auto-reverse: doublon UUID/numeric Sendcloud, UUID supprimee',
-      p_reference_id: null,
+      p_reference_id: undefined,
       p_reference_type: 'manual',
-      p_user_id: null,
+      p_user_id: undefined,
       p_movement_type: 'manual',
     })
     if (error) throw new Error(`Duplicate stock reversal failed: ${error.message}`)
@@ -91,7 +89,7 @@ export async function reverseDuplicateShipmentStock(
       },
     )
 
-    const row = (Array.isArray(data) ? data[0] : null) as ReversalRow | null
+    const row: ReversalRow | null = Array.isArray(data) ? data[0] ?? null : null
     if (!error && row) {
       return {
         shipmentsDeleted: row.shipments_deleted,

@@ -237,7 +237,7 @@ describe('POST /api/sync/sendcloud/run', () => {
     const { client, shipmentUpserts, syncRunUpdates } = createAdminClient({ pricingRules })
     const parcel = makeParcel()
 
-    mockGetAdminDb.mockReturnValue(client)
+    mockGetAdminDb.mockReturnValue(client as unknown as ReturnType<typeof getAdminDb>)
     mockFetchAllParcels.mockResolvedValue([parcel])
 
     const response = await POST()
@@ -278,7 +278,7 @@ describe('POST /api/sync/sendcloud/run', () => {
     const { client, syncRunUpdates } = createAdminClient({
       existingShipment: { id: 'shipment-1' },
     })
-    mockGetAdminDb.mockReturnValue(client)
+    mockGetAdminDb.mockReturnValue(client as unknown as ReturnType<typeof getAdminDb>)
     mockFetchAllParcels.mockResolvedValue([makeParcel()])
 
     const response = await POST()
@@ -295,7 +295,7 @@ describe('POST /api/sync/sendcloud/run', () => {
     const { client, syncRunUpdates } = createAdminClient({
       shipmentError: { message: 'database unavailable' },
     })
-    mockGetAdminDb.mockReturnValue(client)
+    mockGetAdminDb.mockReturnValue(client as unknown as ReturnType<typeof getAdminDb>)
     mockFetchAllParcels.mockResolvedValue([makeParcel()])
 
     const response = await POST()
@@ -307,5 +307,23 @@ describe('POST /api/sync/sendcloud/run', () => {
     expect(mockProcessShipmentItems).not.toHaveBeenCalled()
     expect(mockConsumeShipmentStockOnce).not.toHaveBeenCalled()
     expect(syncRunUpdates.at(-1)).toMatchObject({ status: 'partial' })
+  })
+  it('records the valid failed enum value when the Sendcloud fetch aborts', async () => {
+    const { client, syncRunUpdates } = createAdminClient()
+    mockGetAdminDb.mockReturnValue(client as unknown as ReturnType<typeof getAdminDb>)
+    mockFetchAllParcels.mockRejectedValue(new Error('pagination limit reached'))
+
+    const response = await POST()
+    const body = await response.json()
+
+    expect(response.status).toBe(500)
+    expect(body).toMatchObject({
+      success: false,
+      message: 'pagination limit reached',
+    })
+    expect(syncRunUpdates.at(-1)).toMatchObject({
+      status: 'failed',
+      error_text: 'pagination limit reached',
+    })
   })
 })

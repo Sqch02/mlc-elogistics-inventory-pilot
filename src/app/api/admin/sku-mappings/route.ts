@@ -3,6 +3,11 @@ import { getAdminDb } from '@/lib/supabase/untyped'
 import { requireRole } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 import { getFastTenantId } from '@/lib/supabase/fast-auth'
+import type { Json } from '@/types/database'
+
+function isUnmappedItem(value: Json): value is { description?: string; qty?: number } {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
 
 // GET: List all mappings for tenant + unmapped descriptions
 export async function GET() {
@@ -31,7 +36,8 @@ export async function GET() {
     // Aggregate unique unmapped descriptions
     const unmappedDescs = new Map<string, number>()
     for (const s of unmapped || []) {
-      for (const item of s.unmapped_items || []) {
+      const items = Array.isArray(s.unmapped_items) ? s.unmapped_items : []
+      for (const item of items.filter(isUnmappedItem)) {
         const key = item.description
         if (key) {
           unmappedDescs.set(key, (unmappedDescs.get(key) || 0) + (item.qty || 1))

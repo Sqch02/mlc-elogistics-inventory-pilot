@@ -2,6 +2,18 @@ import { NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { requireRole } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
+import type { Json } from '@/types/database'
+
+interface BackfillParcelItem {
+  [key: string]: Json | undefined
+  sku?: string
+  description?: string
+  quantity?: number
+}
+
+function isBackfillParcelItem(value: Json): value is BackfillParcelItem {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
 import { getFastTenantId } from '@/lib/supabase/fast-auth'
 
 /**
@@ -80,7 +92,13 @@ export async function POST() {
     }
 
     for (const shipment of shipments) {
-      const parcelItems = shipment.raw_json?.parcel_items
+      const rawJson = shipment.raw_json
+      const parcelItems = typeof rawJson === 'object'
+        && rawJson !== null
+        && !Array.isArray(rawJson)
+        && Array.isArray(rawJson.parcel_items)
+        ? rawJson.parcel_items.filter(isBackfillParcelItem)
+        : null
       if (!parcelItems || parcelItems.length === 0) {
         stats.skipped++
         continue

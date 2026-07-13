@@ -146,11 +146,11 @@ export async function GET() {
         try {
           const { data: sugg } = await adminClient.rpc('suggest_skus_for_label', {
             p_tenant_id: tenantId,
-            p_raw_sku: g.raw_sku,
-            p_raw_description: g.raw_description,
-            p_raw_variant_id: g.raw_variant_id,
+            p_raw_sku: g.raw_sku ?? '',
+            p_raw_description: g.raw_description ?? '',
+            p_raw_variant_id: g.raw_variant_id ?? '',
           })
-          suggestions = ((sugg || []) as Array<{ sku_id: string; sku_code: string; name: string; score: number }>).map(
+          suggestions = (sugg || []).map(
             (s) => ({ sku_id: s.sku_id, sku_code: s.sku_code, name: s.name, score: Number(s.score) })
           )
         } catch (e) {

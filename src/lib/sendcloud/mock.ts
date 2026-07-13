@@ -78,7 +78,7 @@ export function parseMockParcel(parcel: SendcloudParcel): ParsedShipment {
     weight_grams: weightGrams,
     order_ref: parcel.order_number || null,
     tracking: parcel.tracking_number || null,
-    raw_json: parcel as unknown as Record<string, unknown>,
+    raw_json: parcel as unknown as import('@/types/database').Json,
     recipient_name: parcel.name || null,
     recipient_email: parcel.email || null,
     recipient_phone: parcel.telephone || null,

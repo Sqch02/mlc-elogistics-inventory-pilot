@@ -5,6 +5,12 @@ import { requireTenant, getCurrentUser, requireRole } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 import { auditCreate } from '@/lib/audit'
 import { z } from 'zod'
+import type { ClaimStatus, Enums } from '@/types/database'
+
+type ClaimType = Enums<'claim_type'>
+
+const claimStatusSchema = z.enum(['ouverte', 'en_analyse', 'indemnisee', 'refusee', 'cloturee'])
+const claimTypeSchema = z.enum(['lost', 'damaged', 'delay', 'wrong_content', 'missing_items', 'other'])
 
 const createClaimSchema = z.object({
   shipment_id: z.string().uuid().optional().nullable(),
@@ -21,8 +27,8 @@ export async function GET(request: NextRequest) {
     const adminClient = createAdminClient()
 
     const searchParams = request.nextUrl.searchParams
-    const status = searchParams.get('status')
-    const claim_type = searchParams.get('claim_type')
+    const statusParam = searchParams.get('status')
+    const claimTypeParam = searchParams.get('claim_type')
     const priority = searchParams.get('priority')
     const search = searchParams.get('search')
     const from = searchParams.get('from')
@@ -49,8 +55,22 @@ export async function GET(request: NextRequest) {
       .eq('tenant_id', tenantId)
 
     // Apply status filter (supports comma-separated multiple statuses)
-    if (status) {
-      const statuses = status.split(',')
+    const statusResult = z.array(claimStatusSchema).safeParse(
+      statusParam ? statusParam.split(',') : [],
+    )
+    const claimTypeResult = claimTypeParam
+      ? claimTypeSchema.safeParse(claimTypeParam)
+      : null
+    if (
+      !statusResult.success
+      || (claimTypeResult && !claimTypeResult.success)
+    ) {
+      return NextResponse.json({ error: 'Filtre de réclamation invalide' }, { status: 400 })
+    }
+    const statuses: ClaimStatus[] = statusResult.data
+    const claimType: ClaimType | null = claimTypeResult?.data ?? null
+
+    if (statuses.length > 0) {
       if (statuses.length === 1) {
         query = query.eq('status', statuses[0])
       } else {
@@ -58,8 +78,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    if (claim_type) {
-      query = query.eq('claim_type', claim_type)
+    if (claimType) {
+      query = query.eq('claim_type', claimType)
     }
 
     if (priority) {
@@ -111,15 +131,14 @@ export async function GET(request: NextRequest) {
         `, { count: 'exact' })
         .eq('tenant_id', tenantId)
 
-      if (status) {
-        const statuses = status.split(',')
+      if (statuses.length > 0) {
         if (statuses.length === 1) {
           fallbackQuery = fallbackQuery.eq('status', statuses[0])
         } else {
           fallbackQuery = fallbackQuery.in('status', statuses)
         }
       }
-      if (claim_type) fallbackQuery = fallbackQuery.eq('claim_type', claim_type)
+      if (claimType) fallbackQuery = fallbackQuery.eq('claim_type', claimType)
       if (priority) fallbackQuery = fallbackQuery.eq('priority', priority)
       if (from) fallbackQuery = fallbackQuery.gte('opened_at', from)
       if (to) fallbackQuery = fallbackQuery.lte('opened_at', to)

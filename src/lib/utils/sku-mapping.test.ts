@@ -4,6 +4,7 @@ import {
   resolveAndCreateShipmentItem,
   processShipmentItems,
 } from './sku-mapping'
+import type { SupabaseClient } from './sku-mapping'
 
 /**
  * Create a mock admin Supabase client with chainable .from().eq()...maybeSingle()
@@ -91,7 +92,7 @@ function createMockAdminClient(opts: {
   })
 
   return {
-    client: { from: fromMock, rpc: rpcMock },
+    client: { from: fromMock, rpc: rpcMock } as unknown as SupabaseClient,
     rpcMock,
     maybeSingleMock,
     itemUpsertMock,
@@ -178,7 +179,7 @@ describe('resolveAndCreateShipmentItem', () => {
       p_tenant_id: 'tenant-1',
       p_raw_sku: 'FLRN-001',
       p_raw_description: 'Candle',
-      p_raw_variant_id: null,
+      p_raw_variant_id: '',
     })
     expect(itemUpsertMock).toHaveBeenCalledTimes(1)
     // qty should be 0 (no existing) + 2 = 2
@@ -238,8 +239,8 @@ describe('resolveAndCreateShipmentItem', () => {
     expect(result).toEqual({ mapped: true, skuId: 'sku-uuid-by-variant' })
     expect(rpcMock).toHaveBeenCalledWith('map_shipment_item', {
       p_tenant_id: 'tenant-1',
-      p_raw_sku: null,
-      p_raw_description: null,
+      p_raw_sku: '',
+      p_raw_description: '',
       p_raw_variant_id: 'gid://shopify/ProductVariant/1234567890',
     })
     expect(itemUpsertMock).toHaveBeenCalledTimes(1)

@@ -57,32 +57,33 @@ export type ShipmentItemsImportRow = z.infer<typeof shipmentItemsImportRowSchema
 export const claimsImportRowSchema = z.object({
   order_ref: z.string().min(1, 'Référence commande requise'),
   claim_type: z.string().optional().transform((v) => {
-    if (!v) return 'lost'
+    if (!v) return 'lost' as const
     const lower = v.toLowerCase()
-    if (lower.includes('perdu') || lower.includes('lost')) return 'lost'
-    if (lower.includes('endom') || lower.includes('damage')) return 'damaged'
-    if (lower.includes('manqu') || lower.includes('missing')) return 'missing_items'
-    if (lower.includes('retard') || lower.includes('delay')) return 'delay'
-    return 'other'
+    if (lower.includes('perdu') || lower.includes('lost')) return 'lost' as const
+    if (lower.includes('endom') || lower.includes('damage')) return 'damaged' as const
+    if (lower.includes('manqu') || lower.includes('missing')) return 'missing_items' as const
+    if (lower.includes('retard') || lower.includes('delay')) return 'delay' as const
+    return 'other' as const
   }),
   description: z.string().optional().nullable(),
   status: z.string().optional().transform((v) => {
-    if (!v) return 'ouverte'
+    if (!v) return 'ouverte' as const
     const lower = v.toLowerCase()
-    if (lower.includes('ouvert') || lower.includes('open')) return 'ouverte'
-    if (lower.includes('analyse') || lower.includes('review')) return 'en_analyse'
-    if (lower.includes('indem') || lower.includes('paid')) return 'indemnisee'
-    if (lower.includes('refus') || lower.includes('reject')) return 'refusee'
-    if (lower.includes('clotur') || lower.includes('close')) return 'cloturee'
-    return 'ouverte'
+    if (lower.includes('ouvert') || lower.includes('open')) return 'ouverte' as const
+    if (lower.includes('analyse') || lower.includes('review')) return 'en_analyse' as const
+    if (lower.includes('indem') || lower.includes('paid')) return 'indemnisee' as const
+    if (lower.includes('refus') || lower.includes('reject')) return 'refusee' as const
+    if (lower.includes('clotur') || lower.includes('close')) return 'cloturee' as const
+    return 'ouverte' as const
   }),
   indemnity_eur: z.coerce.number().optional().nullable(),
   priority: z.string().optional().transform((v) => {
-    if (!v) return 'normal'
+    if (!v) return 'normal' as const
     const lower = v.toLowerCase()
-    if (lower.includes('haute') || lower.includes('high') || lower.includes('urgent')) return 'haute'
-    if (lower.includes('basse') || lower.includes('low')) return 'basse'
-    return 'normal'
+    if (lower.includes('urgent')) return 'urgent' as const
+    if (lower.includes('haute') || lower.includes('high')) return 'high' as const
+    if (lower.includes('basse') || lower.includes('low')) return 'low' as const
+    return 'normal' as const
   }),
   opened_at: z.string().optional().nullable(),
   decision_note: z.string().optional().nullable(),
