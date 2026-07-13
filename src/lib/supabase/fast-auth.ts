@@ -10,7 +10,11 @@ interface CachedProfile {
   exp: number
 }
 
-const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+// Keep the cache short because it contains authorization context (role and
+// tenant_id). Authentication is revalidated on every call via getUser(), and a
+// one-minute ceiling limits stale access after a role revocation or tenant move.
+const CACHE_TTL_SECONDS = 60
+const CACHE_TTL = CACHE_TTL_SECONDS * 1000
 
 /**
  * Fast authentication that caches profile in an HMAC-signed cookie.
@@ -83,7 +87,7 @@ export async function getFastUser(): Promise<CachedProfile | null> {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 300, // 5 minutes
+      maxAge: CACHE_TTL_SECONDS,
       path: '/'
     })
   } catch {
