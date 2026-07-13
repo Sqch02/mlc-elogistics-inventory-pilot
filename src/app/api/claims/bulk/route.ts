@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
+import { requireTenant, getCurrentUser, requireRole } from '@/lib/supabase/auth'
 
 type BulkAction = 'en_analyse' | 'close' | 'refuse' | 'delete'
 
@@ -11,6 +11,9 @@ interface BulkRequest {
 
 export async function POST(request: NextRequest) {
   try {
+    // Le module SAV (creation/cloture/refus/suppression en masse) est reserve
+    // aux roles internes; un role 'client' ne doit pas modifier ni bulk-delete.
+    await requireRole(['super_admin', 'admin', 'ops', 'sav'])
     const tenantId = await requireTenant()
     const profile = await getCurrentUser()
     const supabase = await createClient()
