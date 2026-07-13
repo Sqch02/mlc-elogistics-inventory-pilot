@@ -122,6 +122,7 @@ export function ProduitsClient() {
   const [thresholdValue, setThresholdValue] = useState(0)
   const [volumeData, setVolumeData] = useState<MonthlyVolumeData | null>(null)
   const [volumeLoading, setVolumeLoading] = useState(false)
+  const [volumeError, setVolumeError] = useState(false)
   const [selectedSku, setSelectedSku] = useState<SKU | null>(null)
   const [formData, setFormData] = useState<ProductFormData>(defaultFormData)
   const [stockAdjustment, setStockAdjustment] = useState({ qty: 0, reason: '' })
@@ -306,14 +307,17 @@ export function ProduitsClient() {
       setSelectedSku(sku)
       setVolumeOpen(true)
       setVolumeLoading(true)
+      setVolumeError(false)
       try {
         const res = await fetch(`/api/skus/${sku.id}/monthly-volume`)
         if (res.ok) {
           const data = await res.json()
           setVolumeData(data)
+        } else {
+          setVolumeError(true)
         }
       } catch {
-        // error handled by catch block
+        setVolumeError(true)
       } finally {
         setVolumeLoading(false)
       }
@@ -323,6 +327,7 @@ export function ProduitsClient() {
   const closeVolume = () => {
     setVolumeOpen(false)
     setVolumeData(null)
+    setVolumeError(false)
     setSelectedSku(null)
   }
 
@@ -911,6 +916,11 @@ export function ProduitsClient() {
                     </tfoot>
                   </table>
                 </div>
+              </div>
+            ) : volumeError ? (
+              <div className="flex flex-col items-center justify-center py-8 text-red-600">
+                <BarChart3 className="h-12 w-12 mb-4 opacity-50" />
+                <p className="text-sm">Erreur de chargement. Veuillez réessayer.</p>
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">

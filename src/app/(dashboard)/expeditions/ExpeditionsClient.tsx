@@ -1101,8 +1101,9 @@ export function ExpeditionsClient() {
 
               {/* Description Field */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">Description du problème</label>
+                <label htmlFor="claim-description" className="text-sm font-medium">Description du problème</label>
                 <textarea
+                  id="claim-description"
                   className="w-full min-h-[100px] rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   placeholder="Décrivez le problème rencontré (colis endommagé, non reçu, contenu manquant...)"
                   value={claimDescription}

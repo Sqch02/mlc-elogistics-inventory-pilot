@@ -352,8 +352,9 @@ export function FacturationClient() {
 
     // Use new fields if available, otherwise calculate from total_eur
     const totalHT = invoice.subtotal_ht ? Number(invoice.subtotal_ht) : Number(invoice.total_eur)
-    const tvaRate = 20
-    const tva = invoice.vat_amount ? Number(invoice.vat_amount) : Math.round(totalHT * (tvaRate / 100) * 100) / 100
+    const tva = invoice.vat_amount ? Number(invoice.vat_amount) : Math.round(totalHT * 0.20 * 100) / 100
+    // Derive the real VAT rate from the stored amount so the PDF label matches the tenant's configured rate (not a hardcoded 20%)
+    const tvaRate = totalHT > 0 ? Math.round((tva / totalHT) * 1000) / 10 : 20
     const totalTTC = invoice.total_ttc ? Number(invoice.total_ttc) : Math.round((totalHT + tva) * 100) / 100
 
     // Derive date range from month

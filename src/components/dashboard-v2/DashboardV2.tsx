@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Package, Banknote, Award, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
@@ -82,6 +83,7 @@ export function DashboardV2() {
   const { data, isLoading, isRefetching } = useDashboard(selectedMonth)
   const { data: analyticsData, isLoading: analyticsLoading } = useAnalytics()
   const { isClient, isHubView } = useTenant()
+  const router = useRouter()
 
   // Hub view: show aggregated multi-client dashboard
   if (isHubView) {
@@ -108,10 +110,9 @@ export function DashboardV2() {
     }
   }
 
-  // Download invoice handler
+  // Download invoice handler -> la page Facturation gere le telechargement PDF reel
   const handleDownloadInvoice = () => {
-    toast.info('Telechargement de la facture...')
-    // TODO: Implement PDF download
+    router.push('/facturation')
   }
 
   if (isLoading) {
