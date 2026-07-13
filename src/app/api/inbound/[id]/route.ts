@@ -2,6 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireTenant, requireRole, getCurrentUser } from '@/lib/supabase/auth'
 
+interface InboundRestockEntry {
+  status: string
+  qty: number
+  sku_id: string
+  note: string | null
+}
+
+interface StockSnapshot {
+  id: string
+  qty_current: number
+}
+
 // PATCH: Update inbound restock (accept/reject/receive)
 export async function PATCH(
   request: NextRequest,
@@ -17,13 +29,13 @@ export async function PATCH(
     const { action, accepted_qty, note } = body
 
     // Fetch current entry
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: entry, error: fetchError } = await adminClient
+    const { data: entryData, error: fetchError } = await adminClient
       .from('inbound_restock')
       .select('*')
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .single() as any
+      .single()
+    const entry = entryData as unknown as InboundRestockEntry | null
 
     if (fetchError || !entry) {
       return NextResponse.json({ error: 'Arrivage non trouve' }, { status: 404 })
@@ -59,13 +71,13 @@ export async function PATCH(
       if (updateError) throw updateError
 
       // Update stock_snapshots
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: snapshot } = await adminClient
+      const { data: snapshotData } = await adminClient
         .from('stock_snapshots')
         .select('id, qty_current')
         .eq('sku_id', entry.sku_id)
         .eq('tenant_id', tenantId)
-        .single() as any
+        .single()
+      const snapshot = snapshotData as unknown as StockSnapshot | null
 
       if (snapshot) {
         await adminClient
