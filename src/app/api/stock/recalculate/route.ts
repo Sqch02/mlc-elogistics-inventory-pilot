@@ -53,10 +53,14 @@ export async function POST() {
 
     console.log('[Recalculate] Found', existingMovements?.length || 0, 'existing movements')
 
-    // Create a Set of processed combinations for quick lookup
-    const processedSet = new Set(
-      existingMovements?.map((m: { reference_id: string | null; sku_id: string }) =>
-        `${m.reference_id || ''}:${m.sku_id}`
+    // Dedup at the SHIPMENT level: a shipment that already has ANY stock_movement
+    // has been consumed. Keying by `shipment_id:sku_id` is wrong for bundles -
+    // apply_stock_delta logs movements for the bundle's COMPONENTS, never for the
+    // bundle sku_id itself - so a bundle item never matched and was re-consumed
+    // (its components double-decremented) on every run.
+    const processedShipments = new Set(
+      existingMovements?.map((m: { reference_id: string | null }) =>
+        m.reference_id || ''
       ) || []
     )
 
@@ -70,10 +74,8 @@ export async function POST() {
 
     // Process each item
     for (const item of allItems as ShipmentItemRow[]) {
-      const key = `${item.shipment_id}:${item.sku_id}`
-
-      // Skip if already processed
-      if (processedSet.has(key)) {
+      // Skip if this shipment already has stock_movements (already consumed).
+      if (processedShipments.has(item.shipment_id)) {
         stats.skipped++
         continue
       }

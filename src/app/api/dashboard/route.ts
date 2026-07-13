@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
     // 4 queries in parallel — dashboard_metrics RPC does the heavy lifting
     // (monthly totals + all-time missing + yesterday + daily chart in one call).
     // mv_sku_metrics has is_bundle flag so we don't need a separate bundles query.
-    const [metricsResult, indemnityResult, claimsYesterdayResult, stockResult] =
+    const [metricsResult, indemnityResult, claimsYesterdayResult, stockResult, syncRunResult] =
       await Promise.all([
         adminDb.rpc('get_dashboard_metrics', {
           p_tenant_id: tenantId,
@@ -102,6 +102,16 @@ export async function GET(request: NextRequest) {
           )
           .eq('tenant_id', tenantId)
           .eq('is_bundle', false),
+        // Dernier sync Sendcloud réel du tenant — pilote le point de fraîcheur du dashboard
+        // (sync_runs est sous RLS : on utilise adminDb + filtre tenant explicite, comme le hub)
+        adminDb
+          .from('sync_runs')
+          .select('ended_at, status')
+          .eq('tenant_id', tenantId)
+          .eq('source', 'sendcloud')
+          .in('status', ['success', 'partial', 'failure'])
+          .order('ended_at', { ascending: false })
+          .limit(1),
       ])
 
     const metricRows = (metricsResult.data || []) as DashboardMetricRow[]
@@ -197,6 +207,28 @@ export async function GET(request: NextRequest) {
     const indemnityStatus = totalIndemnity > 0 ? 'success' : 'default'
     const criticalStockStatus = criticalStockCount > 0 ? 'danger' : 'success'
 
+    // Fraîcheur de sync réelle (était codée en dur sur 'ok'). Reflète le dernier
+    // sync_run Sendcloud du tenant : un cron mort ou des syncs en échec deviennent
+    // visibles côté client (point orange/rouge dans DashboardHeader).
+    const lastSyncRow = (syncRunResult.data as
+      | { ended_at: string | null; status: string }[]
+      | null)?.[0]
+    let lastSync: { date: string | null; status: 'ok' | 'warning' | 'failed' }
+    if (!lastSyncRow || !lastSyncRow.ended_at) {
+      lastSync = { date: lastSyncRow?.ended_at ?? null, status: 'failed' }
+    } else {
+      const ageMs = Date.now() - new Date(lastSyncRow.ended_at).getTime()
+      let syncStatus: 'ok' | 'warning' | 'failed'
+      if (lastSyncRow.status === 'failure' || ageMs > 6 * 60 * 60 * 1000) {
+        syncStatus = 'failed'
+      } else if (lastSyncRow.status === 'partial' || ageMs > 60 * 60 * 1000) {
+        syncStatus = 'warning'
+      } else {
+        syncStatus = 'ok'
+      }
+      lastSync = { date: lastSyncRow.ended_at, status: syncStatus }
+    }
+
     return NextResponse.json(
       {
         currentMonth,
@@ -281,7 +313,7 @@ export async function GET(request: NextRequest) {
           missingPricingTotal: missingPricingTotalCount,
           totalIndemnity,
         },
-        lastSync: { date: new Date().toISOString(), status: 'ok' },
+        lastSync,
       },
       {
         headers: {

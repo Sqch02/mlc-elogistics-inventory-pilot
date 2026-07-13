@@ -480,13 +480,17 @@ export function ExpeditionsClient() {
   const [isExporting, setIsExporting] = useState(false)
   const [createShipmentOpen, setCreateShipmentOpen] = useState(false)
 
-  // Update search when URL params change (for navigation within the app)
+  // Update search when URL params change (for navigation within the app).
+  // Depend ONLY on urlSearch: including filters.search would re-run this effect
+  // every time the user types, and since handleSearch does not update the URL,
+  // it would overwrite the freshly typed query with the stale urlSearch value.
   useEffect(() => {
     if (urlSearch && urlSearch !== filters.search) {
       setSearchInput(urlSearch)
       setFilters(prev => ({ ...prev, search: urlSearch, page: 1 }))
     }
-  }, [urlSearch, filters.search])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlSearch])
 
   // Claim dialog state
   const [claimDialogOpen, setClaimDialogOpen] = useState(false)
