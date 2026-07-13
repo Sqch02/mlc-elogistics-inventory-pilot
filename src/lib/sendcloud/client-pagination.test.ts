@@ -4,7 +4,6 @@ import {
   fetchAllParcels,
   fetchAllReturns,
 } from './client'
-import { SendcloudPaginationLimitError } from './pagination'
 
 const credentials = { apiKey: 'test-key', secret: 'test-secret' }
 
@@ -85,19 +84,23 @@ describe('Sendcloud pagination completion', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('fails instead of returning a silently truncated parcel batch', async () => {
+  it('caps a truncated parcel batch loudly instead of failing the tenant sync', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
       parcels: [rawParcel(1)],
       next: 'https://panel.sendcloud.sc/api/v2/parcels?cursor=page-2',
     })))
 
-    await expect(fetchAllParcels(credentials, undefined, 1)).rejects.toEqual(
-      expect.objectContaining<Partial<SendcloudPaginationLimitError>>({
-        name: 'SendcloudPaginationLimitError',
-        resource: 'parcels',
-        maxPages: 1,
-      }),
+    // A throw here would fail the whole tenant sync AND deadlock a high-volume
+    // tenant whose incremental window never fits in the page budget (Florna,
+    // 13/07). The fetch must instead cap and log LOUDLY (no SILENT truncation).
+    const parcels = await fetchAllParcels(credentials, undefined, 1)
+
+    expect(parcels.map((parcel) => parcel.sendcloud_id)).toEqual(['1'])
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('parcels still has data after 1 pages'),
     )
+    warnSpy.mockRestore()
   })
 
   it('keeps a bounded integration snapshot without failing the tenant sync', async () => {
@@ -120,7 +123,8 @@ describe('Sendcloud pagination completion', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('fails instead of returning a silently truncated returns batch', async () => {
+  it('caps a truncated returns batch loudly instead of failing the tenant sync', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
       returns: [{
         id: 9,
@@ -131,12 +135,12 @@ describe('Sendcloud pagination completion', () => {
       next: 'https://panel.sendcloud.sc/api/v2/returns?cursor=page-2',
     })))
 
-    await expect(fetchAllReturns(credentials, undefined, 1)).rejects.toEqual(
-      expect.objectContaining<Partial<SendcloudPaginationLimitError>>({
-        name: 'SendcloudPaginationLimitError',
-        resource: 'returns',
-        maxPages: 1,
-      }),
+    const returns = await fetchAllReturns(credentials, undefined, 1)
+
+    expect(Array.isArray(returns)).toBe(true)
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('returns still has data after 1 pages'),
     )
+    warnSpy.mockRestore()
   })
 })

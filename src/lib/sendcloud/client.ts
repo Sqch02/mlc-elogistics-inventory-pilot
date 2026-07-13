@@ -8,7 +8,6 @@ import type {
   ParsedReturn
 } from './types'
 import { fetchMockParcels } from './mock'
-import { SendcloudPaginationLimitError } from './pagination'
 
 const SENDCLOUD_API_URL = 'https://panel.sendcloud.sc/api/v2'
 
@@ -278,7 +277,21 @@ export async function fetchAllParcels(
   }
 
   if (hasMore) {
-    throw new SendcloudPaginationLimitError('parcels', maxPages)
+    // Graceful cap (consistent with fetchAllIntegrationShipments) instead of a
+    // throw. A throw fails the ENTIRE tenant sync and, worse, DEADLOCKS a
+    // high-volume tenant whose incremental `since` window exceeds the page
+    // budget: observed on Florna during the 13/07 incident recovery — after the
+    // cron pause, every cycle re-fetched the post-pause backlog (>200 parcels),
+    // exceeded 2 pages, threw, recorded a failed run, and never advanced. We
+    // instead process the pages we fetched and log LOUDLY (the principle is "no
+    // SILENT truncation", not "always fail"). The remaining parcels are covered
+    // by the real-time webhook and the reconciliation job, and by later cycles as
+    // `since` advances. Raise SENDCLOUD_CRON_MAX_PAGES only after confirming I/O
+    // headroom.
+    console.warn(
+      `[Sendcloud fetchAll] parcels still has data after ${maxPages} pages; ` +
+      `capping at ${allParcels.length} parcels (webhook + reconciliation cover the rest)`,
+    )
   }
 
   console.log(`[Sendcloud fetchAll] Complete: ${allParcels.length} total parcels from ${page} pages`)
@@ -1089,7 +1102,12 @@ export async function fetchAllReturns(
   }
 
   if (hasMore) {
-    throw new SendcloudPaginationLimitError('returns', maxPages)
+    // Graceful cap (see fetchAllParcels for the full rationale): do not throw and
+    // fail the whole tenant sync — log loudly and continue with what we fetched.
+    console.warn(
+      `[Sendcloud fetchAll] returns still has data after ${maxPages} pages; ` +
+      `capping at ${allReturns.length} returns`,
+    )
   }
 
   return allReturns
