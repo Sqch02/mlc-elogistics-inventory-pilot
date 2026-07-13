@@ -1,6 +1,5 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { verifyAndParseCookieValue } from '@/lib/supabase/cookie-signing'
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -56,22 +55,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Use cached profile cookie instead of DB query (~200-500ms saved per request).
-  // The cookie is HMAC-signed (see cookie-signing.ts) so a user cannot edit
-  // their role via DevTools.
-  let cachedRole: string | null = null
-  if (user) {
-    const profileCookie = request.cookies.get('_profile_cache')?.value
-    const parsed = verifyAndParseCookieValue<{
-      id: string
-      role: string
-      exp: number
-    }>(profileCookie)
-    if (parsed && parsed.id === user.id && parsed.exp > Date.now()) {
-      cachedRole = parsed.role
-    }
-  }
-
   // Check admin routes - only super_admin can access
   if (path.startsWith('/admin')) {
     if (!user) {
@@ -80,21 +63,20 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(url)
     }
 
-    // Use cached role, or fetch from DB only for admin routes (rare)
-    if (cachedRole !== 'super_admin') {
-      if (!cachedRole && user) {
-        const { data } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', user.id)
-          .single()
-        cachedRole = (data as { role: string } | null)?.role || null
-      }
-      if (cachedRole !== 'super_admin') {
-        const url = request.nextUrl.clone()
-        url.pathname = '/'
-        return NextResponse.redirect(url)
-      }
+    // Admin navigation is rare and privilege revocation must take effect
+    // immediately. Always read the current role instead of trusting the signed
+    // profile cache, whose contents can legitimately be stale.
+    const { data } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+    const currentRole = (data as { role: string } | null)?.role || null
+
+    if (currentRole !== 'super_admin') {
+      const url = request.nextUrl.clone()
+      url.pathname = '/'
+      return NextResponse.redirect(url)
     }
   }
 
