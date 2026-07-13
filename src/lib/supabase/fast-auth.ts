@@ -24,11 +24,14 @@ export async function getFastUser(): Promise<CachedProfile | null> {
   const cookieStore = await cookies()
   const cachedProfile = cookieStore.get('_profile_cache')
 
-  // Use getSession() instead of getUser() — middleware already verified the token
-  // getSession() reads JWT from cookies locally (no network call = ~500ms-1s saved)
+  // P0-secu: MUST use getUser() (validates the JWT against the Auth server), NOT
+  // getSession(). API routes are excluded from the middleware matcher, so the
+  // token is never network-verified upstream for them. getSession() only reads the
+  // cookie and does NOT check the JWT signature — a forged @supabase/ssr cookie
+  // carrying a victim's user.id would pass, and getFastUser would then return that
+  // victim's tenant_id/role from the DB query below (cross-tenant + role escalation).
   const supabase = await createClient()
-  const { data: { session } } = await supabase.auth.getSession()
-  const user = session?.user
+  const { data: { user } } = await supabase.auth.getUser()
 
   // Check if we have a valid cached profile that matches the current user
   if (cachedProfile?.value && user) {
