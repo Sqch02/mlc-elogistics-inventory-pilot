@@ -29,7 +29,9 @@ const ANALYTICS_REFRESH_RPCS = [
 ] as const
 
 export async function refreshCronAnalytics(
-  adminClient: ReturnType<typeof getAdminDb>,
+  adminClient: {
+    rpc: (name: typeof ANALYTICS_REFRESH_RPCS[number]) => PromiseLike<{ error: unknown }>
+  },
 ): Promise<{ refreshed: string[]; failed: string[] }> {
   const refreshed: string[] = []
   const failed: string[] = []

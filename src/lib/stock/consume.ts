@@ -48,8 +48,8 @@ export async function consumeStock(
     p_sku_id: skuId,
     p_delta: -qty,
     p_reason: qty >= 0 ? 'Expédition' : 'Annulation colis',
-    p_reference_id: referenceId ?? null,
-    p_reference_type: referenceType ?? null,
+    p_reference_id: referenceId,
+    p_reference_type: referenceType,
     p_movement_type: qty >= 0 ? 'shipment' : 'restock',
   })
 
@@ -58,7 +58,7 @@ export async function consumeStock(
     return []
   }
 
-  return ((data ?? []) as DeltaRow[]).map((r) => ({
+  return (data ?? []).map((r: DeltaRow) => ({
     sku_id: r.sku_id,
     qty_consumed: qty,
     qty_before: r.qty_before,

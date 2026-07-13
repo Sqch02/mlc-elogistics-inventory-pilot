@@ -61,6 +61,12 @@ interface InvoiceLine {
   vat_amount: number
 }
 
+function isArrivageBillingMode(
+  value: string | null,
+): value is BillingConfig['arrivage_billing_mode'] {
+  return value === null || value === 'palette' || value === 'colis' || value === 'vrac'
+}
+
 export async function POST(request: NextRequest) {
   try {
     await requireRole(['super_admin', 'admin', 'ops'])
@@ -119,6 +125,7 @@ export async function POST(request: NextRequest) {
       default_vat_rate: 20.00,
     }
 
+    const arrivageBillingMode = billingConfig?.arrivage_billing_mode ?? null
     const config: BillingConfig = {
       software_fee_eur: billingConfig?.software_fee_eur ?? 49.00,
       storage_fee_per_m3: billingConfig?.storage_fee_per_m3 ?? 25.00,
@@ -129,7 +136,9 @@ export async function POST(request: NextRequest) {
           ? fuelOverride
           : (billingConfig?.fuel_surcharge_pct ?? 4.00),
       vat_rate_pct: billingConfig?.vat_rate_pct ?? invoiceSettings.default_vat_rate ?? 20.00,
-      arrivage_billing_mode: billingConfig?.arrivage_billing_mode ?? null,
+      arrivage_billing_mode: isArrivageBillingMode(arrivageBillingMode)
+        ? arrivageBillingMode
+        : null,
       arrivage_palette_price_eur: billingConfig?.arrivage_palette_price_eur ?? null,
       arrivage_box_price_eur: billingConfig?.arrivage_box_price_eur ?? null,
       arrivage_unit_price_eur: billingConfig?.arrivage_unit_price_eur ?? null,

@@ -16,11 +16,10 @@
  *   5. Unmapped items go to `unmapped_items` so nothing is lost.
  */
 
-import { getAdminDb } from '@/lib/supabase/untyped'
+import { createAdminClient } from '@/lib/supabase/admin'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AdminClient = any
-export type SupabaseClient = ReturnType<typeof getAdminDb>
+type AdminClient = ReturnType<typeof createAdminClient>
+export type SupabaseClient = AdminClient
 
 export interface RawShipmentItem {
   sku: string | null
@@ -80,9 +79,9 @@ async function resolveSkuId(
 ): Promise<string | null> {
   const { data: skuId, error: rpcError } = await adminClient.rpc('map_shipment_item', {
     p_tenant_id: tenantId,
-    p_raw_sku: rawItem.sku,
-    p_raw_description: rawItem.description,
-    p_raw_variant_id: rawItem.variant_id,
+    p_raw_sku: rawItem.sku ?? '',
+    p_raw_description: rawItem.description ?? '',
+    p_raw_variant_id: rawItem.variant_id ?? '',
   })
 
   if (rpcError) {
@@ -225,8 +224,7 @@ export async function processShipmentItems(
   adminClient: AdminClient,
   tenantId: string,
   shipmentId: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  parcelItems: any[],
+  parcelItems: unknown[],
 ): Promise<{ mappedCount: number; unmappedCount: number }> {
   if (!Array.isArray(parcelItems) || parcelItems.length === 0) {
     return { mappedCount: 0, unmappedCount: 0 }

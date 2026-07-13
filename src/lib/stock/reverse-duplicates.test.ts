@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { reverseDuplicateShipmentStock } from './reverse-duplicates'
+import type { createAdminClient } from '@/lib/supabase/admin'
+
+type AdminClient = ReturnType<typeof createAdminClient>
 
 function createFallbackClient() {
   const rpc = vi.fn((rpcName: string) => {
@@ -36,7 +39,12 @@ function createFallbackClient() {
     throw new Error(`Unexpected table: ${table}`)
   })
 
-  return { client: { rpc, from }, rpc, from, shipmentDelete }
+  return {
+    client: { rpc, from } as unknown as AdminClient,
+    rpc,
+    from,
+    shipmentDelete,
+  }
 }
 
 describe('reverseDuplicateShipmentStock', () => {
@@ -52,7 +60,7 @@ describe('reverseDuplicateShipmentStock', () => {
     const from = vi.fn()
 
     const result = await reverseDuplicateShipmentStock(
-      { rpc, from },
+      { rpc, from } as unknown as AdminClient,
       'tenant-1',
       ['shipment-a', 'shipment-b'],
     )
@@ -113,7 +121,7 @@ describe('reverseDuplicateShipmentStock', () => {
     const from = vi.fn()
 
     await expect(reverseDuplicateShipmentStock(
-      { rpc, from },
+      { rpc, from } as unknown as AdminClient,
       'tenant-1',
       [],
     )).resolves.toEqual({

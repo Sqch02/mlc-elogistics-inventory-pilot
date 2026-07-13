@@ -3,6 +3,17 @@ import { createClient } from '@/lib/supabase/server'
 import { getFastUser, getFastTenantId } from '@/lib/supabase/fast-auth'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { sanitizeSearchInput } from '@/lib/utils/sanitize'
+import type { Json, PricingStatus } from '@/types/database'
+
+function isPricingStatus(value: string): value is PricingStatus {
+  return value === 'ok' || value === 'missing'
+}
+
+function isShipmentStats(
+  value: Json,
+): value is { totalCost?: Json; totalValue?: Json; missingPricing?: Json } {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,7 +29,14 @@ export async function GET(request: NextRequest) {
     const from = searchParams.get('from')
     const to = searchParams.get('to')
     const carrier = searchParams.get('carrier')
-    const pricingStatus = searchParams.get('pricing_status')
+    const pricingStatusParam = searchParams.get('pricing_status')
+    let pricingStatus: PricingStatus | null = null
+    if (pricingStatusParam) {
+      if (!isPricingStatus(pricingStatusParam)) {
+        return NextResponse.json({ error: 'Statut de tarification invalide' }, { status: 400 })
+      }
+      pricingStatus = pricingStatusParam
+    }
     const shipmentStatus = searchParams.get('shipment_status') // 'pending' | 'shipped' | null
     const deliveryStatus = searchParams.get('delivery_status') // 'delivered' | 'in_transit' | 'issue' | null
     const search = searchParams.get('search')
@@ -29,16 +47,7 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * pageSize
 
     // Explicit column list to avoid pulling the heavy raw_json JSONB field on every row
-    const SHIPMENT_COLUMNS = [
-      'id', 'tenant_id', 'sendcloud_id', 'shipped_at', 'carrier', 'service',
-      'weight_grams', 'order_ref', 'tracking', 'pricing_status', 'computed_cost_eur',
-      'total_value', 'currency', 'recipient_name', 'recipient_email', 'recipient_phone',
-      'recipient_company', 'address_line1', 'address_line2', 'house_number', 'city',
-      'postal_code', 'country_code', 'country_name', 'status_id', 'status_message',
-      'tracking_url', 'label_url', 'service_point_id', 'is_return', 'collo_count',
-      'external_order_id', 'date_created', 'date_updated', 'date_announced',
-      'has_error', 'error_message', 'length_cm', 'width_cm', 'height_cm',
-    ].join(', ')
+    const SHIPMENT_COLUMNS = 'id, tenant_id, sendcloud_id, shipped_at, carrier, service, weight_grams, order_ref, tracking, pricing_status, computed_cost_eur, total_value, currency, recipient_name, recipient_email, recipient_phone, recipient_company, address_line1, address_line2, house_number, city, postal_code, country_code, country_name, status_id, status_message, tracking_url, label_url, service_point_id, is_return, collo_count, external_order_id, date_created, date_updated, date_announced, has_error, error_message, length_cm, width_cm, height_cm' as const
 
     // Query shipments without the nested shipment_items join (split for speed).
     // The nested PostgREST join was turning 100 shipments into a slow N+1-style
@@ -105,13 +114,13 @@ export async function GET(request: NextRequest) {
       query,
       db.rpc('get_shipment_stats', {
         p_tenant_id: tenantId,
-        p_from: from || null,
-        p_to: to || null,
-        p_carrier: carrier || null,
-        p_pricing_status: pricingStatus || null,
-        p_shipment_status: shipmentStatus || null,
-        p_delivery_status: deliveryStatus || null,
-        p_search: search || null,
+        p_from: from || undefined,
+        p_to: to || undefined,
+        p_carrier: carrier || undefined,
+        p_pricing_status: pricingStatus || undefined,
+        p_shipment_status: shipmentStatus || undefined,
+        p_delivery_status: deliveryStatus || undefined,
+        p_search: search || undefined,
       }),
     ])
 
@@ -120,9 +129,8 @@ export async function GET(request: NextRequest) {
 
     // Fetch shipment_items separately for the current page of shipments
     // (avoids the nested PostgREST join which was the slowest part of this query)
-    interface ShipmentRow { id: string }
     interface ItemRow { shipment_id: string; qty: number; skus: { sku_code: string; name: string } | null }
-    const shipmentIds = ((shipments || []) as ShipmentRow[]).map((s) => s.id)
+    const shipmentIds = (shipments || []).map((s) => s.id)
     const itemsByShipment = new Map<string, Array<{ qty: number; skus: { sku_code: string; name: string } | null }>>()
     if (shipmentIds.length > 0) {
       // Chunk the IN() query. The export fetches pages of 1000 shipments; a
@@ -158,9 +166,9 @@ export async function GET(request: NextRequest) {
     }
 
     // Merge items into shipments
-    const shipmentsWithItems = ((shipments || []) as Array<Record<string, unknown>>).map((s) => ({
+    const shipmentsWithItems = (shipments || []).map((s) => ({
       ...s,
-      shipment_items: itemsByShipment.get(s.id as string) || [],
+      shipment_items: itemsByShipment.get(s.id) || [],
     }))
 
     const rpcStats = rpcRes.data
@@ -168,7 +176,7 @@ export async function GET(request: NextRequest) {
 
     let stats: { totalCost: number; totalValue: number; missingPricing: number }
 
-    if (!rpcError && rpcStats) {
+    if (!rpcError && rpcStats && isShipmentStats(rpcStats)) {
       // RPC available - use server-side aggregated stats (accurate for any dataset size)
       stats = {
         totalCost: Number(rpcStats.totalCost) || 0,

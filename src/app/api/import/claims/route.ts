@@ -51,7 +51,9 @@ export async function POST(request: NextRequest) {
       .in('order_ref', orderRefs)
 
     const shipmentMap = new Map(
-      shipments?.map((s: { order_ref: string; id: string }) => [s.order_ref, s.id]) || []
+      shipments
+        ?.filter((s): s is { order_ref: string; id: string } => s.order_ref !== null)
+        .map((s) => [s.order_ref, s.id]) || []
     )
 
     // Upsert claims

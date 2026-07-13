@@ -143,7 +143,7 @@ export function parseParcel(parcel: SendcloudParcel): ParsedShipment {
     weight_grams: weightGrams,
     order_ref: parcel.order_number || null,
     tracking: parcel.tracking_number || null,
-    raw_json: parcel as unknown as Record<string, unknown>,
+    raw_json: parcel as unknown as import('@/types/database').Json,
     // New fields
     recipient_name: parcel.name || null,
     recipient_email: parcel.email || null,
@@ -429,7 +429,7 @@ function parseIntegrationShipment(shipment: SendcloudIntegrationShipment): Parse
     weight_grams: Math.round(weightGrams),
     order_ref: shipment.order_number,
     tracking: null, // No tracking yet for pending orders
-    raw_json: shipment as unknown as Record<string, unknown>,
+    raw_json: shipment as unknown as import('@/types/database').Json,
     recipient_name: shipment.name,
     recipient_email: shipment.email || null,
     recipient_phone: shipment.telephone || null,
@@ -996,7 +996,7 @@ export function parseReturn(ret: SendcloudReturn): ParsedReturn {
     return_reason_comment: ret.message || null,
     created_at: ret.created_at || new Date().toISOString(),
     announced_at: null, // Not available in this format
-    raw_json: ret as unknown as Record<string, unknown>,
+    raw_json: ret as unknown as import('@/types/database').Json,
   }
 }
 

@@ -6,19 +6,6 @@ import { auditCreate } from '@/lib/audit'
 
 const MLC_ROOT_TENANT_ID = '00000000-0000-0000-0000-000000000001'
 
-interface SKUWithStock {
-  id: string
-  sku_code: string
-  name: string
-  weight_grams: number | null
-  volume_m3: number | null
-  alert_threshold: number
-  created_at: string
-  tenant_id?: string
-  tenant?: { id: string; name: string; code: string } | null
-  stock_snapshots: Array<{ qty_current: number; updated_at: string }> | null
-}
-
 // GET /api/skus - List all SKUs with stock (excludes bundle SKUs by default)
 // Supports cross-tenant listing when the caller is on the MLC root tenant
 // (used by the Emplacements page so an MLC operator can assign any client's SKU).
@@ -68,20 +55,20 @@ export async function GET(request: NextRequest) {
 
       const bundleSkuIds = new Set((bundles || []).map((b: { bundle_sku_id: string }) => b.bundle_sku_id))
 
-      filtered = filtered.filter((sku: SKUWithStock) => {
+      filtered = filtered.filter((sku) => {
         if (bundleSkuIds.has(sku.id)) return false
         if (sku.sku_code.toUpperCase().includes('BU-') || sku.sku_code.toUpperCase().startsWith('BUNDLE')) return false
         return true
       })
     }
 
-    const skus = filtered.map((sku: SKUWithStock) => ({
+    const skus = filtered.map((sku) => ({
       id: sku.id,
       sku_code: sku.sku_code,
       name: sku.name,
       weight_grams: sku.weight_grams,
       volume_m3: sku.volume_m3,
-      alert_threshold: sku.alert_threshold,
+      alert_threshold: sku.alert_threshold ?? 0,
       created_at: sku.created_at,
       tenant_id: sku.tenant_id,
       tenant: sku.tenant || null,

@@ -1,3 +1,5 @@
+import type { Json } from '@/types/database'
+
 export interface SendcloudParcel {
   id: number
   tracking_number: string
@@ -77,7 +79,7 @@ export interface ParsedShipment {
   weight_grams: number
   order_ref: string | null
   tracking: string | null
-  raw_json: Record<string, unknown>
+  raw_json: Json
   // New fields
   recipient_name: string | null
   recipient_email: string | null
@@ -192,5 +194,5 @@ export interface ParsedReturn {
   return_reason_comment: string | null
   created_at: string
   announced_at: string | null
-  raw_json: Record<string, unknown>
+  raw_json: Json
 }
