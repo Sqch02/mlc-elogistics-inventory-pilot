@@ -9,6 +9,11 @@ import { reconcileTenant } from '@/lib/sendcloud/reconcile'
 import { getCronMaxPages } from '@/lib/sendcloud/pagination'
 import { reverseDuplicateShipmentStock } from '@/lib/stock/reverse-duplicates'
 import { buildShipmentRow } from '@/lib/sendcloud/build-shipment-row'
+import {
+  createSyncCorrelationId,
+  createSyncLogger,
+  type SyncLogger,
+} from '@/lib/sendcloud/sync-logger'
 
 export async function fetchCronData(
   credentials: SendcloudCredentials,
@@ -32,6 +37,7 @@ export async function refreshCronAnalytics(
   adminClient: {
     rpc: (name: typeof ANALYTICS_REFRESH_RPCS[number]) => PromiseLike<{ error: unknown }>
   },
+  logger: SyncLogger = createSyncLogger('Cron', createSyncCorrelationId()),
 ): Promise<{ refreshed: string[]; failed: string[] }> {
   const refreshed: string[] = []
   const failed: string[] = []
@@ -43,14 +49,14 @@ export async function refreshCronAnalytics(
       const { error } = await adminClient.rpc(rpcName)
       if (error) {
         failed.push(rpcName)
-        console.error(`[Cron] ${rpcName} failed:`, error)
+        logger.error(`${rpcName} failed:`, error)
       } else {
         refreshed.push(rpcName)
-        console.log(`[Cron] ${rpcName} completed`)
+        logger.info(`${rpcName} completed`)
       }
     } catch (error) {
       failed.push(rpcName)
-      console.error(`[Cron] ${rpcName} failed:`, error)
+      logger.error(`${rpcName} failed:`, error)
     }
   }
 
@@ -58,13 +64,13 @@ export async function refreshCronAnalytics(
 }
 
 // Background sync function - runs after response is sent
-async function runSync() {
+async function runSync(correlationId: string) {
   const startTime = Date.now()
   const maxPages = getCronMaxPages()
-  console.log('========================================')
-  console.log('[Cron] *** SYNC STARTED (BACKGROUND) ***')
-  console.log(`[Cron] Timestamp: ${new Date().toISOString()}`)
-  console.log('========================================')
+  const logger = createSyncLogger('Cron', correlationId)
+  logger.info('*** SYNC STARTED (BACKGROUND) ***', {
+    timestamp: new Date().toISOString(),
+  })
 
   const adminClient = getAdminDb()
 
@@ -73,7 +79,7 @@ async function runSync() {
     .select('id')
 
   if (tenantsError || !tenants) {
-    console.error('[Cron] Failed to get tenants:', tenantsError)
+    logger.error('Failed to get tenants:', tenantsError)
     return
   }
 
@@ -87,13 +93,13 @@ async function runSync() {
       p_tenant_id: tenant.id,
     })
     if (lockAcquired === false) {
-      console.warn(`[Cron] Skipping tenant ${tenant.id}: previous sync still holds the lock`)
+      logger.warn(`Skipping tenant ${tenant.id}: previous sync still holds the lock`)
       results.push({ tenantId: tenant.id, success: true, shipments: 0, returns: 0, skipped: 'lock_held' })
       continue
     }
 
     try {
-      console.log(`\n[Cron] ======= TENANT: ${tenant.id} =======`)
+      logger.info(`======= TENANT: ${tenant.id} =======`)
 
       // Get credentials
       const { data: tenantSettings } = await adminClient
@@ -103,7 +109,7 @@ async function runSync() {
         .single()
 
       if (!tenantSettings?.sendcloud_api_key || !tenantSettings?.sendcloud_secret) {
-        console.log(`[Cron] Skipping tenant ${tenant.id}: no Sendcloud credentials`)
+        logger.info(`Skipping tenant ${tenant.id}: no Sendcloud credentials`)
         results.push({ tenantId: tenant.id, success: true, shipments: 0, returns: 0 })
         continue
       }
@@ -136,16 +142,16 @@ async function runSync() {
 
       // Fetch parcels updated in the last 2 hours (fallback if no previous sync)
       const since = lastSync?.ended_at || new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
-      console.log(`[Cron] Fetching data in parallel (since: ${since})...`)
+      logger.info(`Fetching data in parallel (since: ${since})...`)
 
-      console.log(`[Cron] Pagination budget: ${maxPages} pages per resource`)
+      logger.info(`Pagination budget: ${maxPages} pages per resource`)
       const [parcelsRecent, pendingOrders, returnsRecent] = await fetchCronData(
         credentials,
         since,
         maxPages,
       )
 
-      console.log(`[Cron] Fetched: ${parcelsRecent.length} parcels, ${pendingOrders.length} pending, ${returnsRecent.length} returns`)
+      logger.info(`Fetched: ${parcelsRecent.length} parcels, ${pendingOrders.length} pending, ${returnsRecent.length} returns`)
 
       // Merge parcels: parcels take priority over pending orders
       const shipmentMap = new Map<string, ParsedShipment>()
@@ -186,7 +192,7 @@ async function runSync() {
             uuidWithOrderRef.filter(x => refsWithNumeric.has(x.ref)).map(x => x.id),
           )
           if (idsToSkip.size > 0) {
-            console.log(`[Cron] Skipping ${idsToSkip.size} UUID parcels (numeric counterpart already in DB)`)
+            logger.info(`Skipping ${idsToSkip.size} UUID parcels (numeric counterpart already in DB)`)
             for (let i = parcels.length - 1; i >= 0; i--) {
               if (idsToSkip.has(parcels[i].sendcloud_id)) parcels.splice(i, 1)
             }
@@ -216,14 +222,14 @@ async function runSync() {
 
         if (oldUuidRecords && oldUuidRecords.length > 0) {
           const oldIds = (oldUuidRecords as Array<{ id: string }>).map(r => r.id)
-          console.log(`[Cron] Cleaning up ${oldIds.length} old UUID records that became parcels`)
+          logger.info(`Cleaning up ${oldIds.length} old UUID records that became parcels`)
           const reversal = await reverseDuplicateShipmentStock(
             adminClient,
             tenant.id,
             oldIds,
           )
-          console.log(
-            `[Cron] Duplicate reversal: ${reversal.shipmentsDeleted} shipments, ${reversal.skusReversed} SKUs, ${reversal.unitsReversed} units${reversal.usedFallback ? ' (fallback)' : ''}`,
+          logger.info(
+            `Duplicate reversal: ${reversal.shipmentsDeleted} shipments, ${reversal.skusReversed} SKUs, ${reversal.unitsReversed} units${reversal.usedFallback ? ' (fallback)' : ''}`,
           )
         }
       }
@@ -231,7 +237,7 @@ async function runSync() {
       // ============================================
       // BATCH UPSERT SHIPMENTS
       // ============================================
-      console.log(`[Cron] Batch upserting ${parcels.length} shipments...`)
+      logger.info(`Batch upserting ${parcels.length} shipments...`)
 
       const shipmentsToUpsert = parcels.map((parcel) =>
         buildShipmentRow(tenant.id, parcel, pricingRules as PricingRule[] | null),
@@ -261,7 +267,7 @@ async function runSync() {
           .upsert(shipmentsToUpsert, { onConflict: 'tenant_id,sendcloud_id' })
 
         if (shipmentError) {
-          console.error(`[Cron] Shipments batch upsert error:`, shipmentError.message)
+          logger.error('Shipments batch upsert error:', shipmentError.message)
         }
       }
 
@@ -323,22 +329,22 @@ async function runSync() {
               try {
                 await consumeShipmentStockOnce(tenant.id, shipmentId)
               } catch (stockError) {
-                console.error(
-                  `[Cron] Error consuming stock for parcel ${parcel.sendcloud_id}:`,
+                logger.error(
+                  `Error consuming stock for parcel ${parcel.sendcloud_id}:`,
                   stockError,
                 )
               }
             }
           } catch (err) {
-            console.error(
-              `[Cron] processShipmentItems error for parcel ${parcel.sendcloud_id}:`,
+            logger.error(
+              `processShipmentItems error for parcel ${parcel.sendcloud_id}:`,
               err,
             )
           }
         }
 
-        console.log(
-          `[Cron] Items: ${totalMapped} mapped, ${totalUnmapped} unmapped (across ${parcelsWithItems.length} shipments)`,
+        logger.info(
+          `Items: ${totalMapped} mapped, ${totalUnmapped} unmapped (across ${parcelsWithItems.length} shipments)`,
         )
 
       }
@@ -346,7 +352,7 @@ async function runSync() {
       // ============================================
       // BATCH UPSERT RETURNS
       // ============================================
-      console.log(`[Cron] Batch upserting ${returnsRecent.length} returns...`)
+      logger.info(`Batch upserting ${returnsRecent.length} returns...`)
 
       const returnsToUpsert = returnsRecent.map((ret: ParsedReturn) => ({
         tenant_id: tenant.id,
@@ -380,7 +386,7 @@ async function runSync() {
           .upsert(returnsToUpsert, { onConflict: 'tenant_id,sendcloud_id' })
 
         if (returnsError) {
-          console.error(`[Cron] Returns batch upsert error:`, returnsError.message)
+          logger.error('Returns batch upsert error:', returnsError.message)
         }
       }
 
@@ -392,14 +398,21 @@ async function runSync() {
       // in try/catch so it can never break the main sync. The status changes it
       // writes are picked up by refreshCronAnalytics at the end of the run.
       try {
-        const rec = await reconcileTenant(adminClient, tenant.id, credentials, 15, false)
+        const rec = await reconcileTenant(
+          adminClient,
+          tenant.id,
+          credentials,
+          15,
+          false,
+          correlationId,
+        )
         if (rec.updated > 0 || rec.errors > 0) {
-          console.log(
-            `[Cron] Reconcile tenant ${tenant.id}: ${rec.updated} rattrapees, ${rec.noParcelFound} sans colis, ${rec.errors} erreurs`,
+          logger.info(
+            `Reconcile tenant ${tenant.id}: ${rec.updated} rattrapees, ${rec.noParcelFound} sans colis, ${rec.errors} erreurs`,
           )
         }
       } catch (recErr) {
-        console.error(`[Cron] Reconcile step failed for tenant ${tenant.id}:`, recErr)
+        logger.error(`Reconcile step failed for tenant ${tenant.id}:`, recErr)
       }
 
       // ============================================
@@ -416,6 +429,7 @@ async function runSync() {
           returns: returnsToUpsert.length,
           duration_ms: duration,
           max_pages: maxPages,
+          correlation_id: correlationId,
         },
       })
 
@@ -426,11 +440,11 @@ async function runSync() {
         returns: returnsToUpsert.length,
       })
 
-      console.log(`[Cron] Tenant ${tenant.id} done in ${duration}ms`)
+      logger.info(`Tenant ${tenant.id} done in ${duration}ms`)
 
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : 'Unknown error'
-      console.error(`[Cron] Error for tenant ${tenant.id}:`, error)
+      logger.error(`Error for tenant ${tenant.id}:`, error)
 
       // P0-cron: persist sync_runs row with status='failed' so the
       // /api/sync/sendcloud/status endpoint and the freshness alerts see the
@@ -443,10 +457,10 @@ async function runSync() {
           status: 'failed',
           ended_at: new Date().toISOString(),
           error_text: errMsg,
-          stats_json: { error: errMsg },
+          stats_json: { error: errMsg, correlation_id: correlationId },
         })
       } catch (logErr) {
-        console.error('[Cron] Failed to persist sync_runs failure row:', logErr)
+        logger.error('Failed to persist sync_runs failure row:', logErr)
       }
 
       results.push({
@@ -460,7 +474,7 @@ async function runSync() {
       try {
         await adminClient.rpc('release_cron_tenant_lock', { p_tenant_id: tenant.id })
       } catch (unlockErr) {
-        console.error('[Cron] Failed to release advisory lock:', unlockErr)
+        logger.error('Failed to release advisory lock:', unlockErr)
       }
     }
   }
@@ -469,21 +483,23 @@ async function runSync() {
   // refresh_sku_metrics once per tenant and then refreshed it again inside the
   // consolidated RPC. It also skipped dashboard/SKU refreshes whenever the
   // physical-items refresh timed out.
-  await refreshCronAnalytics(adminClient)
+  await refreshCronAnalytics(adminClient, logger)
 
   const totalDuration = Date.now() - startTime
-  console.log(`\n[Cron] *** SYNC COMPLETE in ${totalDuration}ms ***`)
+  logger.info(`*** SYNC COMPLETE in ${totalDuration}ms ***`)
 }
 
 // This endpoint is called by cron-job.org every 5 minutes
 // Returns immediately (< 1s) and runs sync in background
 export async function GET(request: NextRequest) {
+  const correlationId = createSyncCorrelationId()
+  const logger = createSyncLogger('Cron', correlationId)
   // Verify cron secret
   const authHeader = request.headers.get('authorization')
   const cronSecret = process.env.CRON_SECRET
 
   if (!cronSecret) {
-    console.error('[Cron] CRON_SECRET not configured')
+    logger.error('CRON_SECRET not configured')
     return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 })
   }
 
@@ -492,11 +508,12 @@ export async function GET(request: NextRequest) {
   }
 
   // Start sync in background (don't await - Node.js process stays alive on Render)
-  runSync().catch((err) => console.error('[Cron] Background sync error:', err))
+  runSync(correlationId).catch((err) => logger.error('Background sync error:', err))
 
   // Return immediately
   return NextResponse.json({
     success: true,
+    correlationId,
     message: 'Sync started in background',
     timestamp: new Date().toISOString(),
   })

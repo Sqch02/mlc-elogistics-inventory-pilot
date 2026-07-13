@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { reconcileTenant, type ReconcileResult } from '@/lib/sendcloud/reconcile'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
+import { createSyncCorrelationId, createSyncLogger } from '@/lib/sendcloud/sync-logger'
 
 // On-demand trigger for the stuck-"On Hold" reconciliation (see the logic and
 // safety notes in src/lib/sendcloud/reconcile.ts). The same routine also runs
@@ -14,6 +15,8 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
 export async function GET(request: NextRequest) {
+  const correlationId = createSyncCorrelationId()
+  const logger = createSyncLogger('Reconcile', correlationId)
   const authHeader = request.headers.get('authorization')
   const cronSecret = process.env.CRON_SECRET
   if (!cronSecret) {
@@ -55,11 +58,18 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-      const res = await reconcileTenant(adminClient, tenant.id, credentials, limit, dryRun)
+      const res = await reconcileTenant(
+        adminClient,
+        tenant.id,
+        credentials,
+        limit,
+        dryRun,
+        correlationId,
+      )
       if (res.changed) anyChange = true
       results.push(res)
     } catch (err) {
-      console.error(`[Reconcile] Tenant ${tenant.id} failed:`, err)
+      logger.error(`Tenant ${tenant.id} failed:`, err)
       results.push({
         tenantId: tenant.id,
         scanned: 0,
@@ -79,12 +89,13 @@ export async function GET(request: NextRequest) {
       await adminClient.rpc('refresh_physical_items_view')
       await adminClient.rpc('refresh_sku_metrics')
     } catch (e) {
-      console.error('[Reconcile] View refresh failed:', e)
+      logger.error('View refresh failed:', e)
     }
   }
 
   return NextResponse.json({
     success: true,
+    correlationId,
     dryRun,
     limit,
     timestamp: new Date().toISOString(),

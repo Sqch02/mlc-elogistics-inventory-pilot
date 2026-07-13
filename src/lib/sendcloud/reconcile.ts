@@ -1,6 +1,7 @@
 import type { getAdminDb } from '@/lib/supabase/untyped'
 import { fetchParcelsByOrderNumber } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials, ParsedShipment } from '@/lib/sendcloud/types'
+import { createSyncCorrelationId, createSyncLogger } from '@/lib/sendcloud/sync-logger'
 
 // ============================================================================
 // RECONCILIATION - stuck "On Hold" orders (Mondial Relay status bug)
@@ -65,7 +66,9 @@ export async function reconcileTenant(
   credentials: SendcloudCredentials,
   limit: number,
   dryRun: boolean,
+  correlationId = createSyncCorrelationId(),
 ): Promise<ReconcileResult> {
+  const logger = createSyncLogger('Reconcile', correlationId)
   const res: ReconcileResult = {
     tenantId,
     scanned: 0,
@@ -127,7 +130,7 @@ export async function reconcileTenant(
           })
           .eq('id', row.id)
         if (error) {
-          console.error(`[Reconcile] Update error for ${row.order_ref}:`, error.message)
+          logger.error(`Update error for ${row.order_ref}:`, error.message)
           res.errors++
           continue
         }
@@ -135,7 +138,7 @@ export async function reconcileTenant(
       }
       res.updated++
     } catch (err) {
-      console.error(`[Reconcile] Sendcloud fetch error for ${row.order_ref}:`, err)
+      logger.error(`Sendcloud fetch error for ${row.order_ref}:`, err)
       res.errors++
     }
   }
