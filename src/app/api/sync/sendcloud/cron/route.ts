@@ -507,6 +507,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // KILL-SWITCH (incident DB 13/07): le cron est mis en PAUSE pour laisser la base
+  // recuperer d'une saturation I/O. Il reste en pause tant que la variable d'env
+  // SYNC_ENABLED n'est pas exactement 'true' (a definir sur Render pour reactiver),
+  // ou retirer ce bloc et redeployer.
+  if (process.env.SYNC_ENABLED !== 'true') {
+    logger.info('Cron paused (maintenance): SYNC_ENABLED != true')
+    return NextResponse.json({ success: false, paused: true, message: 'Sync paused (maintenance)' })
+  }
+
   // Start sync in background (don't await - Node.js process stays alive on Render)
   runSync(correlationId).catch((err) => logger.error('Background sync error:', err))
 
