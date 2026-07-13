@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
-import { fetchAllParcels, fetchAllReturns, fetchAllIntegrationShipments } from '@/lib/sendcloud/client'
+import {
+  fetchAllParcels,
+  fetchAllReturns,
+  fetchAllIntegrationShipments,
+  type PaginationCapHandler,
+  type PaginationCapNotice,
+} from '@/lib/sendcloud/client'
 import type { SendcloudCredentials, ParsedShipment, ParsedReturn } from '@/lib/sendcloud/types'
 import type { PricingRule } from '@/lib/utils/pricing'
 import { processShipmentItems } from '@/lib/utils/sku-mapping'
@@ -19,11 +25,12 @@ export async function fetchCronData(
   credentials: SendcloudCredentials,
   since: string,
   maxPages: number,
+  onPaginationCap?: PaginationCapHandler,
 ) {
   return Promise.all([
-    fetchAllParcels(credentials, since, maxPages),
-    fetchAllIntegrationShipments(credentials, maxPages),
-    fetchAllReturns(credentials, since, maxPages),
+    fetchAllParcels(credentials, since, maxPages, onPaginationCap),
+    fetchAllIntegrationShipments(credentials, maxPages, onPaginationCap),
+    fetchAllReturns(credentials, since, maxPages, onPaginationCap),
   ])
 }
 
@@ -145,11 +152,17 @@ async function runSync(correlationId: string) {
       logger.info(`Fetching data in parallel (since: ${since})...`)
 
       logger.info(`Pagination budget: ${maxPages} pages per resource`)
+      const paginationCaps: PaginationCapNotice[] = []
       const [parcelsRecent, pendingOrders, returnsRecent] = await fetchCronData(
         credentials,
         since,
         maxPages,
+        (notice) => paginationCaps.push(notice),
       )
+
+      if (paginationCaps.length > 0) {
+        logger.warn('Pagination cap reached:', paginationCaps)
+      }
 
       logger.info(`Fetched: ${parcelsRecent.length} parcels, ${pendingOrders.length} pending, ${returnsRecent.length} returns`)
 
@@ -429,6 +442,8 @@ async function runSync(correlationId: string) {
           returns: returnsToUpsert.length,
           duration_ms: duration,
           max_pages: maxPages,
+          pagination_capped: paginationCaps.length > 0,
+          pagination_caps: paginationCaps,
           correlation_id: correlationId,
         },
       })

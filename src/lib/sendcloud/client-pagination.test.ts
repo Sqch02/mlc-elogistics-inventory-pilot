@@ -86,6 +86,7 @@ describe('Sendcloud pagination completion', () => {
 
   it('caps a truncated parcel batch loudly instead of failing the tenant sync', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const onPaginationCap = vi.fn()
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
       parcels: [rawParcel(1)],
       next: 'https://panel.sendcloud.sc/api/v2/parcels?cursor=page-2',
@@ -94,16 +95,27 @@ describe('Sendcloud pagination completion', () => {
     // A throw here would fail the whole tenant sync AND deadlock a high-volume
     // tenant whose incremental window never fits in the page budget (Florna,
     // 13/07). The fetch must instead cap and log LOUDLY (no SILENT truncation).
-    const parcels = await fetchAllParcels(credentials, undefined, 1)
+    const parcels = await fetchAllParcels(
+      credentials,
+      undefined,
+      1,
+      onPaginationCap,
+    )
 
     expect(parcels.map((parcel) => parcel.sendcloud_id)).toEqual(['1'])
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('parcels still has data after 1 pages'),
     )
+    expect(onPaginationCap).toHaveBeenCalledWith({
+      resource: 'parcels',
+      fetched: 1,
+      maxPages: 1,
+    })
     warnSpy.mockRestore()
   })
 
   it('keeps a bounded integration snapshot without failing the tenant sync', async () => {
+    const onPaginationCap = vi.fn()
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse([
         { id: 7, shop_name: 'Shopify', system: 'shopify' },
@@ -115,16 +127,27 @@ describe('Sendcloud pagination completion', () => {
       }))
     vi.stubGlobal('fetch', fetchMock)
 
-    const shipments = await fetchAllIntegrationShipments(credentials, 1)
+    const shipments = await fetchAllIntegrationShipments(
+      credentials,
+      1,
+      onPaginationCap,
+    )
 
     expect(shipments.map((shipment) => shipment.sendcloud_id)).toEqual([
       'shipment-1',
     ])
     expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(onPaginationCap).toHaveBeenCalledWith({
+      resource: 'integration_shipments',
+      fetched: 1,
+      maxPages: 1,
+      integrationId: 7,
+    })
   })
 
   it('caps a truncated returns batch loudly instead of failing the tenant sync', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const onPaginationCap = vi.fn()
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
       returns: [{
         id: 9,
@@ -135,12 +158,22 @@ describe('Sendcloud pagination completion', () => {
       next: 'https://panel.sendcloud.sc/api/v2/returns?cursor=page-2',
     })))
 
-    const returns = await fetchAllReturns(credentials, undefined, 1)
+    const returns = await fetchAllReturns(
+      credentials,
+      undefined,
+      1,
+      onPaginationCap,
+    )
 
     expect(Array.isArray(returns)).toBe(true)
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('returns still has data after 1 pages'),
     )
+    expect(onPaginationCap).toHaveBeenCalledWith({
+      resource: 'returns',
+      fetched: 1,
+      maxPages: 1,
+    })
     warnSpy.mockRestore()
   })
 })

@@ -31,9 +31,35 @@ describe('fetchCronData', () => {
 
     await fetchCronData(credentials, since, 10)
 
-    expect(mockFetchAllParcels).toHaveBeenCalledWith(credentials, since, 10)
-    expect(mockFetchAllIntegrationShipments).toHaveBeenCalledWith(credentials, 10)
-    expect(mockFetchAllReturns).toHaveBeenCalledWith(credentials, since, 10)
+    expect(mockFetchAllParcels).toHaveBeenCalledWith(credentials, since, 10, undefined)
+    expect(mockFetchAllIntegrationShipments).toHaveBeenCalledWith(credentials, 10, undefined)
+    expect(mockFetchAllReturns).toHaveBeenCalledWith(credentials, since, 10, undefined)
+  })
+
+  it('forwards pagination cap notices without changing fetched data', async () => {
+    const credentials = { apiKey: 'tenant-key', secret: 'tenant-secret' }
+    const since = '2026-07-13T08:00:00.000Z'
+    const onPaginationCap = vi.fn()
+
+    await fetchCronData(credentials, since, 2, onPaginationCap)
+
+    expect(mockFetchAllParcels).toHaveBeenCalledWith(
+      credentials,
+      since,
+      2,
+      onPaginationCap,
+    )
+    expect(mockFetchAllIntegrationShipments).toHaveBeenCalledWith(
+      credentials,
+      2,
+      onPaginationCap,
+    )
+    expect(mockFetchAllReturns).toHaveBeenCalledWith(
+      credentials,
+      since,
+      2,
+      onPaginationCap,
+    )
   })
 })
 
