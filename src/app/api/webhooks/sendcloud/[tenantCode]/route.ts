@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createHmac } from 'crypto'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { parseParcel } from '@/lib/sendcloud/client'
 import type { SendcloudParcel, ParsedShipment } from '@/lib/sendcloud/types'
@@ -7,6 +6,8 @@ import { consumeShipmentStockOnce, restockShipmentStock } from '@/lib/stock/cons
 import type { PricingRule } from '@/lib/utils/pricing'
 import { processShipmentItems } from '@/lib/utils/sku-mapping'
 import { buildShipmentRow } from '@/lib/sendcloud/build-shipment-row'
+import { validateSignature } from '@/lib/utils/webhook-signature'
+import { resolveWebhookSecret } from '@/lib/sendcloud/webhook-secret'
 
 // Sendcloud webhook payload structure
 interface SendcloudWebhookPayload {
@@ -111,33 +112,12 @@ async function createClaimFromShipment(
   }
 }
 
-// Validate webhook signature
-function validateSignature(payload: string, signature: string, secret: string): boolean {
-  if (!secret || !signature) {
-    return false
-  }
-
-  const expectedSignature = createHmac('sha256', secret)
-    .update(payload)
-    .digest('hex')
-
-  if (signature.length !== expectedSignature.length) {
-    return false
-  }
-
-  let result = 0
-  for (let i = 0; i < signature.length; i++) {
-    result |= signature.charCodeAt(i) ^ expectedSignature.charCodeAt(i)
-  }
-
-  return result === 0
-}
-
 // Lookup tenant by code
 async function getTenantByCode(adminClient: ReturnType<typeof getAdminDb>, tenantCode: string): Promise<{
   id: string
   name: string
-  webhookSecret: string | null
+  dedicatedWebhookSecret: string | null
+  integrationSecret: string | null
 } | null> {
   // First try to find by code (trim + upper to be tolerant of trailing spaces
   // that may have been entered at tenant creation time)
@@ -158,9 +138,6 @@ async function getTenantByCode(adminClient: ReturnType<typeof getAdminDb>, tenan
     return null
   }
 
-  // Resolve webhook secret: prefer the dedicated field, otherwise fall back to
-  // the integration secret. Final fallback to the ENV is handled at the call
-  // site so the warning is logged once per request.
   const { data: settings } = await adminClient
     .from('tenant_settings')
     .select('sendcloud_webhook_secret, sendcloud_secret')
@@ -170,10 +147,8 @@ async function getTenantByCode(adminClient: ReturnType<typeof getAdminDb>, tenan
   return {
     id: tenant.id,
     name: tenant.name,
-    webhookSecret:
-      settings?.sendcloud_webhook_secret ||
-      settings?.sendcloud_secret ||
-      null,
+    dedicatedWebhookSecret: settings?.sendcloud_webhook_secret || null,
+    integrationSecret: settings?.sendcloud_secret || null,
   }
 }
 
@@ -207,53 +182,58 @@ export async function POST(
     // Get signature from header
     const signature = request.headers.get('Sendcloud-Signature') || ''
 
-    // Prefer the per-tenant webhook secret. Fall back to the global ENV
-    // SENDCLOUD_WEBHOOK_SECRET when the tenant has nothing configured (current
-    // state for all 5 tenants - the per-tenant migration is tracked separately).
-    // We log a WARN every time the fallback fires so it remains visible.
-    let webhookSecret = tenant.webhookSecret
-    if (!webhookSecret && process.env.SENDCLOUD_WEBHOOK_SECRET) {
-      console.warn(
-        '[Webhook] Tenant',
-        tenantCode,
-        'has no sendcloud_webhook_secret configured; using ENV fallback',
-      )
-      webhookSecret = process.env.SENDCLOUD_WEBHOOK_SECRET
-    }
-    if (!webhookSecret) {
+    const resolvedSecret = resolveWebhookSecret({
+      dedicatedSecret: tenant.dedicatedWebhookSecret,
+      integrationSecret: tenant.integrationSecret,
+      globalFallback: process.env.SENDCLOUD_WEBHOOK_SECRET,
+    })
+    if (!resolvedSecret) {
       console.error('[Webhook] CRITICAL: No webhook secret configured for tenant', tenantCode)
       return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 })
     }
 
-    // Replay protection: reject payloads older than 5 minutes
-    const bodyForFreshness = await request.clone().text().catch(() => '')
-    if (bodyForFreshness) {
-      try {
-        const tsPayload = JSON.parse(bodyForFreshness) as { timestamp?: number }
-        if (
-          typeof tsPayload.timestamp === 'number' &&
-          tsPayload.timestamp > 0 &&
-          tsPayload.timestamp < 4102444800
-        ) {
-          const ageMs = Math.abs(Date.now() - tsPayload.timestamp * 1000)
-          if (ageMs > 5 * 60 * 1000) {
-            console.error('[Webhook] Rejected stale payload, age (ms):', ageMs)
-            return NextResponse.json({ error: 'Stale payload' }, { status: 401 })
-          }
-        }
-      } catch {
-        // Will be re-parsed below; ignore here
-      }
+    if (resolvedSecret.source === 'integration') {
+      console.warn(
+        '[Webhook] Tenant',
+        tenantCode,
+        'has no dedicated webhook secret; using tenant integration secret fallback',
+      )
+    } else if (resolvedSecret.source === 'global') {
+      console.warn(
+        '[Webhook] Tenant',
+        tenantCode,
+        'has no tenant-bound secret; using global ENV fallback',
+      )
     }
 
-    const isValid = validateSignature(rawBody, signature, webhookSecret)
+    const isValid = validateSignature(rawBody, signature, resolvedSecret.secret)
     if (!isValid) {
       console.error('[Webhook] Invalid signature for tenant:', tenantCode)
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
     }
 
     // Parse payload
-    const payload: SendcloudWebhookPayload = JSON.parse(rawBody)
+    let payload: SendcloudWebhookPayload
+    try {
+      payload = JSON.parse(rawBody) as SendcloudWebhookPayload
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400 })
+    }
+
+    // Replay protection: parse the body exactly once. Cloning a request after
+    // request.text() has consumed it is runtime-dependent and previously made
+    // this check ineffective.
+    if (
+      typeof payload.timestamp === 'number' &&
+      payload.timestamp > 0 &&
+      payload.timestamp < 4102444800
+    ) {
+      const ageMs = Math.abs(Date.now() - payload.timestamp * 1000)
+      if (ageMs > 5 * 60 * 1000) {
+        console.error('[Webhook] Rejected stale payload, age (ms):', ageMs)
+        return NextResponse.json({ error: 'Stale payload' }, { status: 401 })
+      }
+    }
 
     // Safe timestamp logging
     let timestampStr = 'unknown'
