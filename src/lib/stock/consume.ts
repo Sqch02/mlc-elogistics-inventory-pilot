@@ -87,44 +87,26 @@ export async function consumeShipmentStockOnce(
 ): Promise<{ consumed: boolean; count: number }> {
   const adminClient = getAdminDb()
 
-  // Atomic claim.
-  const { data: claimed } = await adminClient
-    .from('shipments')
-    .update({ stock_consumed_at: new Date().toISOString() })
-    .eq('tenant_id', tenantId)
-    .eq('id', shipmentId)
-    .is('stock_consumed_at', null)
-    .select('id')
+  // All-or-nothing: the CAS claim on stock_consumed_at AND every item's
+  // apply_stock_delta run inside ONE transaction (consume_shipment_stock RPC).
+  // If any item fails, the whole thing rolls back so the shipment is never left
+  // "claimed but partially consumed" — stock_consumed_at stays NULL and the
+  // shipment can be re-driven. We deliberately THROW on RPC error (instead of
+  // swallowing per-item failures) so the caller logs it and does not treat a
+  // rolled-back shipment as consumed.
+  const { data, error } = await adminClient.rpc('consume_shipment_stock', {
+    p_tenant_id: tenantId,
+    p_shipment_id: shipmentId,
+  })
 
-  if (!claimed || claimed.length === 0) {
-    return { consumed: false, count: 0 }
+  if (error) {
+    throw new Error(
+      `consume_shipment_stock failed for shipment ${shipmentId}: ${error.message}`,
+    )
   }
 
-  const { data: items } = await adminClient
-    .from('shipment_items')
-    .select('sku_id, qty')
-    .eq('tenant_id', tenantId)
-    .eq('shipment_id', shipmentId)
-
-  let count = 0
-  for (const it of (items ?? []) as Array<{ sku_id: string; qty: number }>) {
-    try {
-      await adminClient.rpc('apply_stock_delta', {
-        p_tenant_id: tenantId,
-        p_sku_id: it.sku_id,
-        p_delta: -it.qty,
-        p_reason: 'Expédition',
-        p_reference_id: shipmentId,
-        p_reference_type: 'shipment',
-        p_movement_type: 'shipment',
-      })
-      count++
-    } catch (e) {
-      console.error(`[Stock] consume error sku ${it.sku_id} shipment ${shipmentId}:`, e)
-    }
-  }
-
-  return { consumed: true, count }
+  const row = ((data ?? []) as Array<{ consumed: boolean; item_count: number }>)[0]
+  return { consumed: row?.consumed ?? false, count: row?.item_count ?? 0 }
 }
 
 /**

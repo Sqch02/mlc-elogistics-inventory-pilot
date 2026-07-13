@@ -5,6 +5,7 @@ import { fetchAllParcels } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
 import { consumeShipmentStockOnce } from '@/lib/stock/consume'
 import { getDestination } from '@/lib/utils/pricing'
+import { processShipmentItems } from '@/lib/utils/sku-mapping'
 
 interface PricingRule {
   carrier: string
@@ -106,25 +107,9 @@ export async function POST() {
       .update({ stats_json: stats })
       .eq('id', syncRunId)
 
-    // Get all SKUs for item matching
-    const { data: skus } = await adminClient
-      .from('skus')
-      .select('id, sku_code')
-      .eq('tenant_id', tenantId)
-
-    const skuMap = new Map<string, string>(skus?.map((s: { sku_code: string; id: string }) => [s.sku_code.toLowerCase(), s.id]) || [])
-
-    // Get description->SKU mappings for fallback matching
-    const { data: descMappings } = await adminClient
-      .from('sendcloud_sku_mappings')
-      .select('description_pattern, sku_id')
-      .eq('tenant_id', tenantId)
-
-    const descMap = new Map<string, string>(
-      descMappings?.map((m: { description_pattern: string; sku_id: string }) =>
-        [m.description_pattern.toLowerCase(), m.sku_id]
-      ) || []
-    )
+    // Item matching is delegated to the shared processShipmentItems pipeline
+    // (RPC map_shipment_item, keyword layers 1-3, unmapped_items table) so the
+    // manual sync maps exactly like cron and webhook. No local skuMap/descMap.
 
     // Get pricing rules for cost calculation
     const { data: pricingRules } = await adminClient
@@ -238,58 +223,35 @@ export async function POST() {
             .eq('id', syncRunId)
         }
 
-        // Process items if available
-        if (parcel.items && parcel.items.length > 0 && shipment) {
-          const unmappedItems: Array<{ description: string; qty: number }> = []
+        // Process items via the shared mapping pipeline (same as cron/webhook):
+        // keyword matching layers 1-3 + unmapped rows written to the
+        // unmapped_items TABLE read by /mapping (not the legacy shipments column).
+        if (shipment) {
+          const rawJson = parcel.raw_json as Record<string, unknown>
+          const parcelItems = (rawJson?.parcel_items as unknown[]) || []
 
-          for (const item of parcel.items) {
-            // 1. Try direct SKU code match (existing behavior)
-            let skuId = skuMap.get(item.sku_code.toLowerCase())
+          try {
+            const { mappedCount } = await processShipmentItems(
+              adminClient,
+              tenantId,
+              shipment.id,
+              parcelItems,
+            )
+            stats.itemsCreated += mappedCount
 
-            // 2. Fallback: try description mapping
-            if (!skuId && item.description) {
-              skuId = descMap.get(item.description.toLowerCase())
-            }
-
-            if (skuId) {
-              const { error: itemError } = await adminClient
-                .from('shipment_items')
-                .upsert(
-                  {
-                    tenant_id: tenantId,
-                    shipment_id: shipment.id,
-                    sku_id: skuId,
-                    qty: item.qty,
-                  },
-                  { onConflict: 'shipment_id,sku_id' }
-                )
-
-              if (!itemError) {
-                stats.itemsCreated++
+            // Consume stock once for the whole shipment (idempotent CAS on
+            // stock_consumed_at) rather than per item, so webhook/cron/manual sync
+            // can never double-consume the same parcel.
+            if (isNewShipment && mappedCount > 0) {
+              try {
+                const { count } = await consumeShipmentStockOnce(tenantId, shipment.id)
+                stats.stockConsumed += count
+              } catch (stockError) {
+                console.error(`[Sync] Error consuming stock for shipment ${parcel.sendcloud_id}:`, stockError)
               }
-            } else if (item.description) {
-              unmappedItems.push({ description: item.description, qty: item.qty })
             }
-          }
-
-          // Consume stock once for the whole shipment (idempotent CAS on
-          // stock_consumed_at) rather than per item, so webhook/cron/manual sync
-          // can never double-consume the same parcel.
-          if (isNewShipment) {
-            try {
-              const { count } = await consumeShipmentStockOnce(tenantId, shipment.id)
-              stats.stockConsumed += count
-            } catch (stockError) {
-              console.error(`[Sync] Error consuming stock for shipment ${parcel.sendcloud_id}:`, stockError)
-            }
-          }
-
-          // Store unmapped items on the shipment for later mapping
-          if (unmappedItems.length > 0) {
-            await adminClient
-              .from('shipments')
-              .update({ unmapped_items: unmappedItems })
-              .eq('id', shipment.id)
+          } catch (err) {
+            console.error(`[Sync] processShipmentItems error for parcel ${parcel.sendcloud_id}:`, err)
           }
         }
       } catch (error) {
