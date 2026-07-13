@@ -293,7 +293,7 @@ export async function POST() {
         .from('sync_runs')
         .update({
           ended_at: new Date().toISOString(),
-          status: 'failure',
+          status: 'failed',
           error_text: error instanceof Error ? error.message : 'Unknown error',
         })
         .eq('id', syncRunId)

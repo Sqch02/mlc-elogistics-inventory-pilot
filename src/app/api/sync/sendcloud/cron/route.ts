@@ -6,6 +6,7 @@ import { getDestination } from '@/lib/utils/pricing'
 import { processShipmentItems } from '@/lib/utils/sku-mapping'
 import { consumeShipmentStockOnce } from '@/lib/stock/consume'
 import { reconcileTenant } from '@/lib/sendcloud/reconcile'
+import { getCronMaxPages } from '@/lib/sendcloud/pagination'
 
 interface PricingRule {
   carrier: string
@@ -15,9 +16,22 @@ interface PricingRule {
   price_eur: number
 }
 
+export async function fetchCronData(
+  credentials: SendcloudCredentials,
+  since: string,
+  maxPages: number,
+) {
+  return Promise.all([
+    fetchAllParcels(credentials, since, maxPages),
+    fetchAllIntegrationShipments(credentials, maxPages),
+    fetchAllReturns(credentials, since, maxPages),
+  ])
+}
+
 // Background sync function - runs after response is sent
 async function runSync() {
   const startTime = Date.now()
+  const maxPages = getCronMaxPages()
   console.log('========================================')
   console.log('[Cron] *** SYNC STARTED (BACKGROUND) ***')
   console.log(`[Cron] Timestamp: ${new Date().toISOString()}`)
@@ -95,11 +109,12 @@ async function runSync() {
       const since = lastSync?.ended_at || new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
       console.log(`[Cron] Fetching data in parallel (since: ${since})...`)
 
-      const [parcelsRecent, pendingOrders, returnsRecent] = await Promise.all([
-        fetchAllParcels(credentials, since, 2),
-        fetchAllIntegrationShipments(credentials, 2),
-        fetchAllReturns(credentials, since, 2),
-      ])
+      console.log(`[Cron] Pagination budget: ${maxPages} pages per resource`)
+      const [parcelsRecent, pendingOrders, returnsRecent] = await fetchCronData(
+        credentials,
+        since,
+        maxPages,
+      )
 
       console.log(`[Cron] Fetched: ${parcelsRecent.length} parcels, ${pendingOrders.length} pending, ${returnsRecent.length} returns`)
 
@@ -489,6 +504,7 @@ async function runSync() {
           shipments: shipmentsToUpsert.length,
           returns: returnsToUpsert.length,
           duration_ms: duration,
+          max_pages: maxPages,
         },
       })
 
@@ -505,7 +521,7 @@ async function runSync() {
       const errMsg = error instanceof Error ? error.message : 'Unknown error'
       console.error(`[Cron] Error for tenant ${tenant.id}:`, error)
 
-      // P0-cron: persist sync_runs row with status='failure' so the
+      // P0-cron: persist sync_runs row with status='failed' so the
       // /api/sync/sendcloud/status endpoint and the freshness alerts see the
       // failure. Previously errors were only pushed to `results[]` and lost
       // when the process exited.
@@ -513,7 +529,7 @@ async function runSync() {
         await adminClient.from('sync_runs').insert({
           tenant_id: tenant.id,
           source: 'sendcloud',
-          status: 'failure',
+          status: 'failed',
           ended_at: new Date().toISOString(),
           error_text: errMsg,
           stats_json: { error: errMsg },

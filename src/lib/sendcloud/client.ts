@@ -8,6 +8,7 @@ import type {
   ParsedReturn
 } from './types'
 import { fetchMockParcels } from './mock'
+import { SendcloudPaginationLimitError } from './pagination'
 
 const SENDCLOUD_API_URL = 'https://panel.sendcloud.sc/api/v2'
 
@@ -253,6 +254,7 @@ export async function fetchAllParcels(
   const allParcels: ParsedShipment[] = []
   let cursor: string | undefined
   let page = 0
+  let hasMore = false
 
   while (page < maxPages) {
     console.log(`[Sendcloud fetchAll] Fetching page ${page + 1}/${maxPages}...`)
@@ -263,18 +265,23 @@ export async function fetchAllParcels(
     })
 
     allParcels.push(...parcels)
-    console.log(`[Sendcloud fetchAll] Page ${page + 1}: got ${parcels.length} parcels, total so far: ${allParcels.length}`)
+    page++
+    console.log(`[Sendcloud fetchAll] Page ${page}: got ${parcels.length} parcels, total so far: ${allParcels.length}`)
 
-    if (!nextCursor || parcels.length === 0) {
+    hasMore = Boolean(nextCursor && parcels.length > 0)
+    if (!hasMore) {
       console.log(`[Sendcloud fetchAll] Stopping: ${!nextCursor ? 'no more pages' : 'empty page'}`)
       break
     }
 
     cursor = nextCursor
-    page++
   }
 
-  console.log(`[Sendcloud fetchAll] Complete: ${allParcels.length} total parcels from ${page + 1} pages`)
+  if (hasMore) {
+    throw new SendcloudPaginationLimitError('parcels', maxPages)
+  }
+
+  console.log(`[Sendcloud fetchAll] Complete: ${allParcels.length} total parcels from ${page} pages`)
   return allParcels
 }
 
@@ -485,8 +492,9 @@ export async function fetchIntegrationShipments(
     })
 
     if (!response.ok) {
-      console.error(`[Sendcloud] Failed to fetch integration shipments: ${response.status}`)
-      break
+      throw new Error(
+        `Sendcloud integration shipments API error: ${response.status}`,
+      )
     }
 
     const data: SendcloudIntegrationShipmentsResponse = await response.json()
@@ -497,6 +505,13 @@ export async function fetchIntegrationShipments(
 
     nextUrl = data.next
     page++
+  }
+
+  if (nextUrl) {
+    throw new SendcloudPaginationLimitError(
+      `integration ${integrationId} shipments`,
+      maxPages,
+    )
   }
 
   console.log(`[Sendcloud] Integration ${integrationId}: ${allShipments.length} total shipments`)
@@ -1050,6 +1065,7 @@ export async function fetchAllReturns(
   const allReturns: ParsedReturn[] = []
   let cursor: string | undefined
   let page = 0
+  let hasMore = false
 
   while (page < maxPages) {
     const { returns, nextCursor } = await fetchReturns(credentials, {
@@ -1059,13 +1075,18 @@ export async function fetchAllReturns(
     })
 
     allReturns.push(...returns)
+    page++
 
-    if (!nextCursor || returns.length === 0) {
+    hasMore = Boolean(nextCursor && returns.length > 0)
+    if (!hasMore) {
       break
     }
 
     cursor = nextCursor
-    page++
+  }
+
+  if (hasMore) {
+    throw new SendcloudPaginationLimitError('returns', maxPages)
   }
 
   return allReturns
