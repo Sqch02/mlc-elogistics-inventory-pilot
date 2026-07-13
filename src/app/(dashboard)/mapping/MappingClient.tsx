@@ -564,7 +564,7 @@ function AnomaliesSection({
                     <Info className="h-4 w-4 text-warning shrink-0 mt-0.5" />
                     <div className="text-sm leading-relaxed">
                       <span className="font-semibold text-warning text-[11px] uppercase tracking-wide block mb-0.5">
-                        L'impact
+                        L&apos;impact
                       </span>
                       <span className="text-foreground">{guide.impact}</span>
                     </div>
@@ -590,7 +590,7 @@ function AnomaliesSection({
                         <LinkIcon className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
                         <div>
                           <span className="text-muted-foreground">
-                            SKU suggere (existe deja dans l'app) :
+                            SKU suggere (existe deja dans l&apos;app) :
                           </span>{' '}
                           <code className="font-mono font-semibold text-primary">
                             {guide.suggestedSku.sku_code}
