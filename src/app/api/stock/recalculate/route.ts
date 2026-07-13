@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireTenant, requireRole } from '@/lib/supabase/auth'
 import { consumeStock } from '@/lib/stock/consume'
 
 interface ShipmentItemRow {
@@ -18,6 +18,7 @@ interface ShipmentItemRow {
  */
 export async function POST() {
   try {
+    await requireRole(['super_admin', 'admin', 'ops'])
     const tenantId = await requireTenant()
     const adminClient = getAdminDb()
 
