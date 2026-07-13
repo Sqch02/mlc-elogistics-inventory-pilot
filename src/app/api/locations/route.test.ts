@@ -10,6 +10,10 @@ vi.mock('@/lib/supabase/untyped', () => ({
   getServerDb: vi.fn(),
 }))
 
+vi.mock('@/lib/supabase/auth', () => ({
+  requireRole: vi.fn(),
+}))
+
 import { GET, POST } from './route'
 import { getFastTenantId } from '@/lib/supabase/fast-auth'
 import { getServerDb } from '@/lib/supabase/untyped'
@@ -24,7 +28,9 @@ function createMockGetClient(locationsData: unknown[] = []) {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
       order: vi.fn().mockReturnThis(),
-      range: vi.fn().mockResolvedValue({ data: locationsData, error: null, count: locationsData.length }),
+      range: vi.fn().mockReturnThis(),
+      then: (resolve: (value: unknown) => void) =>
+        resolve({ data: locationsData, error: null, count: locationsData.length }),
     }),
   }
 }
@@ -128,7 +134,9 @@ describe('GET /api/locations', () => {
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
         order: vi.fn().mockReturnThis(),
-        range: vi.fn().mockResolvedValue({ data: null, error: { message: 'DB error' }, count: null }),
+        range: vi.fn().mockReturnThis(),
+        then: (resolve: (value: unknown) => void) =>
+          resolve({ data: null, error: { message: 'DB error' }, count: null }),
       }),
     })
 

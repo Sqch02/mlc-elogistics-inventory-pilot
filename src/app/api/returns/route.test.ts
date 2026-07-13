@@ -4,6 +4,7 @@ import { NextRequest } from 'next/server'
 // Mock dependencies
 vi.mock('@/lib/supabase/fast-auth', () => ({
   getFastUser: vi.fn(),
+  getFastTenantId: vi.fn(),
 }))
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -19,11 +20,12 @@ vi.mock('@/lib/utils/sanitize', () => ({
 }))
 
 import { GET } from './route'
-import { getFastUser } from '@/lib/supabase/fast-auth'
+import { getFastTenantId, getFastUser } from '@/lib/supabase/fast-auth'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 const mockGetFastUser = getFastUser as ReturnType<typeof vi.fn>
+const mockGetFastTenantId = getFastTenantId as ReturnType<typeof vi.fn>
 const mockCreateClient = createClient as ReturnType<typeof vi.fn>
 const mockCreateAdminClient = createAdminClient as ReturnType<typeof vi.fn>
 
@@ -63,6 +65,7 @@ function createMockReturnsClient(
           eq: vi.fn().mockReturnThis(),
           gte: vi.fn().mockReturnThis(),
           lte: vi.fn().mockReturnThis(),
+          is: vi.fn().mockReturnThis(),
           then: (resolve: (value: unknown) => void) => resolve({ data: statsData, error: null }),
         }
       }
@@ -100,6 +103,7 @@ function createRequest(params?: Record<string, string>): NextRequest {
 describe('GET /api/returns', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetFastTenantId.mockResolvedValue(mockUser.tenant_id)
   })
 
   describe('authentication', () => {
@@ -242,7 +246,7 @@ describe('GET /api/returns', () => {
 
       const response = await GET(createRequest())
 
-      expect(response.headers.get('Cache-Control')).toBe('private, max-age=30, stale-while-revalidate=60')
+      expect(response.headers.get('Cache-Control')).toBe('private, no-store')
     })
   })
 })

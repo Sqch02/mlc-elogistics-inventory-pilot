@@ -4,6 +4,7 @@ import { NextRequest } from 'next/server'
 // Mock dependencies
 vi.mock('@/lib/supabase/auth', () => ({
   requireTenant: vi.fn().mockResolvedValue('test-tenant-id'),
+  requireRole: vi.fn().mockResolvedValue(undefined),
   getCurrentUser: vi.fn().mockResolvedValue({ id: 'test-user-id' }),
 }))
 

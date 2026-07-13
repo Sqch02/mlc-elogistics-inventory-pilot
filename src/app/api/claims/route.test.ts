@@ -4,6 +4,7 @@ import { NextRequest } from 'next/server'
 // Mock dependencies
 vi.mock('@/lib/supabase/auth', () => ({
   requireTenant: vi.fn().mockResolvedValue('test-tenant-id'),
+  requireRole: vi.fn().mockResolvedValue(undefined),
   getCurrentUser: vi.fn().mockResolvedValue({ id: 'user-1', email: 'test@test.com' }),
 }))
 
@@ -15,12 +16,14 @@ vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: vi.fn(),
 }))
 
+vi.mock('@/lib/audit', () => ({
+  auditCreate: vi.fn().mockResolvedValue(undefined),
+}))
+
 import { GET, POST } from './route'
-import { requireTenant } from '@/lib/supabase/auth'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-const mockRequireTenant = requireTenant as ReturnType<typeof vi.fn>
 const mockCreateClient = createClient as ReturnType<typeof vi.fn>
 const mockCreateAdminClient = createAdminClient as ReturnType<typeof vi.fn>
 

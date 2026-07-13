@@ -4,14 +4,12 @@ import { NextRequest } from 'next/server'
 // Mock dependencies
 vi.mock('@/lib/supabase/fast-auth', () => ({
   getFastUser: vi.fn(),
-}))
-
-vi.mock('@/lib/supabase/server', () => ({
-  createClient: vi.fn(),
+  getFastTenantId: vi.fn(),
 }))
 
 vi.mock('@/lib/supabase/untyped', () => ({
   getServerDb: vi.fn(),
+  getAdminDb: vi.fn(),
 }))
 
 vi.mock('@/lib/utils/stock', () => ({
@@ -19,12 +17,12 @@ vi.mock('@/lib/utils/stock', () => ({
 }))
 
 import { GET } from './route'
-import { getFastUser } from '@/lib/supabase/fast-auth'
-import { createClient } from '@/lib/supabase/server'
-import { getServerDb } from '@/lib/supabase/untyped'
+import { getFastTenantId, getFastUser } from '@/lib/supabase/fast-auth'
+import { getAdminDb, getServerDb } from '@/lib/supabase/untyped'
 
 const mockGetFastUser = getFastUser as ReturnType<typeof vi.fn>
-const mockCreateClient = createClient as ReturnType<typeof vi.fn>
+const mockGetFastTenantId = getFastTenantId as ReturnType<typeof vi.fn>
+const mockGetAdminDb = getAdminDb as ReturnType<typeof vi.fn>
 const mockGetServerDb = getServerDb as ReturnType<typeof vi.fn>
 
 const mockUser = {
@@ -42,6 +40,7 @@ function createMockDashboardClient() {
       gte: vi.fn().mockReturnThis(),
       lte: vi.fn().mockReturnThis(),
       lt: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
       order: vi.fn().mockReturnThis(),
       limit: vi.fn().mockReturnThis(),
       range: vi.fn().mockReturnThis(),
@@ -65,6 +64,7 @@ function createRequest(params?: Record<string, string>): NextRequest {
 describe('GET /api/dashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetFastTenantId.mockResolvedValue(mockUser.tenant_id)
   })
 
   describe('authentication', () => {
@@ -80,7 +80,7 @@ describe('GET /api/dashboard', () => {
 
     it('should proceed if user is authenticated', async () => {
       mockGetFastUser.mockResolvedValue(mockUser)
-      mockCreateClient.mockResolvedValue(createMockDashboardClient())
+      mockGetAdminDb.mockReturnValue(createMockDashboardClient())
       mockGetServerDb.mockResolvedValue(createMockDashboardClient())
 
       const response = await GET(createRequest())
@@ -92,7 +92,7 @@ describe('GET /api/dashboard', () => {
   describe('data structure', () => {
     it('should return KPIs', async () => {
       mockGetFastUser.mockResolvedValue(mockUser)
-      mockCreateClient.mockResolvedValue(createMockDashboardClient())
+      mockGetAdminDb.mockReturnValue(createMockDashboardClient())
       mockGetServerDb.mockResolvedValue(createMockDashboardClient())
 
       const response = await GET(createRequest())
@@ -107,7 +107,7 @@ describe('GET /api/dashboard', () => {
 
     it('should return chart data', async () => {
       mockGetFastUser.mockResolvedValue(mockUser)
-      mockCreateClient.mockResolvedValue(createMockDashboardClient())
+      mockGetAdminDb.mockReturnValue(createMockDashboardClient())
       mockGetServerDb.mockResolvedValue(createMockDashboardClient())
 
       const response = await GET(createRequest())
@@ -120,7 +120,7 @@ describe('GET /api/dashboard', () => {
 
     it('should return stock health data', async () => {
       mockGetFastUser.mockResolvedValue(mockUser)
-      mockCreateClient.mockResolvedValue(createMockDashboardClient())
+      mockGetAdminDb.mockReturnValue(createMockDashboardClient())
       mockGetServerDb.mockResolvedValue(createMockDashboardClient())
 
       const response = await GET(createRequest())
@@ -133,7 +133,7 @@ describe('GET /api/dashboard', () => {
 
     it('should return alerts array', async () => {
       mockGetFastUser.mockResolvedValue(mockUser)
-      mockCreateClient.mockResolvedValue(createMockDashboardClient())
+      mockGetAdminDb.mockReturnValue(createMockDashboardClient())
       mockGetServerDb.mockResolvedValue(createMockDashboardClient())
 
       const response = await GET(createRequest())
@@ -146,7 +146,7 @@ describe('GET /api/dashboard', () => {
 
     it('should return billing status', async () => {
       mockGetFastUser.mockResolvedValue(mockUser)
-      mockCreateClient.mockResolvedValue(createMockDashboardClient())
+      mockGetAdminDb.mockReturnValue(createMockDashboardClient())
       mockGetServerDb.mockResolvedValue(createMockDashboardClient())
 
       const response = await GET(createRequest())
@@ -159,7 +159,7 @@ describe('GET /api/dashboard', () => {
 
     it('should return current month', async () => {
       mockGetFastUser.mockResolvedValue(mockUser)
-      mockCreateClient.mockResolvedValue(createMockDashboardClient())
+      mockGetAdminDb.mockReturnValue(createMockDashboardClient())
       mockGetServerDb.mockResolvedValue(createMockDashboardClient())
 
       const response = await GET(createRequest())
@@ -174,7 +174,7 @@ describe('GET /api/dashboard', () => {
   describe('month parameter', () => {
     it('should accept month parameter', async () => {
       mockGetFastUser.mockResolvedValue(mockUser)
-      mockCreateClient.mockResolvedValue(createMockDashboardClient())
+      mockGetAdminDb.mockReturnValue(createMockDashboardClient())
       mockGetServerDb.mockResolvedValue(createMockDashboardClient())
 
       const response = await GET(createRequest({ month: '2024-01' }))
@@ -186,7 +186,7 @@ describe('GET /api/dashboard', () => {
 
     it('should default to current month if no parameter', async () => {
       mockGetFastUser.mockResolvedValue(mockUser)
-      mockCreateClient.mockResolvedValue(createMockDashboardClient())
+      mockGetAdminDb.mockReturnValue(createMockDashboardClient())
       mockGetServerDb.mockResolvedValue(createMockDashboardClient())
 
       const response = await GET(createRequest())
@@ -198,7 +198,7 @@ describe('GET /api/dashboard', () => {
 
     it('should ignore invalid month format', async () => {
       mockGetFastUser.mockResolvedValue(mockUser)
-      mockCreateClient.mockResolvedValue(createMockDashboardClient())
+      mockGetAdminDb.mockReturnValue(createMockDashboardClient())
       mockGetServerDb.mockResolvedValue(createMockDashboardClient())
 
       const response = await GET(createRequest({ month: 'invalid' }))
@@ -213,12 +213,12 @@ describe('GET /api/dashboard', () => {
   describe('cache headers', () => {
     it('should include cache headers in response', async () => {
       mockGetFastUser.mockResolvedValue(mockUser)
-      mockCreateClient.mockResolvedValue(createMockDashboardClient())
+      mockGetAdminDb.mockReturnValue(createMockDashboardClient())
       mockGetServerDb.mockResolvedValue(createMockDashboardClient())
 
       const response = await GET(createRequest())
 
-      expect(response.headers.get('Cache-Control')).toBe('private, max-age=60, stale-while-revalidate=300')
+      expect(response.headers.get('Cache-Control')).toBe('private, no-store')
     })
   })
 })
