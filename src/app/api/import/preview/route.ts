@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
 import { requireTenant } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 import { parseCSV } from '@/lib/utils/csv'
 import { analyzeImportData, type ImportPreviewResult } from '@/lib/utils/fuzzy-match'
 import { z } from 'zod'
@@ -163,6 +164,8 @@ export async function POST(request: NextRequest) {
       existingCount: existingRecords.length,
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Import preview error:', error)
     return NextResponse.json(
       {

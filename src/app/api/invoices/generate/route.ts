@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
 import { requireTenant, requireRole } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 import {
   getDestinationZone,
   getDeliveryType,
@@ -675,6 +676,8 @@ export async function POST(request: NextRequest) {
       },
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Invoice generation error:', error)
     return NextResponse.json(
       {

@@ -1,6 +1,7 @@
 import { createClient } from './server'
 import { cookies } from 'next/headers'
 import type { UserRole } from '@/types/database'
+import { AuthError } from '@/lib/api/errors'
 
 export interface UserProfile {
   id: string
@@ -50,7 +51,7 @@ export async function requireAuth(): Promise<UserProfile> {
   const user = await getCurrentUser()
 
   if (!user) {
-    throw new Error('Authentication required')
+    throw new AuthError('Authentication required', 401)
   }
 
   return user
@@ -59,7 +60,7 @@ export async function requireAuth(): Promise<UserProfile> {
 export async function requireTenant(): Promise<string> {
   const user = await getCurrentUser()
   if (!user) {
-    throw new Error('Tenant not found')
+    throw new AuthError('Authentication required', 401)
   }
 
   // For super_admin, check if they have selected a different tenant
@@ -78,7 +79,7 @@ export async function requireRole(allowedRoles: UserRole[]): Promise<UserProfile
   const user = await requireAuth()
 
   if (!allowedRoles.includes(user.role)) {
-    throw new Error('Insufficient permissions')
+    throw new AuthError('Insufficient permissions', 403)
   }
 
   return user

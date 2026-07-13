@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
 import { requireTenant, getCurrentUser, requireRole } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 import { auditCreate } from '@/lib/audit'
 
 export async function GET(request: NextRequest) {
@@ -34,6 +35,8 @@ export async function GET(request: NextRequest) {
       limit,
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Get pricing rules error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },
@@ -79,6 +82,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, rule })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Create pricing rule error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },

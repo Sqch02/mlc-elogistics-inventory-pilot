@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireTenant, requireRole } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 
 // GET: List distinct carriers across shipments and pricing_rules
 export async function GET() {
@@ -57,6 +58,8 @@ export async function GET() {
       headers: { 'Cache-Control': 'private, no-store' }
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Carriers error:', error)
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
   }
@@ -109,6 +112,8 @@ export async function PATCH(request: NextRequest) {
       },
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Carrier rename error:', error)
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
   }

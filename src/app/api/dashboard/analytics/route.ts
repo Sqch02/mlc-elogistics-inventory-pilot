@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireTenant } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 
 // In-memory cache: key = tenantId:from:to, value = { data, timestamp }
 const analyticsCache = new Map<string, { data: unknown; timestamp: number }>()
@@ -279,6 +280,8 @@ export async function GET(request: Request) {
       },
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Analytics error:', error)
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
   }

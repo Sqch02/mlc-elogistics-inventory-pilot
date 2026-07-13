@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireTenant, getCurrentUser, requireRole } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 import { auditCreate } from '@/lib/audit'
 import { z } from 'zod'
 
@@ -153,6 +154,8 @@ export async function GET(request: NextRequest) {
       limit,
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Get claims error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },
@@ -225,6 +228,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, claim })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Create claim error:', error)
     return NextResponse.json(
       {

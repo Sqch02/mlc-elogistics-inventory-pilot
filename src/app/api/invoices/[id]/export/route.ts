@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { requireTenant } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 import { generateFECEntries, generateFECFile, generateFECFilename } from '@/lib/utils/export-fec'
 import { generateSageEntries, generateSageCSV, generateSageFilename, validateSageBalance } from '@/lib/utils/export-sage'
 import { getServerFeatures } from '@/lib/config/features'
@@ -161,6 +162,10 @@ export async function GET(
     })
 
   } catch (error) {
+
+    const authResponse = handleAuthError(error)
+
+    if (authResponse) return authResponse
     console.error('[Export] Error:', error)
     return NextResponse.json(
       { error: 'Erreur lors de l\'export' },

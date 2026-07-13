@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { requireRole, requireTenant } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 
 // GET /api/mapping/unmapped/count - Count of unresolved unmapped items for the current tenant
 // Admin-only: clients should not see internal mapping issues
@@ -20,6 +21,8 @@ export async function GET() {
 
     return NextResponse.json({ count: count ?? 0 })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('[api/mapping/unmapped/count] error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },

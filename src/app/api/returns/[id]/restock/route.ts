@@ -1,6 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireTenant, requireRole, getCurrentUser } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
+
+interface ReturnEntry {
+  restock_status: string | null
+  original_shipment_id: string | null
+  order_ref: string | null
+}
+
+interface ShipmentItemWithSku {
+  sku_id: string
+  skus: { sku_code: string } | null
+}
+
+interface StockSnapshot {
+  id: string
+  qty_current: number
+}
 
 // POST: Validate or reject restock for a return
 export async function POST(
@@ -25,13 +42,15 @@ export async function POST(
     }
 
     // Fetch the return
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: returnEntry, error: fetchError } = await adminClient
       .from('returns')
       .select('*')
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .single() as any
+      .single() as unknown as {
+        data: ReturnEntry | null
+        error: { message: string } | null
+      }
 
     if (fetchError || !returnEntry) {
       return NextResponse.json({ error: 'Retour non trouvé' }, { status: 404 })
@@ -66,12 +85,11 @@ export async function POST(
       let skuCode: string | null = null
 
       if (returnEntry.original_shipment_id) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { data: items } = await adminClient
           .from('shipment_items')
-          .select('sku_id, quantity, skus(sku_code)')
+          .select('sku_id, skus(sku_code)')
           .eq('shipment_id', returnEntry.original_shipment_id)
-          .limit(1) as any
+          .limit(1) as unknown as { data: ShipmentItemWithSku[] | null }
 
         if (items && items.length > 0) {
           skuId = items[0].sku_id
@@ -81,7 +99,6 @@ export async function POST(
 
       // If no shipment link, try to find via order_ref
       if (!skuId && returnEntry.order_ref) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { data: shipment } = await adminClient
           .from('shipments')
           .select('id')
@@ -89,15 +106,14 @@ export async function POST(
           .eq('order_ref', returnEntry.order_ref)
           .eq('is_return', false)
           .limit(1)
-          .single() as any
+          .single() as unknown as { data: { id: string } | null }
 
         if (shipment) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const { data: items } = await adminClient
             .from('shipment_items')
-            .select('sku_id, quantity, skus(sku_code)')
+            .select('sku_id, skus(sku_code)')
             .eq('shipment_id', shipment.id)
-            .limit(1) as any
+            .limit(1) as unknown as { data: ShipmentItemWithSku[] | null }
 
           if (items && items.length > 0) {
             skuId = items[0].sku_id
@@ -123,13 +139,12 @@ export async function POST(
 
       // If we found the SKU, update stock
       if (skuId) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { data: snapshot } = await adminClient
           .from('stock_snapshots')
           .select('id, qty_current')
           .eq('sku_id', skuId)
           .eq('tenant_id', tenantId)
-          .single() as any
+          .single() as unknown as { data: StockSnapshot | null }
 
         const qtyBefore = snapshot?.qty_current || 0
         const qtyAfter = qtyBefore + qty
@@ -204,6 +219,8 @@ export async function POST(
 
     return NextResponse.json({ error: 'Action non reconnue' }, { status: 400 })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Return restock error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },

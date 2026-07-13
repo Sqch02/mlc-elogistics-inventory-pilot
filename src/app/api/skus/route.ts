@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb, getAdminDb } from '@/lib/supabase/untyped'
 import { requireTenant, getCurrentUser, requireRole } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 import { auditCreate } from '@/lib/audit'
 
 const MLC_ROOT_TENANT_ID = '00000000-0000-0000-0000-000000000001'
@@ -90,6 +91,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ skus, crossTenant })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Error fetching SKUs:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },
@@ -197,6 +200,8 @@ export async function POST(request: NextRequest) {
       sku
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Error creating SKU:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },
