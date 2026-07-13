@@ -7,6 +7,7 @@ import { processShipmentItems } from '@/lib/utils/sku-mapping'
 import { consumeShipmentStockOnce } from '@/lib/stock/consume'
 import { reconcileTenant } from '@/lib/sendcloud/reconcile'
 import { getCronMaxPages } from '@/lib/sendcloud/pagination'
+import { reverseDuplicateShipmentStock } from '@/lib/stock/reverse-duplicates'
 
 interface PricingRule {
   carrier: string
@@ -221,58 +222,14 @@ async function runSync() {
         if (oldUuidRecords && oldUuidRecords.length > 0) {
           const oldIds = (oldUuidRecords as Array<{ id: string }>).map(r => r.id)
           console.log(`[Cron] Cleaning up ${oldIds.length} old UUID records that became parcels`)
-
-          // Step 1: collect stock_movements caused by these UUID shipments so
-          // we can reverse them in the snapshot before deletion.
-          const { data: uuidMovements } = await adminClient
-            .from('stock_movements')
-            .select('sku_id, adjustment')
-            .eq('tenant_id', tenant.id)
-            .eq('movement_type', 'shipment')
-            .in('reference_id', oldIds)
-
-          if (uuidMovements && uuidMovements.length > 0) {
-            const reverseBySku = new Map<string, number>()
-            for (const m of uuidMovements as Array<{ sku_id: string; adjustment: number }>) {
-              reverseBySku.set(m.sku_id, (reverseBySku.get(m.sku_id) ?? 0) + -m.adjustment)
-            }
-
-            for (const [skuId, delta] of reverseBySku) {
-              const { data: snap } = await adminClient
-                .from('stock_snapshots')
-                .select('qty_current')
-                .eq('tenant_id', tenant.id)
-                .eq('sku_id', skuId)
-                .maybeSingle()
-              const before = (snap?.qty_current as number | undefined) ?? 0
-              const after = before + delta
-              await adminClient
-                .from('stock_snapshots')
-                .upsert(
-                  {
-                    tenant_id: tenant.id,
-                    sku_id: skuId,
-                    qty_current: after,
-                    updated_at: new Date().toISOString(),
-                  },
-                  { onConflict: 'tenant_id,sku_id' },
-                )
-              await adminClient.from('stock_movements').insert({
-                tenant_id: tenant.id,
-                sku_id: skuId,
-                movement_type: 'manual',
-                qty_before: before,
-                qty_after: after,
-                adjustment: delta,
-                reason: 'Auto-reverse: doublon UUID/numeric Sendcloud, UUID supprimee',
-                reference_type: 'manual',
-              })
-            }
-          }
-
-          // Step 2: delete the UUID shipments (cascade delete shipment_items
-          // and unmapped_items via FK).
-          await adminClient.from('shipments').delete().in('id', oldIds)
+          const reversal = await reverseDuplicateShipmentStock(
+            adminClient,
+            tenant.id,
+            oldIds,
+          )
+          console.log(
+            `[Cron] Duplicate reversal: ${reversal.shipmentsDeleted} shipments, ${reversal.skusReversed} SKUs, ${reversal.unitsReversed} units${reversal.usedFallback ? ' (fallback)' : ''}`,
+          )
         }
       }
 
