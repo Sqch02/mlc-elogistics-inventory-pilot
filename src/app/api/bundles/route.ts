@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getServerDb } from '@/lib/supabase/untyped'
 import { requireTenant, requireRole } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 
 export async function GET() {
   try {
@@ -34,6 +35,8 @@ export async function GET() {
       headers: { 'Cache-Control': 'private, no-store' }
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Get bundles error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },
@@ -175,6 +178,8 @@ export async function POST(request: NextRequest) {
       bundle_id: bundle.id
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Error creating bundle:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },

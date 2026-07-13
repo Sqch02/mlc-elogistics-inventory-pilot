@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { requireTenant, requireRole } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 import { consumeStock } from '@/lib/stock/consume'
 
 interface ShipmentItemRow {
@@ -115,6 +116,8 @@ export async function POST() {
       stats,
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('[Recalculate] Fatal error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },

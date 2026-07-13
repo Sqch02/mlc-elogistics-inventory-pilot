@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireTenant } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 
 interface PhysicalItem {
   physical_qty: number | null
@@ -115,6 +116,8 @@ export async function GET(
       },
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Error fetching monthly volume:', error)
     return NextResponse.json(
       { error: 'Erreur serveur' },

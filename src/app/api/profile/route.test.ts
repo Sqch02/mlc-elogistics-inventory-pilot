@@ -12,6 +12,7 @@ vi.mock('@/lib/supabase/server', () => ({
 
 import { GET, PATCH } from './route'
 import { requireAuth } from '@/lib/supabase/auth'
+import { AuthError } from '@/lib/api/errors'
 import { createClient } from '@/lib/supabase/server'
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>
@@ -52,13 +53,15 @@ describe('GET /api/profile', () => {
   })
 
   it('should return 401 if user is not authenticated', async () => {
-    mockRequireAuth.mockRejectedValue(new Error('Non authentifié'))
+    mockRequireAuth.mockRejectedValue(
+      new AuthError('Authentication required', 401),
+    )
 
     const response = await GET()
     const data = await response.json()
 
     expect(response.status).toBe(401)
-    expect(data.error).toBe('Non authentifie')
+    expect(data.error).toBe('Authentication required')
   })
 
   it('should return user profile if authenticated', async () => {
@@ -91,14 +94,16 @@ describe('PATCH /api/profile', () => {
     vi.clearAllMocks()
   })
 
-  it('should return 500 if user is not authenticated', async () => {
-    mockRequireAuth.mockRejectedValue(new Error('Non authentifié'))
+  it('should return 401 if user is not authenticated', async () => {
+    mockRequireAuth.mockRejectedValue(
+      new AuthError('Authentication required', 401),
+    )
 
     const response = await PATCH(createPatchRequest({ full_name: 'New Name' }))
     const data = await response.json()
 
-    expect(response.status).toBe(500)
-    expect(data.error).toBeDefined()
+    expect(response.status).toBe(401)
+    expect(data.error).toBe('Authentication required')
   })
 
   it('should update full_name successfully', async () => {

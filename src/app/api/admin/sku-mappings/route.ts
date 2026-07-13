@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { requireRole } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 import { getFastTenantId } from '@/lib/supabase/fast-auth'
 
 // GET: List all mappings for tenant + unmapped descriptions
@@ -46,6 +47,8 @@ export async function GET() {
       })).sort((a, b) => b.total_qty - a.total_qty),
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },
       { status: 500 }
@@ -96,6 +99,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ mapping: data })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },
       { status: 500 }
@@ -127,6 +132,8 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },
       { status: 500 }

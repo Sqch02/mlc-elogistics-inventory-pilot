@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { requireRole, requireTenant } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 
 export type AnomalyType =
   | 'order_ref_as_description'
@@ -127,6 +128,8 @@ export async function GET() {
       total_anomalies: anomalies.length,
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('[api/mapping/anomalies] error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },

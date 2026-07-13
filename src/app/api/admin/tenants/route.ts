@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireRole } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 
 // Helper to generate tenant code from name
 function generateTenantCode(name: string): string {
@@ -69,6 +70,8 @@ export async function GET() {
 
     return NextResponse.json({ tenants: formattedTenants })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Admin get tenants error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },
@@ -163,6 +166,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, tenant })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Admin create tenant error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },

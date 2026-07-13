@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireTenant, requireRole, getCurrentUser } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 
 interface ReturnEntry {
   restock_status: string | null
@@ -224,6 +225,8 @@ export async function POST(
 
     return NextResponse.json({ error: 'Action non reconnue' }, { status: 400 })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Return restock error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },

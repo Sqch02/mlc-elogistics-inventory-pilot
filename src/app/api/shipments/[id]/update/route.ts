@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireTenant } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 import { updateParcel, UpdateParcelData, getParcel } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
 import { getAdminDb } from '@/lib/supabase/untyped'
@@ -171,6 +172,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       message: 'Expédition mise à jour dans Sendcloud',
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Update shipment error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },

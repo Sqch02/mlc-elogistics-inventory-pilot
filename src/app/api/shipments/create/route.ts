@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 import { createParcel, CreateParcelData } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
 import { z } from 'zod'
@@ -284,6 +285,8 @@ export async function POST(request: NextRequest) {
       },
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('[CreateShipment] Error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },

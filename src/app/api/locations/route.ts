@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb, getAdminDb } from '@/lib/supabase/untyped'
 import { getFastTenantId } from '@/lib/supabase/fast-auth'
 import { requireRole } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 
 // The MLC master tenant owns the warehouse. When viewing Emplacements as MLC,
 // we aggregate locations across all tenants so a single page covers the full
@@ -82,6 +83,8 @@ export async function GET(request: NextRequest) {
       }
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Get locations error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },
@@ -131,6 +134,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, location })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Create location error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },

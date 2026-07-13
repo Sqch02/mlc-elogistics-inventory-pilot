@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb, getAdminDb } from '@/lib/supabase/untyped'
 import { requireTenant } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 
 const MLC_ROOT_TENANT_ID = '00000000-0000-0000-0000-000000000001'
 
@@ -116,6 +117,8 @@ export async function PATCH(
       location
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Error updating location:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },
@@ -165,6 +168,8 @@ export async function DELETE(
       message: 'Emplacement supprimé'
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Error deleting location:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },

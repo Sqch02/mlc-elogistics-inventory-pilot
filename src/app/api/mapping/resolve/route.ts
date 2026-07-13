@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { requireRole, requireTenant, getCurrentUser } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 
 type ResolveAction = 'map_to_sku' | 'create_sku' | 'add_rule'
 
@@ -240,6 +241,8 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     )
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('[api/mapping/resolve] error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },

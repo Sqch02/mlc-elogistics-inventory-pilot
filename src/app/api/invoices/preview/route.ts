@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
 import { requireTenant } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 
 interface PreviewShipment {
   id: string
@@ -153,6 +154,8 @@ export async function POST(request: NextRequest) {
       stock_volume_m3: Math.round(stockVolumeM3 * 100) / 100,
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Invoice preview error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },

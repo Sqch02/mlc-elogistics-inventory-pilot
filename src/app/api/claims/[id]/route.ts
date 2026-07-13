@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 import { auditUpdate, auditDelete } from '@/lib/audit'
 import { z } from 'zod'
 
@@ -55,6 +56,8 @@ export async function GET(
 
     return NextResponse.json({ claim, history: history || [] })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Get claim error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },
@@ -192,6 +195,8 @@ export async function PATCH(
 
     return NextResponse.json({ success: true, claim })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Update claim error:', error)
     return NextResponse.json(
       {
@@ -248,6 +253,8 @@ export async function DELETE(
 
     return NextResponse.json({ success: true })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Delete claim error:', error)
     return NextResponse.json(
       {

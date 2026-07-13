@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
 import { requireTenant, getCurrentUser, requireRole } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 import { auditUpdate, auditDelete } from '@/lib/audit'
 
 // GET /api/skus/[id] - Get a single SKU
@@ -41,6 +42,8 @@ export async function GET(
 
     return NextResponse.json({ sku })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Error fetching SKU:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },
@@ -137,6 +140,8 @@ export async function PATCH(
       sku
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Error updating SKU:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },
@@ -210,6 +215,8 @@ export async function DELETE(
       message: 'SKU supprimé'
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Error deleting SKU:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },

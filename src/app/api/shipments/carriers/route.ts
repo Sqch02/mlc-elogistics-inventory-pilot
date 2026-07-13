@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
 import { requireTenant } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 
 export async function GET() {
   try {
@@ -19,6 +20,8 @@ export async function GET() {
 
     return NextResponse.json({ carriers })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Carriers error:', error)
     return NextResponse.json({ carriers: [] })
   }

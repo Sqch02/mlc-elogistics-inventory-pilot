@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireTenant } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 import { sanitizeSearchInput } from '@/lib/utils/sanitize'
 
 export async function GET(request: NextRequest) {
@@ -77,6 +78,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ results })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Search error:', error)
     return NextResponse.json(
       { error: 'Erreur de recherche' },

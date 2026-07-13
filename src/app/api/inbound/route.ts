@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 import { sanitizeSearchInput } from '@/lib/utils/sanitize'
 
 // GET: List inbound restock entries
@@ -53,6 +54,8 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Inbound list error:', error)
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
   }
@@ -137,6 +140,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ data }, { status: 201 })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Inbound create error:', error)
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
   }

@@ -17,10 +17,12 @@ vi.mock('@/lib/supabase/untyped', () => ({
 }))
 
 import { GET, POST } from './route'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireRole, requireTenant } from '@/lib/supabase/auth'
+import { AuthError } from '@/lib/api/errors'
 import { getServerDb } from '@/lib/supabase/untyped'
 
 const mockRequireTenant = requireTenant as ReturnType<typeof vi.fn>
+const mockRequireRole = requireRole as ReturnType<typeof vi.fn>
 const mockGetServerDb = getServerDb as ReturnType<typeof vi.fn>
 
 // Create mock Supabase client for GET operations
@@ -105,6 +107,19 @@ describe('GET /api/pricing', () => {
     expect(mockRequireTenant).toHaveBeenCalled()
   })
 
+  it('returns 401 when tenant authentication fails', async () => {
+    mockRequireTenant.mockRejectedValueOnce(
+      new AuthError('Authentication required', 401),
+    )
+
+    const response = await GET(createGetRequest())
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Authentication required',
+    })
+  })
+
   it('should handle database errors', async () => {
     mockGetServerDb.mockResolvedValue({
       from: vi.fn().mockReturnValue({
@@ -175,6 +190,24 @@ describe('POST /api/pricing', () => {
     }))
 
     expect(mockRequireTenant).toHaveBeenCalled()
+  })
+
+  it('returns 403 when the user lacks the required role', async () => {
+    mockRequireRole.mockRejectedValueOnce(
+      new AuthError('Insufficient permissions', 403),
+    )
+
+    const response = await POST(createPostRequest({
+      carrier: 'chronopost',
+      weight_min_grams: 0,
+      weight_max_grams: 500,
+      price_eur: 8,
+    }))
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Insufficient permissions',
+    })
   })
 
   it('should handle database errors on insert', async () => {

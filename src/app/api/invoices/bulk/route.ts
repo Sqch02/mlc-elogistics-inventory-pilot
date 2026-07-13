@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { requireTenant, requireRole } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 
 type BulkAction = 'mark_paid' | 'mark_sent' | 'delete'
 
@@ -91,6 +92,10 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
+
+    const authResponse = handleAuthError(error)
+
+    if (authResponse) return authResponse
     console.error('[Bulk Invoices] Error:', error)
     return NextResponse.json(
       { error: 'Erreur lors de l\'opération en masse' },

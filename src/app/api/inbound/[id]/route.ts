@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireTenant, requireRole, getCurrentUser } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 
 interface InboundRestockEntry {
   status: string
@@ -137,6 +138,8 @@ export async function PATCH(
       { status: 400 }
     )
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Inbound update error:', error)
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
   }
@@ -165,6 +168,8 @@ export async function DELETE(
 
     return NextResponse.json({ success: true })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Inbound delete error:', error)
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
   }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireRole } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 
 export async function POST(
   request: NextRequest,
@@ -29,6 +30,8 @@ export async function POST(
       message: isActive ? 'Client activé' : 'Client désactivé',
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Admin toggle tenant active error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },

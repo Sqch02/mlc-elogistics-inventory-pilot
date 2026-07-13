@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
 import { requireTenant } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 import { parseCSV } from '@/lib/utils/csv'
 import { claimsImportRowSchema, validateRows } from '@/lib/validations/import'
 
@@ -95,6 +96,8 @@ export async function POST(request: NextRequest) {
       errors: errorMessages.length > 0 ? errorMessages : undefined,
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Claims import error:', error)
     return NextResponse.json(
       {

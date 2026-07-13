@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireTenant } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 
 export async function GET(request: NextRequest) {
   try {
@@ -123,6 +124,8 @@ export async function GET(request: NextRequest) {
       generatedAt: new Date().toISOString(),
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('Today summary error:', error)
     return NextResponse.json(
       { error: 'Erreur serveur' },

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { requireTenant } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 
 interface RawProduct {
   sku_id: string
@@ -212,6 +213,8 @@ export async function GET(request: NextRequest) {
       }
     )
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     console.error('[products-metrics] FATAL:', error instanceof Error ? { message: error.message, stack: error.stack } : error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur serveur' },

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { requireTenant } from '@/lib/supabase/auth'
+import { handleAuthError } from '@/lib/api/errors'
 
 export async function GET() {
   try {
@@ -41,6 +42,8 @@ export async function GET() {
       endedAt: syncRun.ended_at,
     })
   } catch (error) {
+    const authResponse = handleAuthError(error)
+    if (authResponse) return authResponse
     return NextResponse.json(
       { status: 'error', message: error instanceof Error ? error.message : 'Erreur' },
       { status: 500 }
