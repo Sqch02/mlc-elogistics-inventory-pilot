@@ -100,7 +100,7 @@ describe('Sendcloud pagination completion', () => {
     )
   })
 
-  it('fails instead of returning silently truncated integration shipments', async () => {
+  it('keeps a bounded integration snapshot without failing the tenant sync', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse([
         { id: 7, shop_name: 'Shopify', system: 'shopify' },
@@ -112,13 +112,12 @@ describe('Sendcloud pagination completion', () => {
       }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(fetchAllIntegrationShipments(credentials, 1)).rejects.toEqual(
-      expect.objectContaining<Partial<SendcloudPaginationLimitError>>({
-        name: 'SendcloudPaginationLimitError',
-        resource: 'integration 7 shipments',
-        maxPages: 1,
-      }),
-    )
+    const shipments = await fetchAllIntegrationShipments(credentials, 1)
+
+    expect(shipments.map((shipment) => shipment.sendcloud_id)).toEqual([
+      'shipment-1',
+    ])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('fails instead of returning a silently truncated returns batch', async () => {
