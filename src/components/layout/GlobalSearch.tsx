@@ -30,20 +30,25 @@ export function GlobalSearch() {
       return
     }
 
+    const controller = new AbortController()
     const timer = setTimeout(async () => {
       setIsLoading(true)
       try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`)
+        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`, { signal: controller.signal })
         const data = await res.json()
         setResults(data.results || [])
-      } catch {
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return
         setResults([])
       } finally {
-        setIsLoading(false)
+        if (!controller.signal.aborted) setIsLoading(false)
       }
     }, 300)
 
-    return () => clearTimeout(timer)
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
   }, [query])
 
   // Close on click outside

@@ -244,7 +244,7 @@ export async function POST(request: NextRequest) {
 
     // Helper to process a shipment into shipping groups
     function processShipment(shipment: Shipment, isReturn: boolean) {
-      if (shipment.pricing_status === 'missing' || !shipment.computed_cost_eur) {
+      if (shipment.pricing_status === 'missing' || shipment.computed_cost_eur == null) {
         missingPricingCount++
         return
       }

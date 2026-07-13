@@ -8,9 +8,8 @@ import { getServerFeatures } from '@/lib/config/features'
 interface InvoiceLine {
   line_type: string
   description: string
-  total_ht: number
-  tva_amount: number
-  total_ttc: number
+  total_eur: number
+  vat_amount: number
 }
 
 interface InvoiceData {
@@ -18,8 +17,8 @@ interface InvoiceData {
   invoice_number: string
   month: string
   created_at: string
-  total_ht: number
-  total_tva: number
+  subtotal_ht: number
+  vat_amount: number
   total_ttc: number
   tenants: {
     name: string
@@ -66,8 +65,8 @@ export async function GET(
         invoice_number,
         month,
         created_at,
-        total_ht,
-        total_tva,
+        subtotal_ht,
+        vat_amount,
         total_ttc,
         tenants!inner (
           name,
@@ -77,9 +76,8 @@ export async function GET(
         invoice_lines (
           line_type,
           description,
-          total_ht,
-          tva_amount,
-          total_ttc
+          total_eur,
+          vat_amount
         )
       `)
       .eq('tenant_id', tenantId)
@@ -106,12 +104,12 @@ export async function GET(
       lines: typedInvoice.invoice_lines.map(line => ({
         lineType: line.line_type,
         description: line.description,
-        totalHT: line.total_ht,
-        tva: line.tva_amount,
-        totalTTC: line.total_ttc,
+        totalHT: line.total_eur,
+        tva: line.vat_amount,
+        totalTTC: (line.total_eur ?? 0) + (line.vat_amount ?? 0),
       })),
-      totalHT: typedInvoice.total_ht,
-      totalTVA: typedInvoice.total_tva,
+      totalHT: typedInvoice.subtotal_ht,
+      totalTVA: typedInvoice.vat_amount,
       totalTTC: typedInvoice.total_ttc,
     }
 

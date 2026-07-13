@@ -22,7 +22,7 @@ export default function DashboardError({
     <div className="p-6 max-w-3xl">
       <h1 className="text-xl font-semibold">Cette page a rencontré une erreur</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        {error.message || 'Erreur serveur inattendue.'}
+        {"Une erreur inattendue est survenue. Vous pouvez réessayer ou revenir à l'accueil."}
       </p>
       {error.digest && (
         <p className="mt-2 text-xs text-muted-foreground/70 font-mono">ref: {error.digest}</p>

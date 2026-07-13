@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { formatCarrierName, formatEuro } from '@/lib/utils'
+import { toast } from 'sonner'
 
 export function GenerateInvoiceButton() {
   const router = useRouter()
@@ -118,9 +119,11 @@ export function UpdateStatusButton({ invoiceId, currentStatus }: UpdateStatusBut
 
       if (response.ok) {
         router.refresh()
+      } else {
+        toast.error('Impossible de mettre à jour le statut de la facture')
       }
     } catch {
-      // error handled by catch block
+      toast.error('Erreur de connexion lors de la mise à jour du statut')
     } finally {
       setIsLoading(false)
     }
@@ -284,7 +287,7 @@ export function ExportInvoicesButton() {
       })
       downloadCSV(csv, `factures_detaillees_${new Date().toISOString().split('T')[0]}.csv`)
     } catch {
-      // error handled by catch block
+      toast.error('Erreur lors de l\'export des factures')
     } finally {
       setIsExporting(false)
     }
@@ -316,6 +319,7 @@ export function AccountingExportButton({ invoiceId, invoiceNumber }: AccountingE
       const response = await fetch(`/api/invoices/${invoiceId}/export?format=${format}`)
 
       if (!response.ok) {
+        toast.error('Erreur lors de l\'export comptable')
         return
       }
 
@@ -339,7 +343,7 @@ export function AccountingExportButton({ invoiceId, invoiceNumber }: AccountingE
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
     } catch {
-      // error handled by catch block
+      toast.error('Erreur lors de l\'export comptable')
     } finally {
       setIsExporting(null)
     }
