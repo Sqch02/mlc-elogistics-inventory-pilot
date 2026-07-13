@@ -3,7 +3,7 @@ import { getAdminDb } from '@/lib/supabase/untyped'
 import { requireTenant } from '@/lib/supabase/auth'
 import { fetchAllParcels } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
-import { consumeStock } from '@/lib/stock/consume'
+import { consumeShipmentStockOnce } from '@/lib/stock/consume'
 import { getDestination } from '@/lib/utils/pricing'
 
 interface PricingRule {
@@ -266,25 +266,21 @@ export async function POST() {
 
               if (!itemError) {
                 stats.itemsCreated++
-
-                // ONLY consume stock for NEW shipments (not updates)
-                if (isNewShipment) {
-                  try {
-                    const consumeResults = await consumeStock(
-                      tenantId,
-                      skuId,
-                      item.qty,
-                      shipment.id,
-                      'shipment'
-                    )
-                    stats.stockConsumed += consumeResults.length
-                  } catch (stockError) {
-                    console.error(`[Sync] Error consuming stock for SKU ${item.sku_code}:`, stockError)
-                  }
-                }
               }
             } else if (item.description) {
               unmappedItems.push({ description: item.description, qty: item.qty })
+            }
+          }
+
+          // Consume stock once for the whole shipment (idempotent CAS on
+          // stock_consumed_at) rather than per item, so webhook/cron/manual sync
+          // can never double-consume the same parcel.
+          if (isNewShipment) {
+            try {
+              const { count } = await consumeShipmentStockOnce(tenantId, shipment.id)
+              stats.stockConsumed += count
+            } catch (stockError) {
+              console.error(`[Sync] Error consuming stock for shipment ${parcel.sendcloud_id}:`, stockError)
             }
           }
 
