@@ -138,6 +138,7 @@ export async function POST(request: NextRequest) {
       .from('pricing_rules')
       .select('carrier, weight_min_grams, weight_max_grams, price_eur')
       .eq('tenant_id', tenantId)
+      .order('weight_min_grams', { ascending: true })
 
     let pricingStatus: 'ok' | 'missing' = 'missing'
     let computedCost: number | null = null
