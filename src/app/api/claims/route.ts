@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
+import { requireTenant, getCurrentUser, requireRole } from '@/lib/supabase/auth'
 import { auditCreate } from '@/lib/audit'
 import { z } from 'zod'
 
@@ -163,6 +163,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    // Creation de reclamation reservee aux roles internes (pas 'client').
+    await requireRole(['super_admin', 'admin', 'ops', 'sav'])
     const tenantId = await requireTenant()
     const user = await getCurrentUser()
     const supabase = await createClient()
