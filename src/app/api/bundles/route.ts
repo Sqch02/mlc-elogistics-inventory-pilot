@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getServerDb } from '@/lib/supabase/untyped'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireTenant, requireRole } from '@/lib/supabase/auth'
 
 export async function GET() {
   try {
@@ -45,6 +45,7 @@ export async function GET() {
 // POST /api/bundles - Create a new bundle
 export async function POST(request: NextRequest) {
   try {
+    await requireRole(['super_admin', 'admin', 'ops'])
     const tenantId = await requireTenant()
     const supabase = await getServerDb()
     const body = await request.json()

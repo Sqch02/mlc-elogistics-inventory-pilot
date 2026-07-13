@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireTenant, requireRole } from '@/lib/supabase/auth'
 import {
   getDestinationZone,
   getDeliveryType,
@@ -62,6 +62,7 @@ interface InvoiceLine {
 
 export async function POST(request: NextRequest) {
   try {
+    await requireRole(['super_admin', 'admin', 'ops'])
     const tenantId = await requireTenant()
     const supabase = await getServerDb()
 

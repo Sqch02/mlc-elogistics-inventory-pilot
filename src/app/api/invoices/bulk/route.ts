@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireTenant, requireRole } from '@/lib/supabase/auth'
 
 type BulkAction = 'mark_paid' | 'mark_sent' | 'delete'
 
@@ -11,6 +11,7 @@ interface BulkRequest {
 
 export async function POST(request: NextRequest) {
   try {
+    await requireRole(['super_admin', 'admin', 'ops'])
     const tenantId = await requireTenant()
     const supabase = await createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
