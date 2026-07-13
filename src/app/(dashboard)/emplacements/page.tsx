@@ -1,39 +1,18 @@
-'use client'
+import { redirect } from 'next/navigation'
+import { requireAuth } from '@/lib/supabase/auth'
+import { EmplacementsPageClient } from './EmplacementsPageClient'
 
-import dynamic from 'next/dynamic'
-import { Card } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
+export default async function EmplacementsPage() {
+  const user = await requireAuth()
 
-function PageSkeleton() {
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="space-y-2">
-          <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-4 w-64" />
-        </div>
-        <Skeleton className="h-10 w-40" />
-      </div>
-      <Card className="p-4">
-        <div className="flex gap-3 mb-4">
-          <Skeleton className="h-10 flex-1" />
-          <Skeleton className="h-10 w-32" />
-        </div>
-        <div className="space-y-2">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <Skeleton key={i} className="h-12 w-full" />
-          ))}
-        </div>
-      </Card>
-    </div>
-  )
-}
+  // Les emplacements d'entrepot sont internes au 3PL : garde serveur pour masquer
+  // la page au role client (qui ne doit pas voir l'agencement de l'entrepot).
+  // Le type UserRole ne liste pas 'client' alors qu'il existe au runtime, donc on
+  // teste l'appartenance aux roles INTERNES plutot que d'ecrire === 'client'.
+  const INTERNAL_ROLES: string[] = ['super_admin', 'admin', 'ops', 'sav']
+  if (!INTERNAL_ROLES.includes(user.role)) {
+    redirect('/')
+  }
 
-const EmplacementsClient = dynamic(
-  () => import('./EmplacementsClient').then(m => ({ default: m.EmplacementsClient })),
-  { ssr: false, loading: () => <PageSkeleton /> }
-)
-
-export default function EmplacementsPage() {
-  return <EmplacementsClient />
+  return <EmplacementsPageClient />
 }
