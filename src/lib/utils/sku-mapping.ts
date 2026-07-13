@@ -35,6 +35,11 @@ export interface ResolveResult {
   skuId?: string
 }
 
+interface BatchMappingRow {
+  item_index: number
+  sku_id: string | null
+}
+
 /**
  * Normalize a value from a raw Sendcloud parcel_item into a non-empty trimmed
  * string or null (empty / whitespace-only strings become null).
@@ -86,6 +91,61 @@ async function resolveSkuId(
   }
 
   return skuId && typeof skuId === 'string' ? skuId : null
+}
+
+async function resolveSkuIdsBatch(
+  adminClient: AdminClient,
+  tenantId: string,
+  items: RawShipmentItem[],
+): Promise<Array<{ item: RawShipmentItem; skuId: string | null }>> {
+  try {
+    const { data, error } = await adminClient.rpc('map_shipment_items_batch', {
+      p_tenant_id: tenantId,
+      p_items: items.map((item) => ({
+        raw_sku: item.sku,
+        raw_description: item.description,
+        raw_variant_id: item.variant_id,
+      })),
+    })
+
+    const rows = Array.isArray(data) ? data as BatchMappingRow[] : []
+    const completeBatch = !error
+      && rows.length === items.length
+      && rows.every((row) => Number.isInteger(row.item_index))
+
+    if (completeBatch) {
+      const skuIdByIndex = new Map(
+        rows.map((row) => [row.item_index, row.sku_id] as const),
+      )
+      return items.map((item, index) => ({
+        item,
+        skuId: skuIdByIndex.get(index) ?? null,
+      }))
+    }
+
+    console.warn(
+      '[sku-mapping] batch RPC unavailable or incomplete; using per-item fallback:',
+      error?.message ?? `${rows.length}/${items.length} rows`,
+    )
+  } catch (error) {
+    console.warn(
+      '[sku-mapping] batch RPC threw; using per-item fallback:',
+      error,
+    )
+  }
+
+  // Safe rollout path: app deploys remain compatible before migration 00089
+  // is applied. A batch RPC incident also cannot stop cron/webhook mapping.
+  const resolved: Array<{ item: RawShipmentItem; skuId: string | null }> = []
+  for (const item of items) {
+    try {
+      resolved.push({ item, skuId: await resolveSkuId(adminClient, tenantId, item) })
+    } catch (error) {
+      console.error('[sku-mapping] resolveSkuId fallback threw:', error)
+      resolved.push({ item, skuId: null })
+    }
+  }
+  return resolved
 }
 
 /**
@@ -172,22 +232,22 @@ export async function processShipmentItems(
     return { mappedCount: 0, unmappedCount: 0 }
   }
 
-  // Step 1: extract + resolve each parcel item
-  const resolved: Array<{ item: RawShipmentItem; skuId: string | null }> = []
+  // Step 1: extract valid parcel items, then resolve the whole batch in one RPC.
+  const items: RawShipmentItem[] = []
   for (const rawParcelItem of parcelItems) {
     if (!rawParcelItem || typeof rawParcelItem !== 'object') continue
     const item = extractRawItem(rawParcelItem as Record<string, unknown>)
     // Skip items with no identifying info AND no description
     if (!item.sku && !item.description && !item.variant_id && !item.product_id) continue
 
-    try {
-      const skuId = await resolveSkuId(adminClient, tenantId, item)
-      resolved.push({ item, skuId })
-    } catch (err) {
-      console.error('[sku-mapping] resolveSkuId threw:', err)
-      resolved.push({ item, skuId: null })
-    }
+    items.push(item)
   }
+
+  if (items.length === 0) {
+    return { mappedCount: 0, unmappedCount: 0 }
+  }
+
+  const resolved = await resolveSkuIdsBatch(adminClient, tenantId, items)
 
   // Step 2: aggregate qty per sku within this batch
   const mappedTotals = new Map<string, number>()

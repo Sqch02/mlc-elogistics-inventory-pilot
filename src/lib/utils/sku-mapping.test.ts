@@ -16,6 +16,7 @@ import {
 function createMockAdminClient(opts: {
   resolvedSkuId?: string | null
   rpcError?: { message: string } | null
+  batchRpcError?: { message: string } | null
   existingShipmentItem?: { id: string; qty: number } | null
   itemUpsertError?: { message: string } | null
   unmappedUpsertError?: { message: string } | null
@@ -23,12 +24,28 @@ function createMockAdminClient(opts: {
   const {
     resolvedSkuId = null,
     rpcError = null,
+    batchRpcError = null,
     existingShipmentItem = null,
     itemUpsertError = null,
     unmappedUpsertError = null,
   } = opts
 
-  const rpcMock = vi.fn().mockResolvedValue({ data: resolvedSkuId, error: rpcError })
+  const rpcMock = vi.fn((rpcName: string, args: Record<string, unknown>) => {
+    if (rpcName === 'map_shipment_items_batch') {
+      const items = args.p_items as unknown[]
+      return Promise.resolve({
+        data: batchRpcError
+          ? null
+          : items.map((_, itemIndex) => ({
+              item_index: itemIndex,
+              sku_id: resolvedSkuId,
+            })),
+        error: batchRpcError,
+      })
+    }
+
+    return Promise.resolve({ data: resolvedSkuId, error: rpcError })
+  })
 
   const maybeSingleMock = vi
     .fn()
@@ -257,7 +274,7 @@ describe('resolveAndCreateShipmentItem', () => {
     // one with qty=N. Within a single processing call we MUST sum these so
     // they don't overwrite each other (the REPLACE upsert would otherwise
     // keep only the last one).
-    const { client, itemUpsertMock } = createMockAdminClient({
+    const { client, rpcMock, itemUpsertMock } = createMockAdminClient({
       resolvedSkuId: 'sku-uuid-1',
     })
 
@@ -267,6 +284,22 @@ describe('resolveAndCreateShipmentItem', () => {
     ])
 
     expect(result).toEqual({ mappedCount: 1, unmappedCount: 0 })
+    expect(rpcMock).toHaveBeenCalledTimes(1)
+    expect(rpcMock).toHaveBeenCalledWith('map_shipment_items_batch', {
+      p_tenant_id: 'tenant-1',
+      p_items: [
+        {
+          raw_sku: 'FLRN-001',
+          raw_description: null,
+          raw_variant_id: null,
+        },
+        {
+          raw_sku: 'FLRN-001',
+          raw_description: null,
+          raw_variant_id: null,
+        },
+      ],
+    })
     // Single upsert with aggregated qty = 2 + 3 = 5
     expect(itemUpsertMock).toHaveBeenCalledTimes(1)
     expect(itemUpsertMock).toHaveBeenCalledWith(
@@ -303,5 +336,29 @@ describe('processShipmentItems', () => {
 
     expect(result).toEqual({ mappedCount: 0, unmappedCount: 0 })
     expect(rpcMock).not.toHaveBeenCalled()
+  })
+
+  it('falls back to per-item mapping when the batch RPC is not deployed yet', async () => {
+    const { client, rpcMock, itemUpsertMock } = createMockAdminClient({
+      resolvedSkuId: 'sku-fallback',
+      batchRpcError: { message: 'Function not found' },
+    })
+
+    const result = await processShipmentItems(client, 'tenant-1', 'shipment-1', [
+      { sku: 'SKU-A', quantity: 1 },
+      { sku: 'SKU-B', quantity: 2 },
+    ])
+
+    expect(result).toEqual({ mappedCount: 1, unmappedCount: 0 })
+    expect(rpcMock).toHaveBeenCalledTimes(3)
+    expect(rpcMock.mock.calls.map(([rpcName]) => rpcName)).toEqual([
+      'map_shipment_items_batch',
+      'map_shipment_item',
+      'map_shipment_item',
+    ])
+    expect(itemUpsertMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sku_id: 'sku-fallback', qty: 3 }),
+      expect.any(Object),
+    )
   })
 })
