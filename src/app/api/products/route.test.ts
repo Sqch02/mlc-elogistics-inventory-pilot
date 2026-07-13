@@ -12,10 +12,11 @@ const mockUser = {
 // Mock dependencies
 vi.mock('@/lib/supabase/fast-auth', () => ({
   getFastUser: vi.fn(),
+  getFastTenantId: vi.fn(),
 }))
 
-vi.mock('@/lib/supabase/server', () => ({
-  createClient: vi.fn(),
+vi.mock('@/lib/supabase/untyped', () => ({
+  getAdminDb: vi.fn(),
 }))
 
 vi.mock('@/lib/utils/stock', () => ({
@@ -24,11 +25,12 @@ vi.mock('@/lib/utils/stock', () => ({
 }))
 
 import { GET } from './route'
-import { getFastUser } from '@/lib/supabase/fast-auth'
-import { createClient } from '@/lib/supabase/server'
+import { getFastTenantId, getFastUser } from '@/lib/supabase/fast-auth'
+import { getAdminDb } from '@/lib/supabase/untyped'
 
 const mockGetFastUser = getFastUser as ReturnType<typeof vi.fn>
-const mockCreateClient = createClient as ReturnType<typeof vi.fn>
+const mockGetFastTenantId = getFastTenantId as ReturnType<typeof vi.fn>
+const mockGetAdminDb = getAdminDb as ReturnType<typeof vi.fn>
 
 function createRequest(params?: Record<string, string>): NextRequest {
   let url = 'http://localhost:3000/api/products'
@@ -53,6 +55,7 @@ function createMockSupabase(skusData: unknown[] = [], bundlesData: unknown[] = [
 
   return {
     from: vi.fn((table: string) => {
+      if (table === 'mv_sku_metrics') return chainable(skusData)
       if (table === 'skus') return chainable(skusData)
       if (table === 'bundles') return chainable(bundlesData)
       return chainable([])
@@ -63,6 +66,7 @@ function createMockSupabase(skusData: unknown[] = [], bundlesData: unknown[] = [
 describe('GET /api/products', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetFastTenantId.mockResolvedValue(mockUser.tenant_id)
   })
 
   describe('authentication', () => {
@@ -78,7 +82,7 @@ describe('GET /api/products', () => {
 
     it('should proceed if user is authenticated', async () => {
       mockGetFastUser.mockResolvedValue(mockUser)
-      mockCreateClient.mockResolvedValue(createMockSupabase())
+      mockGetAdminDb.mockReturnValue(createMockSupabase())
 
       const response = await GET(createRequest())
 
@@ -89,7 +93,7 @@ describe('GET /api/products', () => {
   describe('data retrieval', () => {
     it('should return products array', async () => {
       mockGetFastUser.mockResolvedValue(mockUser)
-      mockCreateClient.mockResolvedValue(createMockSupabase([
+      mockGetAdminDb.mockReturnValue(createMockSupabase([
         { id: '1', sku_code: 'SKU-001', name: 'Product 1', alert_threshold: 10 },
         { id: '2', sku_code: 'SKU-002', name: 'Product 2', alert_threshold: 20 },
       ]))
@@ -104,7 +108,7 @@ describe('GET /api/products', () => {
 
     it('should filter out bundle SKUs', async () => {
       mockGetFastUser.mockResolvedValue(mockUser)
-      mockCreateClient.mockResolvedValue(createMockSupabase(
+      mockGetAdminDb.mockReturnValue(createMockSupabase(
         [
           { id: '1', sku_code: 'SKU-001', name: 'Product 1', alert_threshold: 10 },
           { id: '2', sku_code: 'BU-001', name: 'Bundle 1', alert_threshold: 10 },
@@ -125,7 +129,7 @@ describe('GET /api/products', () => {
   describe('search functionality', () => {
     it('should accept search parameter', async () => {
       mockGetFastUser.mockResolvedValue(mockUser)
-      mockCreateClient.mockResolvedValue(createMockSupabase([
+      mockGetAdminDb.mockReturnValue(createMockSupabase([
         { id: '1', sku_code: 'FLRN-TEST', name: 'Test Product', alert_threshold: 10 },
       ]))
 
@@ -138,7 +142,7 @@ describe('GET /api/products', () => {
 
     it('should sanitize search input', async () => {
       mockGetFastUser.mockResolvedValue(mockUser)
-      mockCreateClient.mockResolvedValue(createMockSupabase())
+      mockGetAdminDb.mockReturnValue(createMockSupabase())
 
       // Should not throw error with potentially dangerous input
       const response = await GET(createRequest({ search: 'test.eq.injection' }))
@@ -150,7 +154,7 @@ describe('GET /api/products', () => {
   describe('status filtering', () => {
     it('should accept status parameter', async () => {
       mockGetFastUser.mockResolvedValue(mockUser)
-      mockCreateClient.mockResolvedValue(createMockSupabase([
+      mockGetAdminDb.mockReturnValue(createMockSupabase([
         { id: '1', sku_code: 'SKU-001', name: 'Product 1', alert_threshold: 10 },
       ]))
 

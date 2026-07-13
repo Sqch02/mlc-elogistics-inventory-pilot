@@ -256,7 +256,7 @@ describe('Pricing Matcher', () => {
       expect(getDestination(shipment)).toBe('france_domicile')
     })
 
-    it('should return belgique for BE shipments', () => {
+    it('should return domicile_be for BE home-delivery shipments', () => {
       const shipment: Shipment = {
         id: 'ship-be',
         carrier: 'colissimo',
@@ -265,10 +265,10 @@ describe('Pricing Matcher', () => {
         service_point_id: null,
       }
 
-      expect(getDestination(shipment)).toBe('belgique')
+      expect(getDestination(shipment)).toBe('domicile_be')
     })
 
-    it('should return suisse for CH shipments', () => {
+    it('should return domicile_suisse for CH shipments', () => {
       const shipment: Shipment = {
         id: 'ship-ch',
         carrier: 'colissimo',
@@ -277,10 +277,10 @@ describe('Pricing Matcher', () => {
         service_point_id: null,
       }
 
-      expect(getDestination(shipment)).toBe('suisse')
+      expect(getDestination(shipment)).toBe('domicile_suisse')
     })
 
-    it('should return eu_dom for EU countries', () => {
+    it('should return domicile_ue_dom for EU home-delivery shipments', () => {
       const shipment: Shipment = {
         id: 'ship-de',
         carrier: 'dhl',
@@ -289,7 +289,7 @@ describe('Pricing Matcher', () => {
         service_point_id: null,
       }
 
-      expect(getDestination(shipment)).toBe('eu_dom')
+      expect(getDestination(shipment)).toBe('domicile_ue_dom')
     })
 
     it('should return null when no destination info', () => {
