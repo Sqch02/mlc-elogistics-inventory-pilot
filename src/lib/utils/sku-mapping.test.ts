@@ -40,6 +40,9 @@ function createMockAdminClient(opts: {
   const unmappedUpsertMock = vi
     .fn()
     .mockResolvedValue({ data: null, error: unmappedUpsertError })
+  const unmappedInsertMock = vi
+    .fn()
+    .mockResolvedValue({ data: null, error: unmappedUpsertError })
 
   const fromMock = vi.fn((table: string) => {
     if (table === 'shipment_items') {
@@ -53,6 +56,14 @@ function createMockAdminClient(opts: {
     if (table === 'unmapped_items') {
       return {
         upsert: unmappedUpsertMock,
+        insert: unmappedInsertMock,
+        delete: vi.fn(() => {
+          const chain = {
+            eq: vi.fn(() => chain),
+            is: vi.fn().mockResolvedValue({ data: null, error: null }),
+          }
+          return chain
+        }),
       }
     }
     return {

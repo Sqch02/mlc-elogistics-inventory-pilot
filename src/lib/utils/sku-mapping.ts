@@ -222,26 +222,38 @@ export async function processShipmentItems(
     }
   }
 
-  // Step 4: upsert unmapped items (still per row — there's no clean aggregation
-  // when sku is unknown).
-  for (const item of unmappedRows) {
-    const { error: unmappedError } = await adminClient
-      .from('unmapped_items')
-      .upsert(
-        {
-          tenant_id: tenantId,
-          shipment_id: shipmentId,
-          raw_sku: item.sku,
-          raw_description: item.description,
-          raw_variant_id: item.variant_id,
-          raw_product_id: item.product_id,
-          qty: item.qty,
-        },
-        { onConflict: 'shipment_id,raw_sku,raw_description,raw_variant_id' },
-      )
+  // Step 4: REPLACE the unmapped rows of this shipment (delete-then-insert).
+  // The old per-row upsert used onConflict on (shipment_id, raw_sku,
+  // raw_description, raw_variant_id): for Shopify description-only lines those
+  // key columns are NULL, and under Postgres' default NULLS DISTINCT a NULL key
+  // never conflicts -> a brand-new row was inserted on EVERY webhook event (a
+  // parcel goes through 5-10 status events), duplicating the same unmapped line
+  // 5-10x and, worse, causing an N-fold over-decrement if that description is
+  // later mapped and remapped. Replacing the shipment's still-unresolved rows is
+  // idempotent regardless of NULLs and also collapses historical duplicates as
+  // each shipment is reprocessed. Resolved rows are preserved.
+  await adminClient
+    .from('unmapped_items')
+    .delete()
+    .eq('tenant_id', tenantId)
+    .eq('shipment_id', shipmentId)
+    .is('resolved_at', null)
+
+  if (unmappedRows.length > 0) {
+    const { error: unmappedError } = await adminClient.from('unmapped_items').insert(
+      unmappedRows.map((item) => ({
+        tenant_id: tenantId,
+        shipment_id: shipmentId,
+        raw_sku: item.sku,
+        raw_description: item.description,
+        raw_variant_id: item.variant_id,
+        raw_product_id: item.product_id,
+        qty: item.qty,
+      })),
+    )
 
     if (unmappedError) {
-      console.error('[sku-mapping] unmapped_items upsert error:', unmappedError.message)
+      console.error('[sku-mapping] unmapped_items insert error:', unmappedError.message)
     }
   }
 
