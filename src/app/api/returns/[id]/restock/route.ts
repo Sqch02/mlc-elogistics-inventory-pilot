@@ -10,8 +10,12 @@ interface ReturnEntry {
 }
 
 interface ShipmentItemWithSku {
-  sku_id: string
+  sku_id: string | null
   skus: { sku_code: string } | null
+}
+
+interface ShipmentReference {
+  id: string
 }
 
 interface StockSnapshot {
@@ -42,15 +46,13 @@ export async function POST(
     }
 
     // Fetch the return
-    const { data: returnEntry, error: fetchError } = await adminClient
+    const { data: returnEntryData, error: fetchError } = await adminClient
       .from('returns')
       .select('*')
       .eq('id', id)
       .eq('tenant_id', tenantId)
-      .single() as unknown as {
-        data: ReturnEntry | null
-        error: { message: string } | null
-      }
+      .single()
+    const returnEntry = returnEntryData as unknown as ReturnEntry | null
 
     if (fetchError || !returnEntry) {
       return NextResponse.json({ error: 'Retour non trouvé' }, { status: 404 })
@@ -85,11 +87,12 @@ export async function POST(
       let skuCode: string | null = null
 
       if (returnEntry.original_shipment_id) {
-        const { data: items } = await adminClient
+        const { data: itemsData } = await adminClient
           .from('shipment_items')
-          .select('sku_id, skus(sku_code)')
+          .select('sku_id, qty, skus(sku_code)')
           .eq('shipment_id', returnEntry.original_shipment_id)
-          .limit(1) as unknown as { data: ShipmentItemWithSku[] | null }
+          .limit(1)
+        const items = itemsData as unknown as ShipmentItemWithSku[] | null
 
         if (items && items.length > 0) {
           skuId = items[0].sku_id
@@ -99,21 +102,23 @@ export async function POST(
 
       // If no shipment link, try to find via order_ref
       if (!skuId && returnEntry.order_ref) {
-        const { data: shipment } = await adminClient
+        const { data: shipmentData } = await adminClient
           .from('shipments')
           .select('id')
           .eq('tenant_id', tenantId)
           .eq('order_ref', returnEntry.order_ref)
           .eq('is_return', false)
           .limit(1)
-          .single() as unknown as { data: { id: string } | null }
+          .single()
+        const shipment = shipmentData as unknown as ShipmentReference | null
 
         if (shipment) {
-          const { data: items } = await adminClient
+          const { data: itemsData } = await adminClient
             .from('shipment_items')
-            .select('sku_id, skus(sku_code)')
+            .select('sku_id, qty, skus(sku_code)')
             .eq('shipment_id', shipment.id)
-            .limit(1) as unknown as { data: ShipmentItemWithSku[] | null }
+            .limit(1)
+          const items = itemsData as unknown as ShipmentItemWithSku[] | null
 
           if (items && items.length > 0) {
             skuId = items[0].sku_id
@@ -139,12 +144,13 @@ export async function POST(
 
       // If we found the SKU, update stock
       if (skuId) {
-        const { data: snapshot } = await adminClient
+        const { data: snapshotData } = await adminClient
           .from('stock_snapshots')
           .select('id, qty_current')
           .eq('sku_id', skuId)
           .eq('tenant_id', tenantId)
-          .single() as unknown as { data: StockSnapshot | null }
+          .single()
+        const snapshot = snapshotData as unknown as StockSnapshot | null
 
         const qtyBefore = snapshot?.qty_current || 0
         const qtyAfter = qtyBefore + qty
