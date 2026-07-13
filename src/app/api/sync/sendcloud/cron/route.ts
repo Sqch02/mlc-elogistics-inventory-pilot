@@ -28,6 +28,39 @@ export async function fetchCronData(
   ])
 }
 
+const ANALYTICS_REFRESH_RPCS = [
+  'refresh_physical_items_view',
+  'refresh_dashboard_daily',
+  'refresh_sku_metrics',
+] as const
+
+export async function refreshCronAnalytics(
+  adminClient: ReturnType<typeof getAdminDb>,
+): Promise<{ refreshed: string[]; failed: string[] }> {
+  const refreshed: string[] = []
+  const failed: string[] = []
+
+  // Keep the dependency order: SKU consumption metrics read from the physical
+  // items view. Each RPC is isolated so a timeout cannot block later views.
+  for (const rpcName of ANALYTICS_REFRESH_RPCS) {
+    try {
+      const { error } = await adminClient.rpc(rpcName)
+      if (error) {
+        failed.push(rpcName)
+        console.error(`[Cron] ${rpcName} failed:`, error)
+      } else {
+        refreshed.push(rpcName)
+        console.log(`[Cron] ${rpcName} completed`)
+      }
+    } catch (error) {
+      failed.push(rpcName)
+      console.error(`[Cron] ${rpcName} failed:`, error)
+    }
+  }
+
+  return { refreshed, failed }
+}
+
 // Background sync function - runs after response is sent
 async function runSync() {
   const startTime = Date.now()
@@ -416,20 +449,6 @@ async function runSync() {
           `[Cron] Items: ${totalMapped} mapped, ${totalUnmapped} unmapped (across ${parcelsWithItems.length} shipments)`,
         )
 
-        // Refresh mv_sku_metrics tout de suite apres consumeStock pour ce
-        // tenant. Le refresh_all_analytics_views global en fin de runSync
-        // est parfois ko (timeout sur v_physical_shipment_items), donc on
-        // ne peut pas compter dessus pour garder la vue stock a jour. Bug
-        // observe sur REBORN21 le 27/05 (stock decremente en base mais UI
-        // affichait l'ancienne valeur).
-        try {
-          await adminClient.rpc('refresh_sku_metrics')
-        } catch (refreshError) {
-          console.error(
-            `[Cron] refresh_sku_metrics post-consumeStock failed for tenant ${tenant.id}:`,
-            refreshError,
-          )
-        }
       }
 
       // ============================================
@@ -479,7 +498,7 @@ async function runSync() {
       // Small best-effort batch each tick: catch deliveries whose manual
       // "Delivered" flip in Sendcloud never came back down as a parcel. Isolated
       // in try/catch so it can never break the main sync. The status changes it
-      // writes are picked up by the refresh_all_analytics_views at end of run.
+      // writes are picked up by refreshCronAnalytics at the end of the run.
       try {
         const rec = await reconcileTenant(adminClient, tenant.id, credentials, 15, false)
         if (rec.updated > 0 || rec.errors > 0) {
@@ -554,18 +573,11 @@ async function runSync() {
     }
   }
 
-  // Refresh all analytics materialized views (physical items + dashboard daily + sku metrics)
-  try {
-    await adminClient.rpc('refresh_all_analytics_views')
-    console.log('[Cron] Refreshed analytics materialized views')
-  } catch (e) {
-    console.error('[Cron] Failed to refresh analytics views, falling back to physical items only:', e)
-    try {
-      await adminClient.rpc('refresh_physical_items_view')
-    } catch (e2) {
-      console.error('[Cron] Fallback refresh also failed:', e2)
-    }
-  }
+  // Refresh each global materialized view exactly once. The previous flow ran
+  // refresh_sku_metrics once per tenant and then refreshed it again inside the
+  // consolidated RPC. It also skipped dashboard/SKU refreshes whenever the
+  // physical-items refresh timed out.
+  await refreshCronAnalytics(adminClient)
 
   const totalDuration = Date.now() - startTime
   console.log(`\n[Cron] *** SYNC COMPLETE in ${totalDuration}ms ***`)
