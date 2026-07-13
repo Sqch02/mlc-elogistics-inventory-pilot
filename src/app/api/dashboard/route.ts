@@ -109,7 +109,7 @@ export async function GET(request: NextRequest) {
           .select('ended_at, status')
           .eq('tenant_id', tenantId)
           .eq('source', 'sendcloud')
-          .in('status', ['success', 'partial', 'failure'])
+          .in('status', ['success', 'partial', 'failed'])
           .order('ended_at', { ascending: false })
           .limit(1),
       ])
@@ -219,7 +219,7 @@ export async function GET(request: NextRequest) {
     } else {
       const ageMs = Date.now() - new Date(lastSyncRow.ended_at).getTime()
       let syncStatus: 'ok' | 'warning' | 'failed'
-      if (lastSyncRow.status === 'failure' || ageMs > 6 * 60 * 60 * 1000) {
+      if (lastSyncRow.status === 'failed' || ageMs > 6 * 60 * 60 * 1000) {
         syncStatus = 'failed'
       } else if (lastSyncRow.status === 'partial' || ageMs > 60 * 60 * 1000) {
         syncStatus = 'warning'
