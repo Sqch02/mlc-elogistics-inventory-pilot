@@ -358,7 +358,31 @@ export function RetoursClient() {
   const handleExport = async () => {
     setIsExporting(true)
     try {
-      const exportData = returns.map((r) => ({
+      // Fetch ALL returns matching current filters (paginate in batches of 1000)
+      const allReturns: Return[] = []
+      let page = 1
+      const batchSize = 1000
+      let hasMore = true
+
+      while (hasMore) {
+        const params = new URLSearchParams()
+        if (filters.search) params.set('search', filters.search)
+        if (filters.status) params.set('status', filters.status)
+        if (filters.reason) params.set('reason', filters.reason)
+        if (filters.from) params.set('from', filters.from)
+        if (filters.to) params.set('to', filters.to)
+        params.set('page', String(page))
+        params.set('pageSize', String(batchSize))
+
+        const response = await fetch(`/api/returns?${params.toString()}`)
+        if (!response.ok) throw new Error('Export failed')
+        const data = await response.json()
+        allReturns.push(...data.returns)
+        hasMore = data.returns.length === batchSize
+        page++
+      }
+
+      const exportData = allReturns.map((r) => ({
         date: r.created_at ? formatDate(r.created_at) : '',
         reference: r.order_ref || '',
         expediteur: r.sender_name || '',

@@ -5,6 +5,7 @@ import { NextRequest } from 'next/server'
 vi.mock('@/lib/supabase/auth', () => ({
   requireTenant: vi.fn().mockResolvedValue('test-tenant-id'),
   getCurrentUser: vi.fn().mockResolvedValue({ id: 'test-user-id' }),
+  requireRole: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('@/lib/audit', () => ({
@@ -60,6 +61,7 @@ function createMockPostClient(options: {
   let callCount = 0
 
   return {
+    rpc: vi.fn().mockResolvedValue({ data: null, error: null }),
     from: vi.fn((table: string) => {
       if (table === 'skus') {
         callCount++
@@ -81,6 +83,7 @@ function createMockPostClient(options: {
       if (table === 'stock_snapshots') {
         return {
           insert: vi.fn().mockResolvedValue({ data: null, error: null }),
+          upsert: vi.fn().mockResolvedValue({ data: null, error: null }),
         }
       }
       return {
@@ -111,7 +114,7 @@ describe('GET /api/skus', () => {
       { id: 'sku-2', sku_code: 'TEST-002', name: 'Test Product 2', stock_snapshots: [{ qty_current: 50 }] },
     ]))
 
-    const response = await GET()
+    const response = await GET(new NextRequest('http://localhost:3000/api/skus'))
     const data = await response.json()
 
     expect(response.status).toBe(200)
@@ -122,7 +125,7 @@ describe('GET /api/skus', () => {
   it('should return empty array when no SKUs exist', async () => {
     mockGetServerDb.mockResolvedValue(createMockGetClient([]))
 
-    const response = await GET()
+    const response = await GET(new NextRequest('http://localhost:3000/api/skus'))
     const data = await response.json()
 
     expect(response.status).toBe(200)
@@ -138,7 +141,7 @@ describe('GET /api/skus', () => {
       [{ bundle_sku_id: 'sku-bundle' }]
     ))
 
-    const response = await GET()
+    const response = await GET(new NextRequest('http://localhost:3000/api/skus'))
     const data = await response.json()
 
     expect(response.status).toBe(200)
@@ -153,7 +156,7 @@ describe('GET /api/skus', () => {
       { id: 'sku-3', sku_code: 'FLRNBU-001', name: 'Florin Bundle', stock_snapshots: [] },
     ]))
 
-    const response = await GET()
+    const response = await GET(new NextRequest('http://localhost:3000/api/skus'))
     const data = await response.json()
 
     expect(response.status).toBe(200)
@@ -171,7 +174,7 @@ describe('GET /api/skus', () => {
       },
     ]))
 
-    const response = await GET()
+    const response = await GET(new NextRequest('http://localhost:3000/api/skus'))
     const data = await response.json()
 
     expect(response.status).toBe(200)
@@ -182,7 +185,7 @@ describe('GET /api/skus', () => {
   it('should require tenant authentication', async () => {
     mockGetServerDb.mockResolvedValue(createMockGetClient())
 
-    await GET()
+    await GET(new NextRequest('http://localhost:3000/api/skus'))
 
     expect(mockRequireTenant).toHaveBeenCalled()
   })
