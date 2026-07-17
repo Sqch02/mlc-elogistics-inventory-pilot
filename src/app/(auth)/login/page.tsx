@@ -13,7 +13,10 @@ import { Package } from 'lucide-react'
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const redirectTo = searchParams.get('redirectTo') || '/'
+  // Anti open-redirect: only accept same-origin absolute paths (single leading
+  // slash, not protocol-relative "//" nor "/\"), otherwise fall back to "/".
+  const rawRedirect = searchParams.get('redirectTo') || '/'
+  const redirectTo = /^\/(?![/\\])/.test(rawRedirect) ? rawRedirect : '/'
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')

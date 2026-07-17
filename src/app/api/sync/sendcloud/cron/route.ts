@@ -13,6 +13,7 @@ import { processShipmentItems } from '@/lib/utils/sku-mapping'
 import { consumeShipmentStockOnce } from '@/lib/stock/consume'
 import { reconcileTenant } from '@/lib/sendcloud/reconcile'
 import { getCronMaxPages } from '@/lib/sendcloud/pagination'
+import { safeEqual } from '@/lib/utils/safe-compare'
 import { reverseDuplicateShipmentStock } from '@/lib/stock/reverse-duplicates'
 import { buildShipmentRow } from '@/lib/sendcloud/build-shipment-row'
 import {
@@ -518,7 +519,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 })
   }
 
-  if (authHeader !== `Bearer ${cronSecret}`) {
+  if (!safeEqual(authHeader, `Bearer ${cronSecret}`)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

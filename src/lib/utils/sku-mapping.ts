@@ -298,15 +298,27 @@ export async function processShipmentItems(
     .is('resolved_at', null)
 
   if (unmappedRows.length > 0) {
+    // Aggregate by the unique key (raw_sku, raw_description, raw_variant_id) before
+    // insert. The unmapped_items UNIQUE constraint is NULLS NOT DISTINCT (00081):
+    // two raw lines sharing the same (possibly NULL) key would violate it and,
+    // because the DELETE above is already committed, that would LOSE every unmapped
+    // row of this shipment. Summing qty per key makes the insert conflict-free.
+    const byKey = new Map<string, { item: RawShipmentItem; qty: number }>()
+    for (const item of unmappedRows) {
+      const key = `${item.sku ?? ''} ${item.description ?? ''} ${item.variant_id ?? ''}`
+      const existing = byKey.get(key)
+      if (existing) existing.qty += item.qty
+      else byKey.set(key, { item, qty: item.qty })
+    }
     const { error: unmappedError } = await adminClient.from('unmapped_items').insert(
-      unmappedRows.map((item) => ({
+      Array.from(byKey.values()).map(({ item, qty }) => ({
         tenant_id: tenantId,
         shipment_id: shipmentId,
         raw_sku: item.sku,
         raw_description: item.description,
         raw_variant_id: item.variant_id,
         raw_product_id: item.product_id,
-        qty: item.qty,
+        qty,
       })),
     )
 

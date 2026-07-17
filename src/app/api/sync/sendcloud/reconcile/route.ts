@@ -3,6 +3,7 @@ import { getAdminDb } from '@/lib/supabase/untyped'
 import { reconcileTenant, type ReconcileResult } from '@/lib/sendcloud/reconcile'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
 import { createSyncCorrelationId, createSyncLogger } from '@/lib/sendcloud/sync-logger'
+import { safeEqual } from '@/lib/utils/safe-compare'
 
 // On-demand trigger for the stuck-"On Hold" reconciliation (see the logic and
 // safety notes in src/lib/sendcloud/reconcile.ts). The same routine also runs
@@ -22,7 +23,7 @@ export async function GET(request: NextRequest) {
   if (!cronSecret) {
     return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 })
   }
-  if (authHeader !== `Bearer ${cronSecret}`) {
+  if (!safeEqual(authHeader, `Bearer ${cronSecret}`)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

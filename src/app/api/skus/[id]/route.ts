@@ -184,10 +184,12 @@ export async function DELETE(
       )
     }
 
-    // Delete related records first
-    await supabase.from('stock_snapshots').delete().eq('sku_id', id)
-    await supabase.from('location_assignments').delete().eq('sku_id', id)
-    await supabase.from('bundle_components').delete().eq('component_sku_id', id)
+    // Delete related records first. Scope every delete by tenant_id as well as
+    // the sku id: deleting on the (potentially attacker-supplied) sku id alone
+    // could touch another tenant's rows if the client is ever service-role.
+    await supabase.from('stock_snapshots').delete().eq('tenant_id', tenantId).eq('sku_id', id)
+    await supabase.from('location_assignments').delete().eq('tenant_id', tenantId).eq('sku_id', id)
+    await supabase.from('bundle_components').delete().eq('tenant_id', tenantId).eq('component_sku_id', id)
 
     // Delete the SKU
     const { error } = await supabase
