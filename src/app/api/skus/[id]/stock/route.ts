@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
-import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
+import { requireTenant, getCurrentUser, requireRole } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 
 // PATCH /api/skus/[id]/stock - Adjust stock quantity
@@ -9,6 +9,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Stock adjustment is an ops action: block the low-privilege 'client' role
+    // (API routes are excluded from the middleware, so this is the only guard).
+    await requireRole(['super_admin', 'admin', 'ops'])
     const tenantId = await requireTenant()
     const user = await getCurrentUser()
     const supabase = await getServerDb()

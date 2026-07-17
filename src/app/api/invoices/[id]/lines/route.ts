@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireTenant, requireRole } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 
 /**
@@ -12,6 +12,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Billing action (manual avoir/charge line): ops-only.
+    await requireRole(['super_admin', 'admin', 'ops'])
     const tenantId = await requireTenant()
     const supabase = await getServerDb()
     const { id: invoiceId } = await params
@@ -122,6 +124,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Billing action (delete a manual line): ops-only.
+    await requireRole(['super_admin', 'admin', 'ops'])
     const tenantId = await requireTenant()
     const supabase = await getServerDb()
     const { id: invoiceId } = await params
