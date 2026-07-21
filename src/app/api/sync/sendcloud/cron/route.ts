@@ -26,6 +26,12 @@ import {
   enqueueDetectedSyncBatch,
   resolveAutoFixGate,
 } from '@/lib/auto-fix'
+import {
+  AUTO_FIX_MODE_COLUMN,
+  CRON_TENANT_SETTINGS_COLUMNS,
+  loadCronTenantSettings,
+  loadTenantAutoFixMode,
+} from '@/lib/sendcloud/cron-settings'
 
 export async function fetchCronData(
   credentials: SendcloudCredentials,
@@ -115,12 +121,19 @@ async function runSync(correlationId: string) {
     try {
       logger.info(`======= TENANT: ${tenant.id} =======`)
 
-      // Get credentials
-      const { data: tenantSettings } = await adminClient
-        .from('tenant_settings')
-        .select('sendcloud_api_key, sendcloud_secret, auto_fix_mode, default_hs_code, default_origin_country')
-        .eq('tenant_id', tenant.id)
-        .single()
+      // Credentials are on the vital sync path. Keep this query independent
+      // from every Phase 2 column and surface database errors as failed runs.
+      let tenantSettings
+      try {
+        tenantSettings = await loadCronTenantSettings(() => adminClient
+          .from('tenant_settings')
+          .select(CRON_TENANT_SETTINGS_COLUMNS)
+          .eq('tenant_id', tenant.id)
+          .maybeSingle())
+      } catch (settingsError) {
+        logger.error(`Failed to load Sendcloud settings for tenant ${tenant.id}:`, settingsError)
+        throw settingsError
+      }
 
       if (!tenantSettings?.sendcloud_api_key || !tenantSettings?.sendcloud_secret) {
         logger.info(`Skipping tenant ${tenant.id}: no Sendcloud credentials`)
@@ -131,6 +144,20 @@ async function runSync(correlationId: string) {
       const credentials: SendcloudCredentials = {
         apiKey: tenantSettings.sendcloud_api_key,
         secret: tenantSettings.sendcloud_secret,
+      }
+
+      // Optional and fail-closed. When the global gate is closed this callback
+      // is never evaluated, so a pre-00093 restore cannot affect the vital sync.
+      const tenantAutoFix = await loadTenantAutoFixMode(autoFixGate.enabled, () => adminClient
+        .from('tenant_settings')
+        .select(AUTO_FIX_MODE_COLUMN)
+        .eq('tenant_id', tenant.id)
+        .maybeSingle())
+      if (tenantAutoFix.error) {
+        logger.error(
+          `Auto-fix mode lookup failed for tenant ${tenant.id}; continuing with auto-fix off:`,
+          tenantAutoFix.error,
+        )
       }
 
       // Get pricing rules once
@@ -298,7 +325,7 @@ async function runSync(correlationId: string) {
       // lookup is capped and uses (tenant_id, sendcloud_id); no shipments scan
       // and no Sendcloud call are introduced here. Worker execution is separate.
       let autoFixDetectionStats: Awaited<ReturnType<typeof enqueueDetectedSyncBatch>> | null = null
-      if (autoFixGate.enabled && tenantSettings.auto_fix_mode === 'simulated') {
+      if (tenantAutoFix.mode === 'simulated') {
         try {
           autoFixDetectionStats = await enqueueDetectedSyncBatch(
             adminClient,
@@ -329,7 +356,7 @@ async function runSync(correlationId: string) {
           // shipment sync or alter stock processing.
           logger.error(`Auto-fix dry-run enqueue failed for tenant ${tenant.id}:`, autoFixError)
         }
-      } else if (autoFixGate.enabled && tenantSettings.auto_fix_mode === 'live') {
+      } else if (tenantAutoFix.mode === 'live') {
         logger.warn(`Auto-fix live ignored for tenant ${tenant.id}: this release is dry-run only`)
       }
 
