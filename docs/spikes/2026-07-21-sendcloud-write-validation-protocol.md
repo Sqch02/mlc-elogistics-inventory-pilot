@@ -2,9 +2,11 @@
 
 Date : 21 juillet 2026
 
-Statut : **outillage préparé, aucune écriture exécutée**. La première opération retenue utilise un colis jetable autonome sur ANTEOS ou Motijet. Toute exécution reste soumise à un accord explicite de Maxime après génération et lecture du manifest correspondant.
+Statut : **première validation exécutée et rollbackée sur Anteos**. Les validations suivantes restent soumises à un accord explicite de Maxime après génération et lecture du manifest correspondant.
 
 Mode opératoire simplifié : [`2026-07-21-sendcloud-first-write-runbook.md`](./2026-07-21-sendcloud-first-write-runbook.md).
+
+Résultat observé : création v2 disponible, contrat documenté `PUT /api/v2/parcels` confirmé, valeur restaurée et parcel non annoncé supprimé. L'annulation a retourné `410 {"status":"deleted"}`, confirmé ensuite en GET ; ce résultat est terminal et ne doit pas être retenté.
 
 ## Avis et décision d'architecture
 
@@ -138,6 +140,7 @@ Le harness :
 - fournit une commande de réconciliation GET-only après timeout ou crash, sans autoriser de retry tant que l'issue reste inconnue ;
 - refuse le rollback si les champs ont changé depuis l'écriture ;
 - sépare l'exécution et le rollback en deux commandes explicites.
+- reconnaît comme nettoyage terminal le `410` Sendcloud portant `status=deleted`, en plus du `404` après suppression d'un parcel non annoncé.
 
 ### Commandes lecture seule
 

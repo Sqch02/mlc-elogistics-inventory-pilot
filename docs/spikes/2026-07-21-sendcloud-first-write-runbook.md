@@ -2,7 +2,9 @@
 
 Date : 21 juillet 2026
 
-Statut : **prêt à préparer, aucune écriture Sendcloud exécutée**.
+Statut : **exécuté avec succès sur Anteos, entièrement rollbacké**.
+
+Résultat : `POST /api/v2/parcels` disponible, `PUT /api/v2/parcels` avec `parcel.id` confirmé, valeur initiale restaurée, puis parcel non annoncé supprimé. Sendcloud a répondu `410 status=deleted` lors du nettoyage ; le GET de réconciliation a confirmé la suppression.
 
 Cette étape vérifie uniquement deux points sur un colis jetable :
 
@@ -101,7 +103,7 @@ Il n’y a ni email, ni téléphone, ni client réel, ni `shipment_uuid`, ni poi
 |---|---|---|---|
 | Création v2 | `POST https://panel.sendcloud.sc/api/v2/parcels` avec le payload ci-dessus | réponse `2xx`, ID numérique, `date_announced` vide, aucun tracking | conserver le token d’annulation ; ne pas demander de label |
 | PUT documenté | `PUT https://panel.sendcloud.sc/api/v2/parcels` avec `{"parcel":{"id":<ID>,"company_name":"MLC TEST APRES PUT"}}` | `GET /api/v2/parcels/<ID>` retourne la nouvelle valeur | même PUT avec `company_name="MLC TEST AVANT PUT"` |
-| Nettoyage final | `POST https://panel.sendcloud.sc/api/v2/parcels/<ID>/cancel` | `200 cancelled`, statut annulé ou `GET` en `404` | l’objet non annoncé est supprimé/annulé ; aucune étiquette à rembourser |
+| Nettoyage final | `POST https://panel.sendcloud.sc/api/v2/parcels/<ID>/cancel` | `200 cancelled`, `404`, ou `410` avec `status=deleted` | l’objet non annoncé est supprimé/annulé ; aucune étiquette à rembourser |
 
 Le contrat alternatif `PUT /api/v2/parcels/<ID>` ne sera préparé que si le contrat documenté échoue de façon non ambiguë et qu’un GET confirme que le parcel est resté inchangé.
 

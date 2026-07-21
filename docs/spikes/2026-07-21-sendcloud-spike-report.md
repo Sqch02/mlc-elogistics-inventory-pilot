@@ -1,25 +1,46 @@
 # Spike Sendcloud Phase 2 — rapport de clôture
 
 Date : 21 juillet 2026
-Périmètre : étape 0 uniquement, investigation Sendcloud en lecture seule
+Périmètre : étape 0 et validation d'écriture contrôlée sur colis jetable
 
 ## Verdict
 
-**NO-GO pour activer un moteur qui écrit dans Sendcloud.** Les lectures permettent de figer la stratégie de détection et de poursuivre la conception en dry-run, mais pas encore la stratégie d'application.
+**GO partiel pour figer le contrat des parcels numériques non annoncés ; NO-GO maintenu pour activer le moteur complet.**
 
-Les blocages sont concrets :
+La validation contrôlée du 21 juillet 2026 a levé les deux incertitudes du premier protocole :
 
-1. aucune écriture contrôlée n'a été autorisée sur un tenant et un colis de test ; la compatibilité réelle de `PUT` avec un colis numérique en statut 1002 reste donc inconnue ;
-2. l'endpoint Service Points a répondu `400 Service point support is not activated for this integration` sur les trois comptes testables avec Mondial Relay ;
-3. aucun exemple réel de code douanier manquant, poids trop bas ou erreur API « point relais non sélectionné » n'a été trouvé dans la fenêtre bornée ;
-4. l'endpoint v2 de création de colis est désormais en maintenance et fermé aux comptes créés après le 13 avril 2026 ; l'éligibilité des comptes utilisés doit être vérifiée par un test contrôlé ou une décision v3 ;
-5. le client local `updateParcel` utilise `PUT /parcels/{id}`, alors que la documentation v2 actuelle décrit `PUT /parcels` avec `parcel.id` dans le corps ;
-6. le webhook transforme actuellement le statut 1002 en réclamation urgente « lost ». Ce conflit doit être corrigé avant toute activation du pattern 1002.
+1. le compte existant Anteos accepte encore `POST /api/v2/parcels` ;
+2. le contrat d'update qui fonctionne est bien `PUT /api/v2/parcels` avec `parcel.id` dans le corps.
 
-Le GO pour l'implémentation des écritures sera donné uniquement après la levée des conditions listées dans « Prochaines validations ».
+Le contrat legacy `PUT /api/v2/parcels/{id}` ne doit donc pas être testé ni conservé dans le futur adapter. Le GO complet reste conditionné à la création liée au `shipment_uuid`, au test Service Points/Mondial Relay et aux validations propres aux transformations métier rares.
+
+Les blocages encore ouverts sont concrets :
+
+1. l'endpoint Service Points a répondu `400 Service point support is not activated for this integration` sur les trois comptes initialement testables avec Mondial Relay ;
+2. aucun exemple réel de code douanier manquant, poids trop bas ou erreur API « point relais non sélectionné » n'a été trouvé dans la fenêtre bornée ;
+3. la création v2 est confirmée pour Anteos uniquement : la capacité doit rester détectée/configurée par compte, sans généralisation implicite ;
+4. la création liée au `shipment_uuid` et son effet sur l'Incoming Order/webshop ne sont pas encore validés ;
+5. le webhook transforme actuellement le statut 1002 en réclamation urgente « lost ». Ce conflit doit être corrigé avant toute activation du pattern 1002.
+
+Le transport PUT peut maintenant être implémenté derrière l'adapter et les flags prévus. L'application automatique des patterns reste interdite avant la levée des conditions listées dans « Prochaines validations ».
 
 Le protocole de validation, la recommandation V1 et le harness gated sont détaillés dans
 [2026-07-21-sendcloud-write-validation-protocol.md](./2026-07-21-sendcloud-write-validation-protocol.md).
+
+## Résultat de la validation d'écriture contrôlée
+
+Compte : Anteos. Objet : parcel jetable, destinataire fictif, `request_label=false`, item aléatoire non mappable.
+
+| Étape | Résultat observé |
+|---|---|
+| Création | `POST /api/v2/parcels` réussi, ID numérique `688943595`, statut `999`, `date_announced=null`, aucun tracking et aucune étiquette |
+| Contrôle stock | shipment local créé par la sync/webhook, `stock_consumed_at=null`, 0 item mappé, 1 item non mappé |
+| Update documenté | `PUT /api/v2/parcels` avec `{parcel:{id, company_name}}` réussi ; GET = valeur modifiée |
+| Restauration | même contrat PUT réussi ; GET = valeur initiale restaurée |
+| Nettoyage | `POST /api/v2/parcels/688943595/cancel` a répondu HTTP `410` avec `status=deleted` ; GET de réconciliation = objet absent, manifest `rolled_back` |
+| État local final | statut `2000 Cancelled`, `stock_consumed_at=null`, toujours 0 item mappé |
+
+Le `410 status=deleted` est un succès terminal pour l'annulation d'un parcel non annoncé, pas une erreur à retenter. Le harness le reconnaît désormais explicitement.
 
 ## Ce qui a été observé
 
@@ -49,8 +70,8 @@ La détection ne doit donc pas considérer `On Hold` ou 1002 comme une cause. El
 
 | Pattern | Ressource et emplacement observés | Action API candidate | Payload essentiel à préserver/corriger | Réponse, effets et critère de succès | Décision du spike |
 |---|---|---|---|---|---|
-| Devise CHF | Exemple réel `On Hold` sur integration shipment : `currency=CHF`, sans détail d'erreur. Exemple réel sur parcel numérique 1002 : `errors.non_field_errors` demande explicitement EUR. | Pour un shipment UUID : créer un parcel lié au même `shipment_uuid`. Pour un parcel numérique non annoncé : tester d'abord le `PUT`; recréer seulement si le test établit que le `PUT` est refusé ou insuffisant. | Toutes les données du colis, `shipment_uuid`, méthode compatible, `total_order_value_currency=EUR`, total et valeurs d'items convertis de façon cohérente. Ne jamais changer uniquement le code devise. | Réponse avec un nouvel `id` numérique, le même `shipment_uuid`, devise EUR et aucune erreur de devise. Si un label est demandé : statut annoncé exploitable et feedback webshop. Le `sendcloud_id` local devra devenir l'ID numérique retourné. | **Cause confirmée. Action non validée en écriture.** |
-| Adresse trop longue | Exemple réel parcel 1002 : `errors.address_add2`, limite de 30 caractères ; `date_announced=null`. | Tester `PUT` du parcel numérique non annoncé. Pour un integration shipment sans parcel, créer un parcel lié au UUID. Cancel+recreate seulement après preuve que le `PUT` ne fonctionne pas. | Payload complet, avec `address`/`address_2` corrigés selon les limites du transporteur, sans perdre numéro, ville, pays, méthode, service point ou items. | Le parcel retourné ne contient plus l'erreur d'adresse et peut être annoncé. Même `shipment_uuid`; si recréation, remplacement atomique du `sendcloud_id` local par l'ID retourné. | **Cause confirmée. Action non validée en écriture.** |
+| Devise CHF | Exemple réel `On Hold` sur integration shipment : `currency=CHF`, sans détail d'erreur. Exemple réel sur parcel numérique 1002 : `errors.non_field_errors` demande explicitement EUR. | Pour un shipment UUID : créer un parcel lié au même `shipment_uuid`. Pour un parcel numérique non annoncé : utiliser le PUT documenté validé ; recréer seulement si un champ métier précis s'avère non modifiable. | Toutes les données du colis, `shipment_uuid`, méthode compatible, `total_order_value_currency=EUR`, total et valeurs d'items convertis de façon cohérente. Ne jamais changer uniquement le code devise. | Réponse avec devise EUR et aucune erreur de devise. Si un label est demandé : statut annoncé exploitable et feedback webshop. | **Transport PUT validé ; conversion CHF et réannonce non validées.** |
+| Adresse trop longue | Exemple réel parcel 1002 : `errors.address_add2`, limite de 30 caractères ; `date_announced=null`. | Utiliser le PUT documenté validé sur le parcel numérique non annoncé. Pour un integration shipment sans parcel, créer un parcel lié au UUID. | Payload avec `address`/`address_2` corrigés selon les limites du transporteur, sans perdre numéro, ville, pays, méthode, service point ou items. | Le parcel retourné ne contient plus l'erreur d'adresse et peut être annoncé. | **Transport PUT validé ; correction d'adresse réelle et réannonce à valider sur fixture.** |
 | Code douanier manquant | Aucun exemple réel trouvé. La documentation et la structure des integration shipments placent `hs_code` et `origin_country` dans `parcel_items[]`; les erreurs détaillées devraient être dans `parcel.errors`. | Pour un shipment UUID hors UE : création liée. Pour un parcel numérique non annoncé : `PUT` seulement après test. | Tous les items, avec `hs_code` pris de `raw_json.parcel_items` puis `tenant_settings.default_hs_code`, et `origin_country`; conserver quantités, poids et valeurs. | Réponse sans erreur customs et documents douaniers générables. Même UUID et nouvel ID local si création. | **Non confirmé : fixture réelle et écriture de test obligatoires.** |
 | Poids trop bas | Aucun exemple réel trouvé. Les poids existent dans `parcel_items[].weight` et sur le parcel ; l'erreur détaillée devrait être dans `parcel.errors`. | Même décision `PUT` versus création liée, à établir sur un colis de test. | Poids total et poids des items cohérents ; appliquer la valeur minimale déterminée par le message ou la méthode, pas une constante aveugle. Préserver tous les autres champs. | Réponse sans erreur de poids, total compatible avec la somme `item.weight × quantity`, même UUID. | **Non confirmé : fixture réelle et écriture de test obligatoires.** |
 | Announcement failed 1002 | Exemples réels sur parcels numériques. Les causes observées incluent CHF, adresse trop longue et EORI expéditeur manquant. `status.id=1002` seul ne décrit pas la cause. | Ne jamais corriger 1002 seul. Si `errors` correspond sans ambiguïté à 1–4 ou 6, appliquer le correctif de cette cause. Sinon : retry borné après backoff pour les erreurs transitoires, puis manuel ; aucun cancel automatique. | Dépend exclusivement de la cause reconnue. Toujours conserver `shipment_uuid`, méthode et intégrité métier. | Succès = disparition de la cause et statut annoncé exploitable, pas seulement disparition de 1002. Un 1002 inconnu reste manuel. | **1002 n'est pas auto-corrigeable seul.** |
@@ -82,19 +103,17 @@ Ces écarts ne sont pas corrigés dans le spike :
 - le remplacement doit conserver le même shipment local et le même `stock_consumed_at` afin de ne jamais reconsommer le stock ;
 - l'endpoint v2 de création est en maintenance : confirmer l'éligibilité des comptes existants ou décider explicitement le passage à v3.
 
-## Prochaines validations avant GO
+## Prochaines validations avant GO complet
 
 Validation explicite de Maxime requise avant toute écriture :
 
-1. désigner un tenant, un webshop et des colis strictement de test ;
-2. activer Service Points et Mondial Relay sur l'intégration API de test, puis refaire les sondes 5/10/25 km ;
-3. créer des fixtures de test pour CHF, adresse, HS, poids et point relais manquant ;
-4. vérifier sur chaque fixture si `PUT` du parcel non annoncé est accepté, avec quelle URL et quelle réponse ;
-5. si `PUT` échoue, tester le flux création liée au `shipment_uuid`, puis seulement le besoin réel d'un cancel ;
-6. confirmer que la création liée met à jour le webshop et retourne un parcel numérique sans doublon ;
-7. vérifier l'accès v2 des comptes cibles ou cadrer v3 ;
-8. corriger le mapping webhook `1002 → lost` avant l'activation du pattern ;
-9. seulement après ces preuves, figer les stratégies d'application et démarrer le moteur.
+1. activer Service Points et Mondial Relay sur l'intégration retenue, puis refaire les sondes 5/10/25 km ;
+2. créer des fixtures de test pour CHF, adresse, HS, poids et point relais manquant ;
+3. tester le flux de création liée au `shipment_uuid`, son effet webshop et l'absence de doublon ;
+4. vérifier sur les fixtures que chaque champ métier nécessaire est réellement accepté par le PUT validé ;
+5. détecter/configurer la capacité v2 par compte et conserver le plan B v3 pour les comptes non éligibles ;
+6. corriger le mapping webhook `1002 → lost` avant l'activation du pattern ;
+7. seulement après ces preuves, activer progressivement les stratégies d'application concernées.
 
 ## Outil d'investigation
 

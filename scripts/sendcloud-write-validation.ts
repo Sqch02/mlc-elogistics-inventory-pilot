@@ -179,6 +179,18 @@ class SendcloudHttpError extends Error {
   }
 }
 
+export function isDeletedParcelResponse(status: number, responseBody: string): boolean {
+  if (status === 404) return true
+  return status === 410 && (
+    /"status"\s*:\s*"deleted"/i.test(responseBody) ||
+    /parcel has been deleted/i.test(responseBody)
+  )
+}
+
+function isDeletedParcelError(error: unknown): boolean {
+  return error instanceof SendcloudHttpError && isDeletedParcelResponse(error.status, error.responseBody)
+}
+
 async function sendcloudRequest(
   credentials: Credentials,
   method: 'GET' | 'PUT' | 'POST' | 'PATCH',
@@ -890,7 +902,7 @@ async function isCancellationConfirmed(credentials: Credentials, manifest: Valid
       const status = isObject(parcel.status) ? parcel.status : {}
       return Number(status.id) === 1999 || /cancel|annul/i.test(String(status.message ?? ''))
     } catch (error) {
-      return error instanceof SendcloudHttpError && error.status === 404
+      return isDeletedParcelError(error)
     }
   }
   if (manifest.rollback.kind === 'cancel_v3_shipment') {
@@ -946,7 +958,7 @@ async function rollbackManifest(options: CliOptions, credentials: Credentials): 
       try {
         await sendcloudRequest(credentials, 'POST', `/api/v2/parcels/${manifest.result.parcel_id}/cancel`)
       } catch (error) {
-        if (!(error instanceof SendcloudHttpError && error.status === 404)) throw error
+        if (!isDeletedParcelError(error)) throw error
       }
     } else {
       if (!manifest.result?.shipment_id) throw new Error('shipment_id absent du manifest')

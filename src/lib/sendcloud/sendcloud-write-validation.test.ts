@@ -5,6 +5,7 @@ import {
   assertWriteGate,
   computePlanHash,
   hashJson,
+  isDeletedParcelResponse,
   parseCliOptions,
   TEST_ACCOUNT_FINGERPRINT_ENV,
   validateDisposablePayload,
@@ -158,5 +159,12 @@ describe('Sendcloud write validation harness', () => {
     expect(() => assertWriteGate(value, 'rollback', flags, env, apiKey)).not.toThrow()
     flags.set('approval-token', value.approval_token)
     expect(() => assertWriteGate(value, 'rollback', flags, env, apiKey)).toThrow('Approval token')
+  })
+
+  it('reconnait la suppression terminale retournee par Sendcloud en 404 ou 410', () => {
+    expect(isDeletedParcelResponse(404, '')).toBe(true)
+    expect(isDeletedParcelResponse(410, '{"status":"deleted","message":"Parcel has been deleted"}')).toBe(true)
+    expect(isDeletedParcelResponse(410, '{"message":"API endpoint retired"}')).toBe(false)
+    expect(isDeletedParcelResponse(500, '{"status":"deleted"}')).toBe(false)
   })
 })
