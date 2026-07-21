@@ -21,6 +21,7 @@ import {
   PackagePlus,
   Shield,
   Link2,
+  WandSparkles,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -39,6 +40,7 @@ const baseNavigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard, feature: null },
   { name: 'Analytics', href: '/analytics', icon: BarChart3, feature: null },
   { name: 'Expéditions', href: '/expeditions', icon: Truck, feature: null },
+  { name: 'Corrections auto', href: '/corrections-auto', icon: WandSparkles, feature: null, allowedRoles: ['super_admin', 'admin', 'ops'] },
   { name: 'Retours', href: '/retours', icon: RotateCcw, feature: 'returnsModule' as const },
   { name: 'Produits & Stock', href: '/produits', icon: Package, feature: null },
   { name: 'Centre de mapping', href: '/mapping', icon: Link2, feature: null, badge: 'unmappedCount' as const },
@@ -70,6 +72,8 @@ function SidebarContent({ pathname, onClose, onLogout, userRole, isHubView }: Si
       if (isHubView && !hubVisibleMenus.includes(item.href)) return false
       // Super admin only items (e.g. Administration)
       if ('superAdminOnly' in item && item.superAdminOnly && userRole !== 'super_admin') return false
+      // Operational pages can opt into an explicit role allowlist.
+      if ('allowedRoles' in item && item.allowedRoles && !item.allowedRoles.includes(userRole ?? '')) return false
       // Feature flag check
       if (item.feature === 'returnsModule' && !features.returnsModule) return false
       // Client role: hide certain menus
