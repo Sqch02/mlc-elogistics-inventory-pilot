@@ -45,6 +45,23 @@ Clôture lecture seule du 21/07/2026 : **NO-GO sur les écritures** jusqu'aux va
 - **Avant le pattern 1002** : persister la relation de **remplacement AVANT le cancel** (le webhook d'annulation ne réapprovisionne pas, le webhook de création ne reconsomme pas) + **tests de course** obligatoires (cancel webhook avant/après recreate, nouveau parcel inséré avant le rattachement local, timeout Sendcloud après création).
 - **Outbox** : l'insertion de l'événement est **atomique avec la mutation métier** (facture/arrivage/stock) ; c'est l'échec **ultérieur** de l'envoi SMTP qui ne doit pas annuler cette mutation.
 
+## Décisions post-spike & protocole d'écriture (21/07)
+Le **NO-GO écriture tient** jusqu'à validation sur un colis de test (cf `../spikes/2026-07-21-sendcloud-write-validation-protocol.md`).
+
+**Mécanisme d'écriture :**
+- Parcel numérique **non annoncé** → **PUT en place** (contrat documenté `PUT /api/v2/parcels` avec `{ parcel: { id, ...patch } }` ; legacy `/parcels/{id}` seulement après échec non ambigu + GET de contrôle).
+- Integration shipment avec seulement un `shipment_uuid` → **création liée** (conserve le lien webshop, remplace durablement le `sendcloud_id` local par l'ID numérique retourné).
+- **cancel+recreate → HORS V1** : dernier recours seulement si un test prouve qu'un champ n'est pas modifiable autrement. Le sortir élimine l'essentiel des risques doublon/stock/webhook/remplacement d'ID.
+- **Accès API** : confirmer la création v2 par un **POST contrôlé `request_label=false`** puis annulation (la date du compte ne suffit pas ; v2 en maintenance). Plan B si v2 indisponible : v3 **`PATCH /orders/{id}` → GET → `POST /orders/create-label-sync`** (garde le lien à l'Order importée). **Jamais de fallback v2→v3 automatique sur timeout.**
+
+**Périmètre V1 par pattern (tiers d'activation de l'écriture) :**
+- **Adresse trop longue** → activer en PREMIER (après validation PUT).
+- **CHF** → activer, avec **taux figé + date du taux + arrondis + cohérence total/items** (jamais changer seulement la devise).
+- **1002** → **routeur de causes** (lire la vraie cause via `errors=verbose-carrier`, appliquer le fix de cette cause) ; jamais correcteur autonome ; inclut le pattern 6.
+- **Point relais** → construire resolver + fallback manuel, mais **write derrière un flag** jusqu'à activation Service Points + test Mondial Relay.
+- **Code douanier / poids** → détecteur + planner + fixtures synthétiques, **write DÉSACTIVÉ** jusqu'au premier cas réel (aucun exemple sur 120 j).
+- **EORI expéditeur manquant** (nouveau, dans les 1002) → **PAS d'auto-fix** (config légale du compte) : **alerte dédupliquée par tenant** + suspension des retries concernés + résolution manuelle + re-vérification.
+
 ## Architecture (révisée : découplée du cron)
 Leçon du 13/07 (saturation I/O) : **le moteur ne tourne PAS dans le cron de sync**.
 - **Pendant la sync** : détecter et **mettre en file** les candidats vus dans le lot courant (aucun appel Sendcloud, aucune écriture lourde).
