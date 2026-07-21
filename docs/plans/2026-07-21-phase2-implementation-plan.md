@@ -1,74 +1,121 @@
-# Phase 2 — Plan d'implémentation (validé 21/07/2026)
+# Phase 2 — Plan d'implémentation v2 (révisé 21/07/2026 après revue Codex)
 
-Base : design doc `2026-05-21-auto-fix-sendcloud-errors-design.md` (architecture, patterns 1-5).
-Ce plan **étend** ce périmètre avec ce qui a été ajouté/validé depuis (Quentin + Aurélien) :
-pattern 6 (point relais), notifications email, gestion des comptes clients admin.
-Devis signé DEV-013, 1 200 € HT, acompte 600 € en cours. **Dev démarre à réception de l'acompte.**
+Base : design doc `2026-05-21-auto-fix-sendcloud-errors-design.md` (périmètre fonctionnel).
+Cette v2 **remplace la v1** : elle intègre la revue technique de Codex (verdict "à ajuster"),
+dont chaque point concret a été vérifié dans le repo. Devis signé 1 200 € HT.
+**Ne pas démarrer le moteur avant le spike Sendcloud (étape 0).**
 
-## Périmètre final (6 lignes du devis)
+## Corrections de la v1 (faits vérifiés dans le repo)
+- Les migrations sont **déjà à 00092** → les nouvelles commencent à **00093**.
+- **Ne PAS créer `tenant_customs_settings`** : `tenant_settings.default_hs_code` et
+  `default_origin_country` existent déjà (migration 00073 l'indique explicitement).
+- `cancelParcel` **existe déjà** (`client.ts:759`), inutile de le recréer.
+- **Pas de `shopify_api_token`** en base → l'intégration Shopify pour le HS code est un
+  sous-projet : **HORS V1**. Pattern 3 = lire le HS depuis `raw_json.parcel_items` puis le
+  défaut tenant ; `pending_manual` sinon.
+- Les commandes On Hold viennent des **integration shipments** (parseur séparé
+  `parseIntegrationShipment`, identifiant `shipment_uuid`, PAS un parcel numérique). Le parseur
+  actuel met `has_error=false` → le scan `status_message='On Hold' AND error_message IS NOT NULL`
+  ne trouverait rien : à revoir dans le spike + l'ingestion.
+- **Aucune colonne `pending_manual`/`manual_resolved`** n'existe → il faut un vrai état courant
+  (colonne dédiée ou table de file), pas un filtre sur une colonne inexistante.
 
-1. Moteur d'auto-correction — 6 patterns : CHF, adresse trop longue, code douanier, poids trop bas, "Announcement failed 1002", **point relais non sélectionné (nouveau)**.
-2. Tableau de bord des corrections.
-3. Alertes au seuil + mode simulation (dry_run).
-4. Réinitialisation autonome des mots de passe client (SMTP).
-5. Gestion des comptes clients côté admin.
-6. Notifications email : factures au client, alerte stock, notif arrivage à l'équipe.
+## Étape 0 — SPIKE Sendcloud (0,5–1 j, BLOQUANT, avant tout code moteur)
+Avec un vrai exemple de CHAQUE pattern, déterminer :
+- la ressource source (integration shipment `shipment_uuid` vs parcel numérique) ;
+- l'emplacement réel de l'erreur dans le JSON (errors / warnings / checkout_payload_errors) ;
+- l'action autorisée par l'API : création liée au `shipment_uuid`, PUT parcel, ou cancel+recreate ;
+- le résultat réel côté Sendcloud ET le retour vers Shopify.
+Sans ça, l'architecture du moteur n'est pas figée. **Go/no-go sur le reste après ce spike.**
 
-## À récupérer AVANT de démarrer (bloquant)
+## Architecture (révisée : découplée du cron)
+Leçon du 13/07 (saturation I/O) : **le moteur ne tourne PAS dans le cron de sync**.
+- **Pendant la sync** : détecter et **mettre en file** les candidats vus dans le lot courant (aucun appel Sendcloud, aucune écriture lourde).
+- **Worker séparé** (cron dédié décalé de quelques minutes, ou endpoint distinct) : traite la file avec plafonds stricts :
+  - 5–10 candidats max par tenant et par run ;
+  - concurrence Sendcloud 1–2 ; budget temps global ; timeout HTTP ;
+  - **gestion explicite des 429** (Sendcloud : 100 écritures/min, 15/s) → remise en file, pas de boucle d'attente ;
+  - kill-switch indépendant `AUTO_FIX_PAUSED`.
+- **Backfill initial borné et paginé par clé** — jamais un scan récurrent de la table shipments (738 MB).
+- Index candidats créé **hors pic, en CONCURRENTLY, avec lock_timeout**, un seul gros index à la fois.
 
-- **Code douanier (HS) par défaut** par client (Florna, REBORN21, ANTEOS, Motijet) → pattern 3.
-- **Email d'alerte** par client → alertes + notifications.
-- **Choix du fournisseur SMTP** (Resend recommandé, simple + gratuit au démarrage) + création de la clé API → lots 4/5/6.
-- Vérifier au démarrage : `tenant_settings.shopify_api_token` existe-t-il ? (pattern 3 HS code lit Shopify via variant_id).
+## Idempotence & machine à états (avant toute écriture réelle)
+Le compteur `attempts<3` + cooldown 1h ne suffit PAS (crons concurrents, retry manuel pendant un run, crash entre cancel et recreate, timeout après recreate, webhook qui insère le nouveau parcel avant l'update local).
+Modèle requis :
+- **Réclamation atomique** du travail (`FOR UPDATE SKIP LOCKED` en RPC/transaction).
+- **États durables** : `queued → claimed → planned → applied → verified`.
+- Champs : `operation_key` unique, hash des données/erreur source, `locked_until`, `next_attempt_at`,
+  `original_sendcloud_id` + `result_sendcloud_id`, mode dry_run/live, timestamps `cancelled_at`/`recreated_at`/`linked_at`,
+  erreur structurée + catégorie retryable/non-retryable.
+- **Ordre durable du cancel/recreate** : enregistrer l'op → cancel → persister le succès du cancel →
+  recreate → persister immédiatement le nouvel ID → rattacher atomiquement le shipment local → vérifier le
+  nouveau parcel → seulement alors marquer réussi. Après un résultat réseau incertain : **rechercher une création
+  existante par `shipment_uuid` avant de refaire un POST**.
+- Table d'audit `auto_fixes` : **pas de `ON DELETE CASCADE`** (une dédup de shipments effacerait l'historique).
 
-## Découpage en lots (ordre d'implémentation)
+## Interaction cancel/recreate ↔ stock/webhook (critique)
+Le webhook actuel réapprovisionne au cancel et traite un nouveau `sendcloud_id` comme une nouvelle
+expédition → **risque de reconsommer le stock** à la recréation (+ courses + fausses alertes stock).
+- Le nouveau parcel doit être marqué **remplacement** du précédent : **même shipment local, même
+  `stock_consumed_at`**. Webhook ET cron doivent reconnaître cette relation et ne jamais reconsommer.
+- **Conflit 1002** : le webhook traite `status_id=1002` comme colis perdu → réclamation urgente
+  (`webhook:31`), incompatible avec "Announcement failed 1002" auto-corrigeable. **À clarifier/corriger
+  avant activation du pattern 5.**
 
-### Lot 0 — Fondations (0,5 j)
-- Migrations : `auto_fixes` (+ index + RLS), `exchange_rates_cache`, `tenant_customs_settings`, colonnes `auto_fix_attempts`/`last_attempt` sur shipments, `auto_fix_state` (cooldown alertes).
-- Squelette module `src/lib/auto-fix/` (types.ts, index.ts vides). Toggle `AUTO_FIX_ENABLED` + toggle par tenant.
-- **Mode dry_run par défaut** dès le départ (rien n'est écrit chez Sendcloud tant que non activé).
+## Pattern 6 — point relais (spec complétée)
+Non trivial. Sendcloud exige : service points activés sur l'intégration, transporteur activé (sinon 400),
+service point compatible, méthode d'expédition compatible, `to_service_point` + ID de shipping method à la création.
+- **Mapper la méthode checkout → vrai code carrier** (surtout `mondial_relay`), **ne jamais substituer un autre transporteur**.
+- Recherche par pays + adresse géocodée, **rayons progressifs bornés** (5/10/25 km).
+- Vérifier `is_active`, distance, compatibilité méthode. Auditer le point choisi + distance + alternatives.
+- Aucun résultat/incompatibilité → `pending_manual`. 429/timeout/5xx → **retry ultérieur**, pas `pending_manual`.
+- **Inclure le pattern 6 dans la redétection du 1002.**
 
-### Lot 1 — Moteur + 6 patterns (2,5 j)
-- `detect.ts` : matching par regex → FixPlan.
-- `fixes/currency.ts` (CHF→EUR via `exchange-rate.ts`, cache 24h, fallback BCE), `address.ts`, `customs.ts` (HS + origin), `weight.ts`, **`servicepoint.ts` (nouveau : appel API Service Points Sendcloud autour du code postal du destinataire → sélection du plus proche → `to_service_point`)**.
-- Pattern 5 (1002) : re-détection patterns 1-4 puis cancel + recreate.
-- `apply.ts` : PUT update OU cancel+recreate via client Sendcloud (ajouter `cancelParcel` si absent).
-- Endpoint `POST /api/auto-fix/run` chaîné en fin de `runSync`, filtre anti-pingpong (1h), max 3 tentatives.
-- **Chaque pattern validé en dry_run avant l'écriture réelle.**
+## Dry-run & alertes (précisions)
+- Dry-run : écrit un audit `simulated`, **ne consomme pas les tentatives**, ne déclenche **aucune alerte client**.
+- Un changement d'erreur/payload = nouveau fingerprint → peut réinitialiser les tentatives.
+- Seuil alerte = **5 shipments distincts devenus manuels dans les 6 dernières heures** (pas 5 lignes `auto_fixes`) ;
+  le cooldown 6h est un mécanisme séparé.
 
-### Lot 2 — Tableau de bord (1 j)
-- `GET /api/auto-fix/status` (KPI + pending + historique paginé).
-- Page `(dashboard)/corrections-auto/` + composants (stats, table pending manuel, historique, dialog diff avant/après).
-- Lien Sidebar. Retry manuel `POST /api/auto-fix/retry/[id]`.
+## Emails & comptes (lot sous-estimé)
+Configurer Resend comme SMTP Supabase **ne fournit PAS** un mailer applicatif. Il faut :
+- Un **outbox** applicatif : clé d'idempotence par (événement + destinataire), statuts queued/sent/failed,
+  retry exponentiel, id fournisseur, **ne pas faire échouer la transaction métier si l'email échoue**.
+- Déclencheurs précis : facture à la transition **draft → sent** (pas à chaque génération) ; stock **au
+  franchissement du seuil** avec réarmement ; arrivage **un email par group_id** après insertion complète.
+- **PDF serveur** : `invoice-pdf.ts` est orienté navigateur (jsPDF + doc.save) → rendre l'export compatible
+  serveur pour produire la pièce jointe.
+- Setup : domaine vérifié, SPF/DKIM/DMARC, adresses d'expéditeur, **destinataires configurables distincts**
+  (facturation / stock / auto-fix / arrivages). Quotas : Resend gratuit 100/j–3000/mois (à confirmer par volume) ;
+  Supabase limite par défaut 30 emails Auth/h après config SMTP.
 
-### Lot 3 — Alertes + simulation (0,5 j)
-- `escalation.ts` : seuil 5 pending sur 6h + cooldown (table `auto_fix_state`) → email.
-- Mode simulation exposé dans l'UI (bascule dry_run / actif par tenant).
+## Sécurité (minimum par endpoint)
+- `/api/auto-fix/run` (et le worker) : **CRON_SECRET uniquement**, jamais une session utilisateur.
+- status / retry / resolve : `requireRole(['super_admin','admin','ops'])` + **filtrage explicite `tenant_id`**.
+- Toggles actif/dry-run + gestion des comptes : **super_admin uniquement**. Service role seulement **après** l'autorisation.
+- Reset autonome : réponse générique anti-énumération, rate-limit/CAPTCHA, redirect allowlistée.
+- Admin reset : **envoyer un lien de reset/invitation**, ne pas choisir/connaître un mot de passe en clair
+  (contrairement au flux actuel `admin/tenants/[id]/users`). Désactivation : agir sur **Supabase Auth** +
+  invalider les sessions + auditer (modifier `profiles` seul ne suffit pas).
+- `before_json`/`after_json` contiendront de la PII (adresses/emails/téléphones) → **redaction** + rétention.
+- `exchange_rates_cache` : **REVOKE anon/authenticated**, écriture réservée au service role.
 
-### Lot 4 — SMTP + reset mot de passe client + admin users (1 j)
-- Configurer SMTP (Resend) dans Supabase Auth → les emails de reset partent réellement (aujourd'hui non configuré, cf incident ANTEOS 07/07).
-- UI admin sur `(admin)/tenants/[id]` : reset mot de passe, activer/désactiver un user (via service_role, pas de manip DB).
+## Séquencement recommandé
+1. Spike Sendcloud sur cas réels + décisions fonctionnelles (étape 0).
+2. Modèle jobs/audit/outbox + verrous + index + sécurité.
+3. Ingestion correcte des erreurs + détecteurs en dry-run.
+4. Dashboard dry-run pour validation opérationnelle.
+5. Activation patterns On Hold 1–4 et 6, en petits lots.
+6. Pattern 1002 + cancel/recreate, après tests de crash et de courses webhook.
+7. SMTP + reset + gestion utilisateurs.
+8. Notifications via outbox + PDF serveur.
+9. Staging → activation tenant par tenant (Florna en dernier) → observation.
 
-### Lot 5 — Notifications email (1 j)
-Réutilise le SMTP du lot 4 (d'où le prix mini) :
-- envoi automatique de la facture au client (PDF joint) à la génération/validation ;
-- alerte stock au client quand un SKU passe sous son seuil ;
-- notif à l'équipe quand un client déclare un arrivage (inbound).
+## Estimation réaliste
+**9–12 jours** de dev/test si le spike confirme vite le flux ; **12–15 jours** si l'API On Hold ou les
+courses stock/webhook demandent une adaptation lourde ; + quelques jours calendaires d'observation progressive.
+Livraison **sous 2–3 semaines crédible**, mais **pas** une promesse ferme de "7 jours production-ready".
+Le prix (1 200 €) est signé : à ce niveau d'effort, la marge est fine — décision assumée (budget client serré).
+Levier d'allègement retenu : **HS code sans intégration Shopify** (hors V1).
 
-### Lot 6 — Validation & activation progressive (0,5 j)
-- Tout tourne en dry_run sur staging → comparer les fixes proposés vs réalité.
-- Activation **un tenant à la fois** (commencer par le plus petit, Florna en dernier).
-- Surveiller `auto_fixes` (taux success/failed) + les patterns 'unknown' pour découvrir d'autres familles d'erreur.
-
-## Points de vigilance
-
-- **Ne rien casser sur le cron existant** : le module est isolé et chaîné en fin de run ; si l'auto-fix plante, la sync normale continue.
-- **Idempotence** : ne jamais re-fixer un shipment déjà `pending_manual` ou `manual_resolved` ; compteur de tentatives + cooldown 1h.
-- **Cancel+recreate (pattern 1002 + point relais si besoin)** : bien remettre à jour le `sendcloud_id` local sur le nouveau colis, sinon on perd le suivi.
-- **Point relais** : vérifier que l'API Service Points renvoie bien des points pour le transporteur de la commande (Mondial Relay surtout) ; fallback `pending_manual` si aucun point trouvé.
-- **Quota emails** : Resend gratuit = 100/jour ; suffisant au début, à surveiller si les factures + alertes montent.
-
-## Estimation
-
-~7 jours de dev répartis sur les 6 lots, livraison sous 2-3 semaines (conforme au devis).
-Démarrage : à réception de l'acompte + des configs (HS codes, emails, clé SMTP).
+Démarrage : à réception de l'acompte + des configs (HS codes, emails, clé SMTP) + **après le spike**.
