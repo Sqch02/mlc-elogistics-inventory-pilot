@@ -89,6 +89,27 @@ function parseSendcloudDate(dateStr: string | number | null | undefined): string
   return null
 }
 
+function collectStructuredErrorMessages(values: unknown[]): string[] {
+  const messages: string[] = []
+  const visit = (value: unknown, path = ''): void => {
+    if (typeof value === 'string' && value.trim()) {
+      messages.push(path ? `${path}: ${value.trim()}` : value.trim())
+      return
+    }
+    if (Array.isArray(value)) {
+      value.forEach((child) => visit(child, path))
+      return
+    }
+    if (value && typeof value === 'object') {
+      Object.entries(value as Record<string, unknown>).forEach(([key, child]) =>
+        visit(child, path ? `${path}.${key}` : key),
+      )
+    }
+  }
+  values.forEach((value) => visit(value))
+  return messages
+}
+
 export function parseParcel(parcel: SendcloudParcel): ParsedShipment {
   // Convert weight from kg to grams
   const weightGrams = Math.round(parseFloat(parcel.weight) * 1000)
@@ -121,25 +142,27 @@ export function parseParcel(parcel: SendcloudParcel): ParsedShipment {
     shippedAt = new Date().toISOString()
   }
 
-  // Error detection based on actual problem statuses
-  // Real problems: announcement failed, unknown, delivery failed, unable to deliver, exception, returned, refused, cancelled
-  const ERROR_STATUS_IDS = [1002, 1337, 8, 80, 62996, 62992, 62991, 2000]
+  // Status 1002 (Announcement failed) is only context: it does not identify a
+  // correctable cause. The auto-fix pipeline requires structured errors from
+  // errors=verbose-carrier. Other terminal/problem statuses remain visible to
+  // the existing operational UI but are never sufficient to enqueue a fix.
+  const ERROR_STATUS_IDS = [1337, 8, 80, 62996, 62992, 62991, 2000]
   const statusId = parcel.status?.id || null
   const hasStatusError = statusId !== null && ERROR_STATUS_IDS.includes(statusId)
 
-  // Check for errors in raw parcel data (field validation errors from Sendcloud)
-  const rawErrors = (parcel as unknown as Record<string, unknown>).errors as Record<string, string[]> | undefined
-  const hasFieldErrors = rawErrors && Object.keys(rawErrors).length > 0
+  const structuredMessages = collectStructuredErrorMessages([
+    parcel.errors,
+    parcel.checkout_payload_errors,
+  ])
+  const hasFieldErrors = structuredMessages.length > 0
 
   // Note: "On Hold" alone is NOT an error - it just means the order is waiting to be processed
   // Only mark as error if there are actual field errors or problem statuses
   const has_error = hasStatusError || !!hasFieldErrors
   let error_message: string | null = null
 
-  if (hasFieldErrors && rawErrors) {
-    error_message = Object.entries(rawErrors)
-      .map(([field, msgs]) => `${field}: ${msgs.join(', ')}`)
-      .join('; ')
+  if (hasFieldErrors) {
+    error_message = structuredMessages.join('; ')
   } else if (hasStatusError) {
     error_message = parcel.status?.message || 'Erreur Sendcloud'
   }
@@ -205,6 +228,9 @@ export async function fetchParcels(
   const auth = Buffer.from(`${credentials.apiKey}:${credentials.secret}`).toString('base64')
 
   const params = new URLSearchParams()
+  // Required to obtain the carrier's actual blocking cause. Without this,
+  // status 1002 only says that announcement failed and is not actionable.
+  params.set('errors', 'verbose-carrier')
   if (options?.since) {
     params.set('updated_after', options.since)
   }
@@ -329,6 +355,7 @@ export async function fetchParcelsByOrderNumber(
   const auth = Buffer.from(`${credentials.apiKey}:${credentials.secret}`).toString('base64')
   const params = new URLSearchParams()
   params.set('order_number', orderNumber)
+  params.set('errors', 'verbose-carrier')
   const url = `${SENDCLOUD_API_URL}/parcels?${params.toString()}`
 
   const response = await fetch(url, {
@@ -386,11 +413,13 @@ interface SendcloudIntegrationShipment {
     quantity: number
     weight?: string
     value?: string
+    hs_code?: string
+    origin_country?: string
   }>
   // Error fields from Sendcloud
-  errors?: Record<string, string[]>
-  warnings?: string[]
-  checkout_payload_errors?: string[]
+  errors?: unknown
+  warnings?: unknown
+  checkout_payload_errors?: unknown
 }
 
 interface SendcloudIntegrationShipmentsResponse {
@@ -442,13 +471,14 @@ function parseIntegrationShipment(shipment: SendcloudIntegrationShipment): Parse
     value: item.value ? parseFloat(item.value) : undefined,
   })).filter(item => item.sku_code)
 
-  // Integration shipments (On Hold) are READ-ONLY via API and cannot be modified.
-  // Their "errors" are validation warnings that will be resolved when creating a label.
-  // Per Sendcloud API documentation: these are NOT blocking errors.
-  // Therefore, we do NOT mark integration shipments as having errors.
-  // The user must process them in Sendcloud panel or create a parcel via our app.
-  const has_error = false
-  const error_message: string | null = null
+  // "On Hold" and warnings are not causes. Only the structured blocking
+  // collections feed has_error and the dry-run detectors.
+  const structuredMessages = collectStructuredErrorMessages([
+    shipment.errors,
+    shipment.checkout_payload_errors,
+  ])
+  const has_error = structuredMessages.length > 0
+  const error_message = has_error ? structuredMessages.join('; ') : null
 
   return {
     sendcloud_id: shipment.shipment_uuid, // Use UUID as unique ID for pending orders

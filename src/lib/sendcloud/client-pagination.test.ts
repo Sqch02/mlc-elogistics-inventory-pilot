@@ -3,7 +3,9 @@ import {
   fetchAllIntegrationShipments,
   fetchAllParcels,
   fetchAllReturns,
+  parseParcel,
 } from './client'
+import type { SendcloudParcel } from './types'
 
 const credentials = { apiKey: 'test-key', secret: 'test-secret' }
 
@@ -82,6 +84,28 @@ describe('Sendcloud pagination completion', () => {
 
     expect(parcels.map((parcel) => parcel.sendcloud_id)).toEqual(['1', '2'])
     expect(fetchMock).toHaveBeenCalledTimes(2)
+    for (const [requestUrl] of fetchMock.mock.calls) {
+      expect(new URL(String(requestUrl)).searchParams.get('errors')).toBe('verbose-carrier')
+    }
+  })
+
+  it('does not classify 1002 without a verbose carrier cause', () => {
+    const parsed = parseParcel({
+      ...rawParcel(1002),
+      status: { id: 1002, message: 'Announcement failed' },
+    } as SendcloudParcel)
+    expect(parsed.has_error).toBe(false)
+    expect(parsed.error_message).toBeNull()
+  })
+
+  it('ingests structured parcel causes returned by errors=verbose-carrier', () => {
+    const parsed = parseParcel({
+      ...rawParcel(1002),
+      status: { id: 1002, message: 'Announcement failed' },
+      errors: { address: ['Address too long'] },
+    } as SendcloudParcel)
+    expect(parsed.has_error).toBe(true)
+    expect(parsed.error_message).toContain('address: Address too long')
   })
 
   it('caps a truncated parcel batch loudly instead of failing the tenant sync', async () => {
@@ -143,6 +167,25 @@ describe('Sendcloud pagination completion', () => {
       maxPages: 1,
       integrationId: 7,
     })
+  })
+
+  it('marks integration shipments only from blocking structured collections', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse([{ id: 7, shop_name: 'Shopify', system: 'shopify' }]))
+      .mockResolvedValueOnce(jsonResponse({
+        results: [{
+          ...integrationShipment('shipment-error'),
+          warnings: ['On Hold'],
+          checkout_payload_errors: { address_2: ['Address too long'] },
+        }],
+        previous: null,
+        next: null,
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const [parsed] = await fetchAllIntegrationShipments(credentials, 1)
+    expect(parsed.has_error).toBe(true)
+    expect(parsed.error_message).toContain('address_2: Address too long')
   })
 
   it('caps a truncated returns batch loudly instead of failing the tenant sync', async () => {

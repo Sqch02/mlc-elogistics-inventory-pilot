@@ -21,6 +21,11 @@ import {
   createSyncLogger,
   type SyncLogger,
 } from '@/lib/sendcloud/sync-logger'
+import {
+  enqueueBatchCap,
+  enqueueDetectedSyncBatch,
+  resolveAutoFixGate,
+} from '@/lib/auto-fix'
 
 export async function fetchCronData(
   credentials: SendcloudCredentials,
@@ -81,6 +86,7 @@ async function runSync(correlationId: string) {
   })
 
   const adminClient = getAdminDb()
+  const autoFixGate = resolveAutoFixGate(process.env)
 
   const { data: tenants, error: tenantsError } = await adminClient
     .from('tenants')
@@ -112,7 +118,7 @@ async function runSync(correlationId: string) {
       // Get credentials
       const { data: tenantSettings } = await adminClient
         .from('tenant_settings')
-        .select('sendcloud_api_key, sendcloud_secret')
+        .select('sendcloud_api_key, sendcloud_secret, auto_fix_mode, default_hs_code, default_origin_country')
         .eq('tenant_id', tenant.id)
         .single()
 
@@ -286,6 +292,48 @@ async function runSync(correlationId: string) {
       }
 
       // ============================================
+      // AUTO-FIX DETECTION (QUEUE ONLY, DRY-RUN)
+      // ============================================
+      // Work only from the bounded Sendcloud batch already in memory. The sole
+      // lookup is capped and uses (tenant_id, sendcloud_id); no shipments scan
+      // and no Sendcloud call are introduced here. Worker execution is separate.
+      let autoFixDetectionStats: Awaited<ReturnType<typeof enqueueDetectedSyncBatch>> | null = null
+      if (autoFixGate.enabled && tenantSettings.auto_fix_mode === 'simulated') {
+        try {
+          autoFixDetectionStats = await enqueueDetectedSyncBatch(
+            adminClient,
+            tenant.id,
+            parcels,
+            {
+              defaultHsCode: tenantSettings.default_hs_code,
+              defaultOriginCountry: tenantSettings.default_origin_country,
+            },
+            async (sendcloudIds) => {
+              const { data, error } = await adminClient
+                .from('shipments')
+                .select('id, sendcloud_id')
+                .eq('tenant_id', tenant.id)
+                .in('sendcloud_id', sendcloudIds)
+              if (error) throw new Error(`auto-fix shipment ID lookup: ${error.message}`)
+              return new Map(
+                (data ?? []).map((row) => [row.sendcloud_id, row.id] as const),
+              )
+            },
+            enqueueBatchCap(process.env),
+          )
+          if (autoFixDetectionStats.detected > 0 || autoFixDetectionStats.truncated) {
+            logger.info(`Auto-fix dry-run queue for tenant ${tenant.id}:`, autoFixDetectionStats)
+          }
+        } catch (autoFixError) {
+          // Detection is observability-only in this lot. It must never fail the
+          // shipment sync or alter stock processing.
+          logger.error(`Auto-fix dry-run enqueue failed for tenant ${tenant.id}:`, autoFixError)
+        }
+      } else if (autoFixGate.enabled && tenantSettings.auto_fix_mode === 'live') {
+        logger.warn(`Auto-fix live ignored for tenant ${tenant.id}: this release is dry-run only`)
+      }
+
+      // ============================================
       // PROCESS SHIPMENT ITEMS (SKU mapping)
       // ============================================
       // For every shipment that has parcel_items in raw_json, resolve each
@@ -445,6 +493,14 @@ async function runSync(correlationId: string) {
           max_pages: maxPages,
           pagination_capped: paginationCaps.length > 0,
           pagination_caps: paginationCaps,
+          auto_fix_detection: autoFixDetectionStats === null ? null : {
+            observed: autoFixDetectionStats.observed,
+            eligible: autoFixDetectionStats.eligible,
+            resolved: autoFixDetectionStats.resolved,
+            detected: autoFixDetectionStats.detected,
+            enqueued_or_seen: autoFixDetectionStats.enqueuedOrSeen,
+            truncated: autoFixDetectionStats.truncated,
+          },
           correlation_id: correlationId,
         },
       })
