@@ -18,6 +18,9 @@ Les blocages sont concrets :
 
 Le GO pour l'implémentation des écritures sera donné uniquement après la levée des conditions listées dans « Prochaines validations ».
 
+Le protocole de validation, la recommandation V1 et le harness gated sont détaillés dans
+[2026-07-21-sendcloud-write-validation-protocol.md](./2026-07-21-sendcloud-write-validation-protocol.md).
+
 ## Ce qui a été observé
 
 La collecte finale a utilisé uniquement des requêtes `GET` sur une fenêtre de 120 jours :
