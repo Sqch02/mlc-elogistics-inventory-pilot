@@ -15,6 +15,30 @@ export type AutoFixPattern = (typeof AUTO_FIX_PATTERNS)[number]
 export type AutoFixSourceKind = 'parcel' | 'integration_shipment'
 export type AutoFixMode = 'simulated' | 'live'
 
+export const AUTO_FIX_JOB_STATES = [
+  'queued',
+  'claimed',
+  'planned',
+  'applied',
+  'retry_wait',
+  'simulated',
+  'pending_manual',
+  'verified',
+  'manual_resolved',
+  'permanent_failed',
+] as const
+
+export const AUTO_FIX_ACTIONS = [
+  'none',
+  'put_update',
+  'create_linked',
+  'manual_required',
+  'account_configuration',
+] as const
+
+export type AutoFixJobState = (typeof AUTO_FIX_JOB_STATES)[number]
+export type AutoFixAction = (typeof AUTO_FIX_ACTIONS)[number]
+
 export interface CauseEvidence {
   source: 'errors' | 'checkout_payload_errors'
   field: string

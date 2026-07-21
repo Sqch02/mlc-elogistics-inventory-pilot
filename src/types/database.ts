@@ -65,9 +65,89 @@ interface LocalFunctions {
   }
 }
 
+type AutoFixJobRow = Record<string, unknown> & {
+  id: string
+  tenant_id: string
+  shipment_id: string | null
+  source_kind: string
+  source_sendcloud_id: string
+  source_order_ref_hash: string | null
+  source_fingerprint: string
+  primary_pattern: string
+  detected_patterns: string[]
+  mode: string
+  operation_key: string
+  state: string
+  priority: number
+  evidence_json: Json
+  source_summary_json: Json
+  plan_json: Json | null
+  last_error_json: Json | null
+  error_category: string | null
+  attempt_count: number
+  simulation_failure_count: number
+  claim_count: number
+  worker_id: string | null
+  locked_until: string | null
+  next_attempt_at: string
+  original_sendcloud_id: string
+  result_sendcloud_id: string | null
+  source_observed_at: string
+  first_seen_at: string
+  last_seen_at: string
+  queued_at: string
+  claimed_at: string | null
+  planned_at: string | null
+  applied_at: string | null
+  simulated_at: string | null
+  verified_at: string | null
+  resolved_at: string | null
+  cancelled_at: string | null
+  recreated_at: string | null
+  linked_at: string | null
+  pii_expires_at: string
+  pii_redacted_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+type AutoFixAuditRow = Record<string, unknown> & {
+  id: string
+  tenant_id: string
+  job_id: string | null
+  shipment_id: string | null
+  event_key: string
+  operation_key: string
+  mode: string
+  primary_pattern: string
+  detected_patterns: string[]
+  source_kind: string
+  source_sendcloud_id: string
+  original_sendcloud_id: string
+  result_sendcloud_id: string | null
+  action: string
+  status: string
+  source_fingerprint: string
+  before_json: Json | null
+  after_json: Json | null
+  error_json: Json | null
+  pii_expires_at: string
+  pii_redacted_at: string | null
+  created_at: string
+}
+
+type ReadOnlyLocalTable<Row extends Record<string, unknown>> = {
+  Row: Row
+  Insert: Record<string, never>
+  Update: Record<string, never>
+  Relationships: []
+}
+
 type GeneratedFunctions = GeneratedDatabase['public']['Functions']
 type GeneratedTables = GeneratedDatabase['public']['Tables']
 type TablesWithLocalMigrations = Omit<GeneratedTables, 'tenant_settings'> & {
+  auto_fix_jobs: ReadOnlyLocalTable<AutoFixJobRow>
+  auto_fixes: ReadOnlyLocalTable<AutoFixAuditRow>
   tenant_settings: {
     Row: GeneratedTables['tenant_settings']['Row'] & {
       auto_fix_mode: 'off' | 'simulated' | 'live'
