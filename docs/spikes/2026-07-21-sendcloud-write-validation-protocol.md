@@ -2,7 +2,9 @@
 
 Date : 21 juillet 2026
 
-Statut : **outillage préparé, aucune écriture exécutée**. Toute exécution reste soumise à un accord explicite de Maxime après génération et lecture du manifest correspondant.
+Statut : **outillage préparé, aucune écriture exécutée**. La première opération retenue utilise un colis jetable autonome sur ANTEOS ou Motijet. Toute exécution reste soumise à un accord explicite de Maxime après génération et lecture du manifest correspondant.
+
+Mode opératoire simplifié : [`2026-07-21-sendcloud-first-write-runbook.md`](./2026-07-21-sendcloud-first-write-runbook.md).
 
 ## Avis et décision d'architecture
 
@@ -31,12 +33,12 @@ La documentation v2 met aujourd'hui la création de parcels en maintenance et la
 
 Chaque cible doit respecter toutes les conditions suivantes :
 
-1. compte et intégration dédiés au test, avec credentials placés uniquement dans `SENDCLOUD_TEST_API_KEY` et `SENDCLOUD_TEST_SECRET` ;
+1. un seul petit compte client existant, choisi explicitement par Maxime (ANTEOS ou Motijet), avec credentials placés uniquement dans `SENDCLOUD_TEST_API_KEY` et `SENDCLOUD_TEST_SECRET` ;
 2. référence, numéro de commande ou `order_id` commençant par `MLC-AUTOFIX-TEST-` ;
-3. destinataire contrôlé par Maxime/l'équipe, jamais une vraie commande client ;
-4. aucune expédition de stock réelle : pas de `stock_consumed_at`, pas de ligne métier à réapprovisionner, pas de facture ;
-5. webhook et sync de production incapables de traiter cette cible, ou tenant de test isolé sans stock ;
-6. une seule cible et un seul manifest actifs à la fois ;
+3. destinataire fictif `MLC AUTOFIX TEST`, sans email ni téléphone, jamais une vraie commande client ;
+4. aucune expédition de stock réelle : `request_label=false`, aucune étiquette et des `parcel_items` portant des SKU/descriptions aléatoires `MLC-AUTOFIX-NO-SKU-*` qui ne peuvent pas être mappés ;
+5. aucune écriture dans la base de production par le harness ; si le cron voit le parcel, il ne peut enregistrer qu'un item non mappé et ne consomme aucun stock (`mappedCount=0`) ;
+6. une seule cible jetable et une seule requête d'écriture en cours à la fois ; les manifests successifs conservent séparément les preuves de création, PUT, restauration et annulation ;
 7. snapshot GET immédiatement avant chaque écriture ; si le hash a changé, le harness refuse ;
 8. aucun retry automatique d'un POST/PUT/PATCH ; une issue réseau incertaine produit `outcome_unknown` et impose une réconciliation en lecture seule ;
 9. premier test de création v2 avec `request_label=false` ; aucune étiquette transporteur réelle dans cette étape ;
@@ -56,9 +58,13 @@ Même avec ces précautions, le feedback vers Shopify n'est pas parfaitement « 
 
 Cette phase peut être exécutée sans le flag d'écriture.
 
-### Phase B — trancher le contrat PUT v2
+### Phase B — confirmer la création v2 et trancher le contrat PUT
 
-Utiliser un parcel numérique jetable avec :
+Créer d'abord un parcel autonome jetable via `POST /api/v2/parcels`, sans `shipment_uuid`, avec `request_label=false`, un destinataire fictif et un `order_number` unique. Cette requête confirme directement l'accès à la création v2. Elle est réconciliable par le marqueur exact et son rollback est `POST /api/v2/parcels/{id}/cancel`, qui supprime un parcel non annoncé.
+
+Le parcel numérique retourné devient ensuite l'unique cible du test PUT. Le test ne porte que sur `company_name`, de `MLC TEST AVANT PUT` vers `MLC TEST APRES PUT`, afin d'utiliser un champ explicitement montré dans le contrat officiel et de rendre le diff parfaitement réversible.
+
+Le parcel doit avoir :
 
 - `date_announced=null` ;
 - aucun tracking ;
@@ -79,7 +85,7 @@ Si le contrat documenté fonctionne, le legacy ne doit pas être essayé « pour
 
 Après ce test de transport, un deuxième parcel test portant une vraie erreur synthétique permettra de vérifier le champ métier exact. La demande de label/annonce est une étape séparée, avec une nouvelle validation, car elle peut déclencher facturation, webhook et feedback Shopify.
 
-### Phase C — confirmer la création v2 et le lien UUID
+### Phase C — confirmer plus tard la création liée au UUID
 
 Sur un integration shipment `On Hold` strictement de test :
 
@@ -126,6 +132,7 @@ Le harness :
 - exige la phrase `I_UNDERSTAND_ONE_TEST_OBJECT` ;
 - exige le token propre au manifest et à l'opération ;
 - prend un verrou local global et refuse une deuxième validation concurrente ;
+- refuse de préparer ou d'exécuter un second colis jetable tant que le premier n'est pas annulé, réconcilié ou terminé ;
 - expire un plan d'exécution après 24 h, mais n'expire pas le droit de rollback ;
 - n'effectue aucun retry d'écriture ;
 - fournit une commande de réconciliation GET-only après timeout ou crash, sans autoriser de retry tant que l'issue reste inconnue ;
@@ -150,6 +157,25 @@ node --import tsx scripts/sendcloud-write-validation.ts inspect-v2-shipment \
 node --import tsx scripts/sendcloud-write-validation.ts inspect-v3-order \
   --order-id 123456
 ```
+
+Avec les clés dans `.env.local`, la commande simplifiée est :
+
+```bash
+npm run sendcloud:write-validation -- account-fingerprint
+```
+
+### Préparer le colis jetable sans l'exécuter
+
+```bash
+npm run sendcloud:write-validation -- scaffold-v2-disposable \
+  --payload-file .sendcloud-write-validation/disposable-payload.json
+
+npm run sendcloud:write-validation -- prepare-v2-create-disposable \
+  --payload-file .sendcloud-write-validation/disposable-payload.json \
+  --manifest .sendcloud-write-validation/disposable-create-manifest.json
+```
+
+La première commande écrit seulement le payload local. La seconde fait une recherche GET bornée sur le `order_number` exact, puis écrit un manifest local. Aucune ne touche Sendcloud ni la base en écriture.
 
 ### Préparer un PUT sans l'exécuter
 

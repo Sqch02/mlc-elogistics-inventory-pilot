@@ -7,6 +7,7 @@ import {
   hashJson,
   parseCliOptions,
   TEST_ACCOUNT_FINGERPRINT_ENV,
+  validateDisposablePayload,
   validatePatch,
   ValidationManifest,
   WRITE_VALIDATION_ENV,
@@ -83,6 +84,40 @@ describe('Sendcloud write validation harness', () => {
     expect(() => validatePatch('v3_patch_order', {
       order_details: { status: { code: 'fulfilled' } },
     })).toThrow('Champ interdit')
+  })
+
+  it('n accepte qu un colis jetable non annonce et impossible a mapper par identifiants usuels', () => {
+    const marker = 'MLC-AUTOFIX-TEST-20260721-001'
+    const payload = {
+      name: 'MLC AUTOFIX TEST',
+      address: '1 rue de Test',
+      city: 'Paris',
+      postal_code: '75001',
+      country: 'FR',
+      weight: '0.100',
+      order_number: marker,
+      request_label: false,
+      parcel_items: [{
+        sku: 'MLC-AUTOFIX-NO-SKU-A8F3C91D',
+        description: 'ZZQXVJK-A8F3C91D',
+        quantity: 1,
+        weight: '0.100',
+        value: '1.00',
+      }],
+    }
+
+    expect(validateDisposablePayload(payload)).toBe(marker)
+    expect(() => validateDisposablePayload({ ...payload, request_label: true })).toThrow('request_label=false')
+    expect(() => validateDisposablePayload({ ...payload, telephone: '+33123456789' })).toThrow('ni email ni telephone')
+    expect(() => validateDisposablePayload({
+      ...payload,
+      parcel_items: [{ ...payload.parcel_items[0], sku: 'REAL-SKU' }],
+    })).toThrow('MLC-AUTOFIX-NO-SKU-')
+    expect(() => validateDisposablePayload({
+      ...payload,
+      parcel_items: [{ ...payload.parcel_items[0], description: 'Produit test' }],
+    })).toThrow('ZZQXVJK-')
+    expect(() => validateDisposablePayload({ ...payload, shipment_uuid: '00000000-0000-0000-0000-000000000000' })).toThrow('Champ interdit')
   })
 
   it('refuse tout write sans les quatre verrous concordants', () => {

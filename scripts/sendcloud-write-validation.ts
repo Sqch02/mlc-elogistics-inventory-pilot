@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto'
-import { mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { createHash, randomBytes } from 'node:crypto'
+import { mkdir, open, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { dirname, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -18,6 +18,7 @@ export interface JsonObject { [key: string]: JsonValue }
 export type ValidationOperation =
   | 'v2_update_documented'
   | 'v2_update_legacy'
+  | 'v2_create_disposable'
   | 'v2_create_linked'
   | 'v3_patch_order'
   | 'v3_ship_order_sync'
@@ -40,7 +41,7 @@ interface HttpRequestPlan {
 }
 
 interface ValidationTarget {
-  kind: 'v2_parcel' | 'v2_integration_shipment' | 'v3_order'
+  kind: 'v2_parcel' | 'v2_disposable_marker' | 'v2_integration_shipment' | 'v3_order'
   id: string
   integration_id?: number
   marker_hash: string
@@ -222,6 +223,43 @@ function assertUnannouncedParcel(parcel: JsonObject): void {
   if (parcel.tracking_number) throw new Error('Le parcel possede deja un tracking_number; cible refusee')
 }
 
+export function validateDisposablePayload(payload: JsonObject): string {
+  const marker = assertTestMarker(payload)
+  if (payload.order_number !== marker) {
+    throw new Error(`Le colis jetable exige order_number=${TEST_MARKER_PREFIX}...`)
+  }
+  if (payload.request_label !== false) {
+    throw new Error('Le colis jetable impose request_label=false')
+  }
+  for (const forbidden of ['id', 'shipment_uuid', 'to_service_point', 'is_return']) {
+    if (payload[forbidden] !== undefined) throw new Error(`Champ interdit pour le colis jetable: ${forbidden}`)
+  }
+  const requiredStrings = ['name', 'address', 'city', 'postal_code', 'country', 'weight']
+  for (const key of requiredStrings) {
+    if (typeof payload[key] !== 'string' || !String(payload[key]).trim()) {
+      throw new Error(`Le colis jetable exige ${key}`)
+    }
+  }
+  if (payload.name !== 'MLC AUTOFIX TEST') {
+    throw new Error('Le destinataire doit etre exactement MLC AUTOFIX TEST')
+  }
+  if (payload.email !== undefined || payload.telephone !== undefined) {
+    throw new Error('Le colis jetable ne doit contenir ni email ni telephone')
+  }
+  if (!Array.isArray(payload.parcel_items) || payload.parcel_items.length !== 1 || !isObject(payload.parcel_items[0])) {
+    throw new Error('Le colis jetable exige exactement un parcel_item factice')
+  }
+  const item = payload.parcel_items[0]
+  if (typeof item.sku !== 'string' || !item.sku.startsWith('MLC-AUTOFIX-NO-SKU-')) {
+    throw new Error('parcel_items[0].sku doit commencer par MLC-AUTOFIX-NO-SKU-')
+  }
+  if (typeof item.description !== 'string' || !/^ZZQXVJK-[A-F0-9-]+$/.test(item.description)) {
+    throw new Error('parcel_items[0].description doit etre une valeur aleatoire ZZQXVJK-*')
+  }
+  if (item.quantity !== 1) throw new Error('Le parcel_item factice doit avoir quantity=1')
+  return marker
+}
+
 function assertUnshippedOrder(order: JsonObject): void {
   const orderDetails = isObject(order.order_details) ? order.order_details : {}
   const status = isObject(orderDetails.status) ? orderDetails.status : {}
@@ -271,6 +309,41 @@ function resolveManifestPath(rawPath: string): string {
   return manifestPath
 }
 
+async function scaffoldV2DisposablePayload(options: CliOptions): Promise<void> {
+  const rawPath = required(options, 'payload-file')
+  const path = resolveManifestPath(rawPath)
+  const suffix = `${Date.now()}-${randomBytes(4).toString('hex').toUpperCase()}`
+  const marker = `${TEST_MARKER_PREFIX}${suffix}`
+  const noSku = `MLC-AUTOFIX-NO-SKU-${suffix}`
+  const noDescriptionMatch = `ZZQXVJK-${suffix}`
+  const payload: JsonObject = {
+    name: 'MLC AUTOFIX TEST',
+    company_name: 'MLC TEST AVANT PUT',
+    address: 'Rue de la Paix',
+    house_number: '1',
+    city: 'Paris',
+    postal_code: '75002',
+    country: 'FR',
+    weight: '0.100',
+    order_number: marker,
+    request_label: false,
+    total_order_value: '1.00',
+    total_order_value_currency: 'EUR',
+    quantity: 1,
+    parcel_items: [{
+      sku: noSku,
+      description: noDescriptionMatch,
+      quantity: 1,
+      weight: '0.100',
+      value: '1.00',
+    }],
+  }
+  validateDisposablePayload(payload)
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, `${JSON.stringify(payload, null, 2)}\n`, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+  process.stdout.write(`${JSON.stringify({ payload_file: rawPath, order_number: marker }, null, 2)}\n`)
+}
+
 async function readJsonFile(rawPath: string): Promise<JsonObject> {
   const parsed: unknown = JSON.parse(await readFile(resolve(process.cwd(), rawPath), 'utf8'))
   if (!isObject(parsed)) throw new Error(`${rawPath} doit contenir un objet JSON`)
@@ -315,6 +388,35 @@ async function loadManifest(rawPath: string): Promise<ValidationManifest> {
     throw new Error('Manifest invalide ou version non supportee')
   }
   return parsed as unknown as ValidationManifest
+}
+
+const OPEN_DISPOSABLE_STATES = new Set<ManifestState>([
+  'planned', 'executing', 'executed', 'outcome_unknown', 'rolling_back',
+  'rollback_pending', 'rollback_failed',
+])
+
+async function assertNoOtherDisposableManifest(rawPath: string): Promise<void> {
+  await mkdir(MANIFEST_ROOT, { recursive: true })
+  const currentPath = resolveManifestPath(rawPath)
+  const entries = await readdir(MANIFEST_ROOT, { withFileTypes: true })
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue
+    const candidatePath = resolve(MANIFEST_ROOT, entry.name)
+    if (candidatePath === currentPath) continue
+    try {
+      const parsed: unknown = JSON.parse(await readFile(candidatePath, 'utf8'))
+      if (!isObject(parsed) || parsed.operation !== 'v2_create_disposable') continue
+      if (typeof parsed.state === 'string' && OPEN_DISPOSABLE_STATES.has(parsed.state as ManifestState)) {
+        throw new Error(
+          `Un autre colis jetable est encore actif (${entry.name}, etat ${parsed.state}); ` +
+          'le reconcilier ou l annuler avant de continuer',
+        )
+      }
+    } catch (error) {
+      if (error instanceof SyntaxError) continue
+      throw error
+    }
+  }
 }
 
 type ManifestPlanFields = Pick<
@@ -406,6 +508,20 @@ async function fetchTarget(credentials: Credentials, target: ValidationTarget): 
       `/api/v2/integrations/${target.integration_id}/shipments/${encodeURIComponent(target.id)}`,
     ))
   }
+  if (target.kind === 'v2_disposable_marker') {
+    const response = await sendcloudRequest(
+      credentials,
+      'GET',
+      `/api/v2/parcels?order_number=${encodeURIComponent(target.id)}&errors=verbose-carrier&limit=100`,
+    )
+    const ids = Array.isArray(response.parcels)
+      ? response.parcels
+        .filter((parcel): parcel is JsonObject => isObject(parcel) && parcel.order_number === target.id && parcel.id !== undefined)
+        .map((parcel) => String(parcel.id))
+        .sort()
+      : []
+    return { order_number: target.id, matching_parcel_ids: ids }
+  }
   return extractV3Data(await sendcloudRequest(credentials, 'GET', `/api/v3/orders/${encodeURIComponent(target.id)}`))
 }
 
@@ -493,6 +609,41 @@ async function prepareV2Update(options: CliOptions, credentials: Credentials): P
   }, patch)
   await createManifest(required(options, 'manifest'), manifest)
   process.stdout.write(`${JSON.stringify({ manifest: required(options, 'manifest'), approval_token: manifest.approval_token, summary: safeSummary(target, before) }, null, 2)}\n`)
+}
+
+async function prepareV2CreateDisposable(options: CliOptions, credentials: Credentials): Promise<void> {
+  const rawManifestPath = required(options, 'manifest')
+  if (dirname(resolveManifestPath(rawManifestPath)) !== MANIFEST_ROOT) {
+    throw new Error('Le manifest du colis jetable doit etre directement sous .sendcloud-write-validation/')
+  }
+  await assertNoOtherDisposableManifest(rawManifestPath)
+  const payload = await readJsonFile(required(options, 'payload-file'))
+  const marker = validateDisposablePayload(payload)
+  const target: ValidationTarget = {
+    kind: 'v2_disposable_marker',
+    id: marker,
+    marker_hash: shortHash(marker),
+  }
+  const before = await fetchTarget(credentials, target)
+  const existingIds = Array.isArray(before.matching_parcel_ids) ? before.matching_parcel_ids : []
+  if (existingIds.length > 0) {
+    throw new Error('Un parcel porte deja ce marqueur; creation jetable refusee')
+  }
+  const manifest = makeManifest('v2_create_disposable', credentials, target, before, {
+    method: 'POST',
+    path: '/api/v2/parcels',
+    body: { parcel: payload },
+  }, { kind: 'cancel_v2_created' })
+  await createManifest(rawManifestPath, manifest)
+  process.stdout.write(`${JSON.stringify({
+    manifest: rawManifestPath,
+    approval_token: manifest.approval_token,
+    endpoint: `${API_ORIGIN}${manifest.request.path}`,
+    method: manifest.request.method,
+    request_label: false,
+    order_number_hash: shortHash(marker),
+    rollback: 'POST /api/v2/parcels/{created_id}/cancel',
+  }, null, 2)}\n`)
 }
 
 async function prepareV2CreateLinked(options: CliOptions, credentials: Credentials): Promise<void> {
@@ -618,7 +769,7 @@ export function assertWriteGate(
 }
 
 function summarizeWriteResult(operation: ValidationOperation, response: JsonObject): { parcel_id?: string; shipment_id?: string } {
-  if (operation === 'v2_create_linked') {
+  if (operation === 'v2_create_disposable' || operation === 'v2_create_linked') {
     const parcel = extractV2Parcel(response)
     if (!parcel.id) throw new Error('Creation v2 sans parcel.id')
     return { parcel_id: String(parcel.id) }
@@ -639,7 +790,7 @@ async function fetchAfterWrite(
   manifest: ValidationManifest,
   ids: { parcel_id?: string; shipment_id?: string },
 ): Promise<JsonObject> {
-  if (manifest.operation === 'v2_create_linked') {
+  if (manifest.operation === 'v2_create_disposable' || manifest.operation === 'v2_create_linked') {
     if (!ids.parcel_id) throw new Error('parcel_id absent apres creation')
     return extractV2Parcel(await sendcloudRequest(credentials, 'GET', `/api/v2/parcels/${ids.parcel_id}?errors=verbose-carrier`))
   }
@@ -654,6 +805,7 @@ async function executeManifest(options: CliOptions, credentials: Credentials): P
   const rawPath = required(options, 'manifest')
   const manifest = await loadManifest(rawPath)
   if (manifest.state !== 'planned') throw new Error(`Le manifest doit etre planned, etat actuel: ${manifest.state}`)
+  if (manifest.operation === 'v2_create_disposable') await assertNoOtherDisposableManifest(rawPath)
   assertWriteGate(manifest, 'execute', options.values, process.env, credentials.apiKey)
   const freshBefore = await fetchTarget(credentials, manifest.target)
   if (hashJson(freshBefore) !== manifest.before_hash) throw new Error('La cible a change depuis la preparation; aucun write execute')
@@ -661,6 +813,7 @@ async function executeManifest(options: CliOptions, credentials: Credentials): P
   manifest.state = 'executing'
   manifest.updated_at = new Date().toISOString()
   await updateManifest(rawPath, manifest)
+  let writeResponseReceived = false
   try {
     const response = await sendcloudRequest(
       credentials,
@@ -668,11 +821,18 @@ async function executeManifest(options: CliOptions, credentials: Credentials): P
       manifest.request.path,
       manifest.request.body,
     )
+    writeResponseReceived = true
     const ids = summarizeWriteResult(manifest.operation, response)
     const after = await fetchAfterWrite(credentials, manifest, ids)
     const afterSelected = manifest.comparison_shape ? selectShape(after, manifest.comparison_shape) : undefined
     if (afterSelected && manifest.before_selected && stableJson(afterSelected) === stableJson(manifest.before_selected)) {
       throw new Error('La requete a reussi mais les champs cibles sont inchanges')
+    }
+    if (manifest.operation === 'v2_create_disposable') {
+      assertUnannouncedParcel(after)
+      if (after.order_number !== manifest.target.id) {
+        throw new Error('Le parcel jetable retourne ne conserve pas order_number')
+      }
     }
     if (manifest.operation === 'v2_create_linked' && after.shipment_uuid !== manifest.target.id) {
       throw new Error('Le parcel cree ne conserve pas le shipment_uuid cible')
@@ -687,8 +847,24 @@ async function executeManifest(options: CliOptions, credentials: Credentials): P
   } catch (error) {
     manifest.updated_at = new Date().toISOString()
     manifest.last_error = scrubError(error instanceof Error ? error.message : String(error))
-    if (manifest.operation === 'v2_create_linked' || manifest.operation === 'v3_ship_order_sync') {
-      manifest.state = 'outcome_unknown'
+    const isCreateOperation =
+      manifest.operation === 'v2_create_disposable' ||
+      manifest.operation === 'v2_create_linked' ||
+      manifest.operation === 'v3_ship_order_sync'
+    if (isCreateOperation) {
+      const unambiguousRejection = !writeResponseReceived &&
+        error instanceof SendcloudHttpError &&
+        [400, 401, 403, 404, 405, 410, 422].includes(error.status)
+      if (unambiguousRejection) {
+        try {
+          const current = await fetchTarget(credentials, manifest.target)
+          manifest.state = hashJson(current) === manifest.before_hash ? 'failed_unchanged' : 'outcome_unknown'
+        } catch {
+          manifest.state = 'outcome_unknown'
+        }
+      } else {
+        manifest.state = 'outcome_unknown'
+      }
     } else {
       try {
         const current = await fetchTarget(credentials, manifest.target)
@@ -767,7 +943,11 @@ async function rollbackManifest(options: CliOptions, credentials: Credentials): 
       }
     } else if (manifest.rollback.kind === 'cancel_v2_created') {
       if (!manifest.result?.parcel_id) throw new Error('parcel_id absent du manifest')
-      await sendcloudRequest(credentials, 'POST', `/api/v2/parcels/${manifest.result.parcel_id}/cancel`)
+      try {
+        await sendcloudRequest(credentials, 'POST', `/api/v2/parcels/${manifest.result.parcel_id}/cancel`)
+      } catch (error) {
+        if (!(error instanceof SendcloudHttpError && error.status === 404)) throw error
+      }
     } else {
       if (!manifest.result?.shipment_id) throw new Error('shipment_id absent du manifest')
       await sendcloudRequest(credentials, 'POST', `/api/v3/shipments/${encodeURIComponent(manifest.result.shipment_id)}/cancel`)
@@ -822,8 +1002,23 @@ async function reconcileCreatedObject(
   credentials: Credentials,
   manifest: ValidationManifest,
 ): Promise<{ after: JsonObject; parcel_id?: string; shipment_id?: string } | null> {
-  const orderNumber = typeof manifest.before.order_number === 'string' ? manifest.before.order_number : null
+  const orderNumber = manifest.operation === 'v2_create_disposable'
+    ? manifest.target.id
+    : typeof manifest.before.order_number === 'string' ? manifest.before.order_number : null
   if (!orderNumber) throw new Error('order_number absent du snapshot; reconciliation automatique impossible')
+  if (manifest.operation === 'v2_create_disposable') {
+    const response = await sendcloudRequest(
+      credentials,
+      'GET',
+      `/api/v2/parcels?order_number=${encodeURIComponent(orderNumber)}&errors=verbose-carrier&limit=100`,
+    )
+    const matches = Array.isArray(response.parcels)
+      ? response.parcels.filter((parcel): parcel is JsonObject => isObject(parcel) && parcel.order_number === orderNumber)
+      : []
+    if (matches.length > 1) throw new Error('Plusieurs parcels jetables portent le meme marqueur; verification manuelle requise')
+    if (matches.length === 0 || !matches[0].id) return null
+    return { after: matches[0], parcel_id: String(matches[0].id) }
+  }
   if (manifest.operation === 'v2_create_linked') {
     const response = await sendcloudRequest(
       credentials,
@@ -896,7 +1091,11 @@ async function reconcileManifest(options: CliOptions, credentials: Credentials):
     throw new Error(`reconcile attend executing/outcome_unknown/rollback_*, etat: ${manifest.state}`)
   }
 
-  if (manifest.operation === 'v2_create_linked' || manifest.operation === 'v3_ship_order_sync') {
+  if (
+    manifest.operation === 'v2_create_disposable' ||
+    manifest.operation === 'v2_create_linked' ||
+    manifest.operation === 'v3_ship_order_sync'
+  ) {
     const found = await reconcileCreatedObject(credentials, manifest)
     if (!found) {
       manifest.state = 'outcome_unknown'
@@ -961,8 +1160,15 @@ async function main(): Promise<void> {
     process.stdout.write(`${accountFingerprint(credentials.apiKey)}\n`)
     return
   }
+  if (options.command === 'scaffold-v2-disposable') return scaffoldV2DisposablePayload(options)
   if (options.command.startsWith('inspect-')) return inspect(options, credentials)
   if (options.command === 'prepare-v2-update') return prepareV2Update(options, credentials)
+  if (options.command === 'prepare-v2-create-disposable') {
+    return withGlobalWriteLock(
+      `prepare:${required(options, 'manifest')}`,
+      () => prepareV2CreateDisposable(options, credentials),
+    )
+  }
   if (options.command === 'prepare-v2-create-linked') return prepareV2CreateLinked(options, credentials)
   if (options.command === 'prepare-v3-patch-order') return prepareV3PatchOrder(options, credentials)
   if (options.command === 'prepare-v3-ship-order') return prepareV3ShipOrder(options, credentials)
