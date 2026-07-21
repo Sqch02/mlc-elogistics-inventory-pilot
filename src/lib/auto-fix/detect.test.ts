@@ -24,12 +24,24 @@ describe('detectAutoFixCause', () => {
       status: { id: 1002, message: 'Announcement failed' },
       country: { iso_2: 'CH' },
       total_order_value_currency: 'CHF',
+      total_order_value: '10.00',
+      parcel_items: [
+        { quantity: 2, value: '3.33' },
+        { quantity: 1, value: '6.67' },
+      ],
       errors: { non_field_errors: ['La devise CHF n’est pas prise en charge par ce contrat'] },
     }, 'parcel')
 
     expect(result?.primaryPattern).toBe('currency_chf')
     expect(result?.sourceSummary.status_context).toBe('announcement_failed_1002')
     expect(result?.detectedPatterns).not.toContain('announcement_failed_1002')
+    expect(result?.sourceSummary.monetary).toEqual({
+      total_order_value: '10.00',
+      parcel_items: [
+        { index: 0, quantity: 2, value: '3.33' },
+        { index: 1, quantity: 1, value: '6.67' },
+      ],
+    })
   })
 
   it.each([
@@ -66,6 +78,7 @@ describe('detectAutoFixCause', () => {
   it('creates an unknown review cause only for a real structured error', () => {
     const result = detectAutoFixCause({ errors: { mystery: ['Carrier rejected foo'] } }, 'parcel')
     expect(result?.detectedPatterns).toEqual(['unknown'])
+    expect(result?.sourceSummary).not.toHaveProperty('monetary')
   })
 
   it('fingerprints error content changes without retaining clear-text evidence', () => {
@@ -75,5 +88,22 @@ describe('detectAutoFixCause', () => {
     expect(first.sourceFingerprint).not.toBe(second.sourceFingerprint)
     expect(first.evidence[0].messageHash).toMatch(/^[a-f0-9]{64}$/)
     expect(first.evidence[0]).not.toHaveProperty('message')
+  })
+
+  it('fingerprints CHF amount changes so a recalculation creates a new simulated operation', () => {
+    const raw = {
+      total_order_value_currency: 'CHF',
+      total_order_value: '10.00',
+      parcel_items: [{ quantity: 1, value: '10.00' }],
+      errors: { currency: ['Currency CHF is not supported'] },
+    }
+    const first = detectAutoFixCause(raw, 'parcel')!
+    const second = detectAutoFixCause({
+      ...raw,
+      total_order_value: '11.00',
+      parcel_items: [{ quantity: 1, value: '11.00' }],
+    }, 'parcel')!
+
+    expect(first.sourceFingerprint).not.toBe(second.sourceFingerprint)
   })
 })
