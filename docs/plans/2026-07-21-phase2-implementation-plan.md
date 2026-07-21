@@ -28,6 +28,20 @@ Avec un vrai exemple de CHAQUE pattern, déterminer :
 - le résultat réel côté Sendcloud ET le retour vers Shopify.
 Sans ça, l'architecture du moteur n'est pas figée. **Go/no-go sur le reste après ce spike.**
 
+### Critères de sortie du spike (go/no-go documenté — Codex)
+- **Matrice par pattern** : ressource, exemple anonymisé, erreur exacte, action API, payload, réponse, effet Sendcloud/Shopify, critère de succès.
+- **1002** : confirmer s'il est corrigeable seul, ou **seulement** quand une cause 1–4/6 est identifiable.
+- **Écritures uniquement sur un tenant/colis de TEST** ; la prod reste en lecture seule tant que non validé explicitement.
+
+## Verrous à formaliser avant le moteur (Codex)
+- **RPC de claim** : `FOR UPDATE SKIP LOCKED` fait l'`UPDATE claimed/locked_until` dans la MÊME transaction, avant de retourner les jobs.
+- **États terminaux** de la machine : `simulated`, `retry_wait`, `pending_manual`, `verified`, `manual_resolved`, `permanent_failed`.
+- **`operation_key`** défini pour qu'un dry-run ne bloque JAMAIS l'opération live ultérieure.
+- **Priorité des flags** (à respecter partout) : `AUTO_FIX_PAUSED` global → tenant off → tenant simulated → tenant live.
+- **Rétention PII** : fixer une durée pour les audits `before/after_json` **avant** d'écrire les migrations.
+- **Avant le pattern 1002** : persister la relation de **remplacement AVANT le cancel** (le webhook d'annulation ne réapprovisionne pas, le webhook de création ne reconsomme pas) + **tests de course** obligatoires (cancel webhook avant/après recreate, nouveau parcel inséré avant le rattachement local, timeout Sendcloud après création).
+- **Outbox** : l'insertion de l'événement est **atomique avec la mutation métier** (facture/arrivage/stock) ; c'est l'échec **ultérieur** de l'envoi SMTP qui ne doit pas annuler cette mutation.
+
 ## Architecture (révisée : découplée du cron)
 Leçon du 13/07 (saturation I/O) : **le moteur ne tourne PAS dans le cron de sync**.
 - **Pendant la sync** : détecter et **mettre en file** les candidats vus dans le lot courant (aucun appel Sendcloud, aucune écriture lourde).
