@@ -4,6 +4,12 @@ import {
   fetchAllParcels,
   fetchAllReturns,
   fetchAllIntegrationShipments,
+  fetchIntegrations,
+  fetchIntegrationShipmentBatch,
+  fetchParcelBatch,
+  fetchReturnBatch,
+  type BoundedFetchResult,
+  type IntegrationFetchResult,
   type PaginationCapHandler,
   type PaginationCapNotice,
 } from '@/lib/sendcloud/client'
@@ -32,6 +38,104 @@ import {
   loadCronTenantSettings,
   loadTenantAutoFixMode,
 } from '@/lib/sendcloud/cron-settings'
+import {
+  integrationContinuation,
+  loadIncrementalDrain,
+  loadIntegrationContinuations,
+  persistIncrementalDrain,
+  persistIntegrationContinuation,
+  type IntegrationContinuation,
+} from '@/lib/sendcloud/checkpoints'
+
+type ResourceName = 'parcels' | 'integration_shipments' | 'returns'
+type ResourceStatus = 'success' | 'partial' | 'failed'
+
+interface ResourceSyncStats {
+  [key: string]: string | number | boolean | undefined
+  status: ResourceStatus
+  fetched: number
+  pages_fetched: number
+  pagination_capped: boolean
+  has_more: boolean
+  resumed: boolean
+  watermark_before?: string
+  watermark_after?: string
+  error?: string
+}
+
+interface IntegrationBatchOutcome {
+  checkpoint: IntegrationContinuation
+  result?: IntegrationFetchResult
+  error?: string
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+async function fetchIntegrationBatches(
+  credentials: SendcloudCredentials,
+  maxPages: number,
+  cycleStartedAt: string,
+  stored: Map<number, { continuationUrl: string; snapshotStartedAt: string }>,
+  onPaginationCap?: PaginationCapHandler,
+): Promise<IntegrationBatchOutcome[]> {
+  const integrations = await fetchIntegrations(credentials, true)
+  const outcomes: IntegrationBatchOutcome[] = []
+
+  // Deliberately serial, as before the checkpoint change: maxPages remains a
+  // per-integration hard cap and we do not add a burst of parallel API/DB work.
+  for (const integration of integrations) {
+    if (integration.system === 'api') continue
+    const checkpoint = integrationContinuation(
+      integration.id,
+      cycleStartedAt,
+      stored.get(integration.id),
+    )
+    try {
+      const result = await fetchIntegrationShipmentBatch(
+        credentials,
+        integration.id,
+        maxPages,
+        checkpoint.continuationUrl,
+        onPaginationCap,
+      )
+      outcomes.push({ checkpoint, result })
+    } catch (error) {
+      outcomes.push({ checkpoint, error: errorMessage(error) })
+    }
+  }
+  return outcomes
+}
+
+function aggregateIntegrationStats(outcomes: IntegrationBatchOutcome[]): ResourceSyncStats {
+  const fetched = outcomes.filter((outcome) => outcome.result)
+  const successful = outcomes.filter((outcome) => outcome.result && !outcome.error)
+  const failures = outcomes.filter((outcome) => outcome.error)
+  const hasMore = fetched.some((outcome) => outcome.result?.hasMore)
+  const status: ResourceStatus = failures.length > 0
+    ? (successful.length > 0 ? 'partial' : 'failed')
+    : (hasMore ? 'partial' : 'success')
+
+  return {
+    status,
+    fetched: fetched.reduce((sum, outcome) => sum + (outcome.result?.items.length || 0), 0),
+    pages_fetched: fetched.reduce((sum, outcome) => sum + (outcome.result?.pagesFetched || 0), 0),
+    pagination_capped: hasMore,
+    has_more: hasMore,
+    resumed: outcomes.some((outcome) => outcome.checkpoint.resuming),
+    ...(failures.length > 0
+      ? { error: failures.map((outcome) => outcome.error).join('; ') }
+      : {}),
+  }
+}
+
+export function overallRunStatus(resources: Record<ResourceName, ResourceSyncStats>): ResourceStatus {
+  const statuses = Object.values(resources).map((resource) => resource.status)
+  if (statuses.every((status) => status === 'success')) return 'success'
+  if (statuses.every((status) => status === 'failed')) return 'failed'
+  return 'partial'
+}
 
 export async function fetchCronData(
   credentials: SendcloudCredentials,
@@ -168,9 +272,11 @@ async function runSync(correlationId: string) {
         .order('weight_min_grams', { ascending: true })
 
       // ============================================
-      // FETCH DATA (parallel)
+      // FETCH DATA (bounded, checkpointed per resource)
       // ============================================
-      // Use last sync time to only fetch updated parcels (faster)
+      // sync_runs is only a bootstrap source for tenants that do not have a
+      // checkpoint yet. Once a checkpoint exists, ended_at never drives the
+      // incremental watermark again.
       const { data: lastSync } = await adminClient
         .from('sync_runs')
         .select('ended_at')
@@ -181,24 +287,132 @@ async function runSync(correlationId: string) {
         .limit(1)
         .single()
 
-      // Fetch parcels updated in the last 2 hours (fallback if no previous sync)
-      const since = lastSync?.ended_at || new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
-      logger.info(`Fetching data in parallel (since: ${since})...`)
-
+      const fallbackWatermark = lastSync?.ended_at
+        || new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+      const cycleStartedAt = new Date().toISOString()
       logger.info(`Pagination budget: ${maxPages} pages per resource`)
       const paginationCaps: PaginationCapNotice[] = []
-      const [parcelsRecent, pendingOrders, returnsRecent] = await fetchCronData(
-        credentials,
-        since,
-        maxPages,
-        (notice) => paginationCaps.push(notice),
-      )
+      const onPaginationCap = (notice: PaginationCapNotice) => paginationCaps.push(notice)
+
+      const [parcelDrain, returnDrain, storedIntegrationContinuations] = await Promise.all([
+        loadIncrementalDrain(
+          adminClient,
+          tenant.id,
+          'parcels',
+          fallbackWatermark,
+          cycleStartedAt,
+        ),
+        loadIncrementalDrain(
+          adminClient,
+          tenant.id,
+          'returns',
+          fallbackWatermark,
+          cycleStartedAt,
+        ),
+        loadIntegrationContinuations(adminClient, tenant.id),
+      ])
+
+      logger.info('Incremental drains:', {
+        parcels: { since: parcelDrain.watermark, resumed: parcelDrain.resuming },
+        returns: { since: returnDrain.watermark, resumed: returnDrain.resuming },
+      })
+
+      const [parcelSettled, integrationSettled, returnSettled] = await Promise.allSettled([
+        fetchParcelBatch(
+          credentials,
+          parcelDrain.watermark,
+          parcelDrain.cursor,
+          maxPages,
+          onPaginationCap,
+        ),
+        fetchIntegrationBatches(
+          credentials,
+          maxPages,
+          cycleStartedAt,
+          storedIntegrationContinuations,
+          onPaginationCap,
+        ),
+        fetchReturnBatch(
+          credentials,
+          returnDrain.watermark,
+          returnDrain.cursor,
+          maxPages,
+          onPaginationCap,
+        ),
+      ])
+
+      const parcelFetch: BoundedFetchResult<ParsedShipment> | undefined =
+        parcelSettled.status === 'fulfilled' ? parcelSettled.value : undefined
+      const integrationOutcomes: IntegrationBatchOutcome[] =
+        integrationSettled.status === 'fulfilled' ? integrationSettled.value : []
+      const returnFetch: BoundedFetchResult<ParsedReturn> | undefined =
+        returnSettled.status === 'fulfilled' ? returnSettled.value : undefined
+
+      const resourceStats: Record<ResourceName, ResourceSyncStats> = {
+        parcels: parcelFetch ? {
+          status: parcelFetch.hasMore ? 'partial' : 'success',
+          fetched: parcelFetch.items.length,
+          pages_fetched: parcelFetch.pagesFetched,
+          pagination_capped: parcelFetch.hasMore,
+          has_more: parcelFetch.hasMore,
+          resumed: parcelDrain.resuming,
+          watermark_before: parcelDrain.watermark,
+        } : {
+          status: 'failed',
+          fetched: 0,
+          pages_fetched: 0,
+          pagination_capped: false,
+          has_more: parcelDrain.resuming,
+          resumed: parcelDrain.resuming,
+          watermark_before: parcelDrain.watermark,
+          error: errorMessage(
+            parcelSettled.status === 'rejected' ? parcelSettled.reason : 'unknown parcels error',
+          ),
+        },
+        integration_shipments: integrationSettled.status === 'fulfilled'
+          ? aggregateIntegrationStats(integrationOutcomes)
+          : {
+            status: 'failed',
+            fetched: 0,
+            pages_fetched: 0,
+            pagination_capped: false,
+            has_more: storedIntegrationContinuations.size > 0,
+            resumed: storedIntegrationContinuations.size > 0,
+            error: errorMessage(integrationSettled.reason),
+          },
+        returns: returnFetch ? {
+          status: returnFetch.hasMore ? 'partial' : 'success',
+          fetched: returnFetch.items.length,
+          pages_fetched: returnFetch.pagesFetched,
+          pagination_capped: returnFetch.hasMore,
+          has_more: returnFetch.hasMore,
+          resumed: returnDrain.resuming,
+          watermark_before: returnDrain.watermark,
+        } : {
+          status: 'failed',
+          fetched: 0,
+          pages_fetched: 0,
+          pagination_capped: false,
+          has_more: returnDrain.resuming,
+          resumed: returnDrain.resuming,
+          watermark_before: returnDrain.watermark,
+          error: errorMessage(
+            returnSettled.status === 'rejected' ? returnSettled.reason : 'unknown returns error',
+          ),
+        },
+      }
+
+      const parcelsRecent = parcelFetch?.items || []
+      const pendingOrders = integrationOutcomes.flatMap((outcome) => outcome.result?.items || [])
+      const returnsRecent = returnFetch?.items || []
 
       if (paginationCaps.length > 0) {
         logger.warn('Pagination cap reached:', paginationCaps)
       }
 
-      logger.info(`Fetched: ${parcelsRecent.length} parcels, ${pendingOrders.length} pending, ${returnsRecent.length} returns`)
+      logger.info(`Fetched: ${parcelsRecent.length} parcels, ${pendingOrders.length} pending, ${returnsRecent.length} returns`, {
+        resources: resourceStats,
+      })
 
       // Merge parcels: parcels take priority over pending orders
       const shipmentMap = new Map<string, ParsedShipment>()
@@ -289,6 +503,7 @@ async function runSync(correlationId: string) {
       const shipmentsToUpsert = parcels.map((parcel) =>
         buildShipmentRow(tenant.id, parcel, pricingRules as PricingRule[] | null),
       )
+      let shipmentPersistenceError: string | undefined
 
       // Identify which sendcloud_ids already exist BEFORE the upsert, so we
       // know which shipments are truly new and need stock consumption afterwards.
@@ -315,6 +530,7 @@ async function runSync(correlationId: string) {
 
         if (shipmentError) {
           logger.error('Shipments batch upsert error:', shipmentError.message)
+          shipmentPersistenceError = shipmentError.message
         }
       }
 
@@ -468,6 +684,7 @@ async function runSync(correlationId: string) {
         announced_at: ret.announced_at,
         raw_json: ret.raw_json,
       }))
+      let returnsPersistenceError: string | undefined
 
       if (returnsToUpsert.length > 0) {
         const { error: returnsError } = await adminClient
@@ -476,6 +693,71 @@ async function runSync(correlationId: string) {
 
         if (returnsError) {
           logger.error('Returns batch upsert error:', returnsError.message)
+          returnsPersistenceError = returnsError.message
+        }
+      }
+
+      // ============================================
+      // COMMIT RESOURCE CHECKPOINTS
+      // ============================================
+      // A checkpoint is written only after its bounded batch is durably
+      // upserted. Reprocessing after a checkpoint failure is safe because the
+      // business upserts are idempotent and stock consumption remains guarded
+      // by the existing stock_consumed_at CAS.
+      if (parcelFetch) {
+        if (shipmentPersistenceError) {
+          resourceStats.parcels.status = 'failed'
+          resourceStats.parcels.error = shipmentPersistenceError
+        } else {
+          try {
+            resourceStats.parcels.watermark_after = await persistIncrementalDrain(
+              adminClient,
+              tenant.id,
+              parcelDrain,
+              parcelFetch,
+            )
+          } catch (error) {
+            resourceStats.parcels.status = 'failed'
+            resourceStats.parcels.error = errorMessage(error)
+          }
+        }
+      }
+
+      for (const outcome of integrationOutcomes) {
+        if (!outcome.result) continue
+        if (shipmentPersistenceError) {
+          outcome.error = shipmentPersistenceError
+          continue
+        }
+        try {
+          await persistIntegrationContinuation(
+            adminClient,
+            tenant.id,
+            outcome.checkpoint,
+            outcome.result,
+          )
+        } catch (error) {
+          outcome.error = errorMessage(error)
+        }
+      }
+      resourceStats.integration_shipments = aggregateIntegrationStats(integrationOutcomes)
+
+      if (returnFetch) {
+        if (returnsPersistenceError) {
+          resourceStats.returns.status = 'failed'
+          resourceStats.returns.error = returnsPersistenceError
+        } else {
+          try {
+            resourceStats.returns.watermark_after = await persistIncrementalDrain(
+              adminClient,
+              tenant.id,
+              returnDrain,
+              returnFetch,
+            )
+          } catch (error) {
+            resourceStats.returns.status = 'failed'
+            resourceStats.returns.error = errorMessage(error)
+          }
         }
       }
 
@@ -508,18 +790,26 @@ async function runSync(correlationId: string) {
       // RECORD SYNC RUN
       // ============================================
       const duration = Date.now() - startTime
+      const runStatus = overallRunStatus(resourceStats)
+      const resourceErrors = Object.entries(resourceStats)
+        .filter(([, stats]) => stats.error)
+        .map(([resource, stats]) => `${resource}: ${stats.error}`)
+        .join('; ')
       await adminClient.from('sync_runs').insert({
         tenant_id: tenant.id,
         source: 'sendcloud',
-        status: 'success',
+        status: runStatus,
         ended_at: new Date().toISOString(),
+        error_text: resourceErrors || null,
         stats_json: {
           shipments: shipmentsToUpsert.length,
           returns: returnsToUpsert.length,
           duration_ms: duration,
           max_pages: maxPages,
-          pagination_capped: paginationCaps.length > 0,
+          pagination_capped: Object.values(resourceStats)
+            .some((resource) => resource.pagination_capped),
           pagination_caps: paginationCaps,
+          resources: resourceStats,
           auto_fix_detection: autoFixDetectionStats === null ? null : {
             observed: autoFixDetectionStats.observed,
             eligible: autoFixDetectionStats.eligible,
@@ -534,12 +824,12 @@ async function runSync(correlationId: string) {
 
       results.push({
         tenantId: tenant.id,
-        success: true,
+        success: runStatus !== 'failed',
         shipments: shipmentsToUpsert.length,
         returns: returnsToUpsert.length,
       })
 
-      logger.info(`Tenant ${tenant.id} done in ${duration}ms`)
+      logger.info(`Tenant ${tenant.id} done in ${duration}ms with status=${runStatus}`)
 
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : 'Unknown error'

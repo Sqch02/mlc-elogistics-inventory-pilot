@@ -21,6 +21,21 @@ export interface PaginationCapNotice {
 
 export type PaginationCapHandler = (notice: PaginationCapNotice) => void
 
+export interface BoundedFetchResult<T> {
+  items: T[]
+  pagesFetched: number
+  hasMore: boolean
+  nextCursor?: string
+}
+
+export interface IntegrationFetchResult {
+  integrationId: number
+  items: ParsedShipment[]
+  pagesFetched: number
+  hasMore: boolean
+  nextUrl?: string
+}
+
 // Parse Sendcloud date format to ISO string
 // Supports multiple formats: "DD-MM-YYYY HH:mm:ss", ISO 8601, Unix timestamp
 function parseSendcloudDate(dateStr: string | number | null | undefined): string | null {
@@ -285,32 +300,48 @@ export async function fetchAllParcels(
   maxPages: number = 100,  // Up to 10,000 parcels (100 pages x 100 per page)
   onPaginationCap?: PaginationCapHandler,
 ): Promise<ParsedShipment[]> {
+  const result = await fetchParcelBatch(
+    credentials,
+    since,
+    undefined,
+    maxPages,
+    onPaginationCap,
+  )
+  return result.items
+}
+
+export async function fetchParcelBatch(
+  credentials: SendcloudCredentials,
+  since: string | undefined,
+  cursor: string | undefined,
+  maxPages: number,
+  onPaginationCap?: PaginationCapHandler,
+): Promise<BoundedFetchResult<ParsedShipment>> {
   console.log(`[Sendcloud fetchAll] Starting fetch: since=${since || 'NONE'}, maxPages=${maxPages}`)
 
   const allParcels: ParsedShipment[] = []
-  let cursor: string | undefined
+  let nextCursor = cursor
   let page = 0
   let hasMore = false
 
   while (page < maxPages) {
     console.log(`[Sendcloud fetchAll] Fetching page ${page + 1}/${maxPages}...`)
-    const { parcels, nextCursor } = await fetchParcels(credentials, {
+    const response = await fetchParcels(credentials, {
       since,
-      cursor,
+      cursor: nextCursor,
       limit: 100,
     })
 
-    allParcels.push(...parcels)
+    allParcels.push(...response.parcels)
     page++
-    console.log(`[Sendcloud fetchAll] Page ${page}: got ${parcels.length} parcels, total so far: ${allParcels.length}`)
+    console.log(`[Sendcloud fetchAll] Page ${page}: got ${response.parcels.length} parcels, total so far: ${allParcels.length}`)
 
-    hasMore = Boolean(nextCursor && parcels.length > 0)
+    nextCursor = response.nextCursor
+    hasMore = Boolean(nextCursor)
     if (!hasMore) {
-      console.log(`[Sendcloud fetchAll] Stopping: ${!nextCursor ? 'no more pages' : 'empty page'}`)
+      console.log('[Sendcloud fetchAll] Stopping: no more pages')
       break
     }
-
-    cursor = nextCursor
   }
 
   if (hasMore) {
@@ -319,25 +350,22 @@ export async function fetchAllParcels(
       fetched: allParcels.length,
       maxPages,
     })
-    // Graceful cap (consistent with fetchAllIntegrationShipments) instead of a
-    // throw. A throw fails the ENTIRE tenant sync and, worse, DEADLOCKS a
-    // high-volume tenant whose incremental `since` window exceeds the page
-    // budget: observed on Florna during the 13/07 incident recovery — after the
-    // cron pause, every cycle re-fetched the post-pause backlog (>200 parcels),
-    // exceeded 2 pages, threw, recorded a failed run, and never advanced. We
-    // instead process the pages we fetched and log LOUDLY (the principle is "no
-    // SILENT truncation", not "always fail"). The remaining parcels are covered
-    // by the real-time webhook and the reconciliation job, and by later cycles as
-    // `since` advances. Raise SENDCLOUD_CRON_MAX_PAGES only after confirming I/O
-    // headroom.
+    // Return the continuation cursor instead of throwing. The cron persists it
+    // and resumes the same watermark window on the next bounded tick; callers
+    // using the legacy fetchAll wrapper still receive the loud cap callback.
     console.warn(
       `[Sendcloud fetchAll] parcels still has data after ${maxPages} pages; ` +
-      `capping at ${allParcels.length} parcels (webhook + reconciliation cover the rest)`,
+      `capping at ${allParcels.length} parcels (checkpoint will resume the cursor)`,
     )
   }
 
   console.log(`[Sendcloud fetchAll] Complete: ${allParcels.length} total parcels from ${page} pages`)
-  return allParcels
+  return {
+    items: allParcels,
+    pagesFetched: page,
+    hasMore,
+    nextCursor: hasMore ? nextCursor : undefined,
+  }
 }
 
 // Fetch the real parcel(s) for a given order number. Used by the reconciliation
@@ -378,7 +406,7 @@ export async function fetchParcelsByOrderNumber(
 // INTEGRATION SHIPMENTS (Orders "On Hold")
 // ============================================
 
-interface SendcloudIntegration {
+export interface SendcloudIntegration {
   id: number
   shop_name: string
   system: string
@@ -432,7 +460,8 @@ interface SendcloudIntegrationShipmentsResponse {
  * Get all integrations for the account
  */
 export async function fetchIntegrations(
-  credentials: SendcloudCredentials
+  credentials: SendcloudCredentials,
+  strict: boolean = false,
 ): Promise<SendcloudIntegration[]> {
   if (process.env.SENDCLOUD_USE_MOCK === 'true') {
     return []
@@ -449,6 +478,9 @@ export async function fetchIntegrations(
 
   if (!response.ok) {
     console.error(`[Sendcloud] Failed to fetch integrations: ${response.status}`)
+    if (strict) {
+      throw new Error(`Sendcloud integrations API error: ${response.status}`)
+    }
     return []
   }
 
@@ -532,13 +564,46 @@ export async function fetchIntegrationShipments(
   maxPages: number = 10,
   onPaginationCap?: PaginationCapHandler,
 ): Promise<ParsedShipment[]> {
+  const result = await fetchIntegrationShipmentBatch(
+    credentials,
+    integrationId,
+    maxPages,
+    undefined,
+    onPaginationCap,
+  )
+  return result.items
+}
+
+function integrationShipmentsUrl(integrationId: number): string {
+  return `${SENDCLOUD_API_URL}/integrations/${integrationId}/shipments?limit=100`
+}
+
+function validateIntegrationContinuationUrl(url: string, integrationId: number): string {
+  const parsed = new URL(url)
+  const api = new URL(SENDCLOUD_API_URL)
+  const expectedPath = `${api.pathname}/integrations/${integrationId}/shipments`
+  if (parsed.origin !== api.origin || parsed.pathname !== expectedPath) {
+    throw new Error(`Invalid Sendcloud continuation URL for integration ${integrationId}`)
+  }
+  return parsed.toString()
+}
+
+export async function fetchIntegrationShipmentBatch(
+  credentials: SendcloudCredentials,
+  integrationId: number,
+  maxPages: number,
+  continuationUrl?: string,
+  onPaginationCap?: PaginationCapHandler,
+): Promise<IntegrationFetchResult> {
   if (process.env.SENDCLOUD_USE_MOCK === 'true') {
-    return []
+    return { integrationId, items: [], pagesFetched: 0, hasMore: false }
   }
 
   const auth = Buffer.from(`${credentials.apiKey}:${credentials.secret}`).toString('base64')
   const allShipments: ParsedShipment[] = []
-  let nextUrl: string | null = `${SENDCLOUD_API_URL}/integrations/${integrationId}/shipments?limit=100`
+  let nextUrl: string | null = continuationUrl
+    ? validateIntegrationContinuationUrl(continuationUrl, integrationId)
+    : integrationShipmentsUrl(integrationId)
   let page = 0
 
   console.log(`[Sendcloud] Fetching shipments from integration ${integrationId}`)
@@ -563,7 +628,7 @@ export async function fetchIntegrationShipments(
 
     console.log(`[Sendcloud] Integration ${integrationId} page ${page + 1}: ${data.results.length} shipments`)
 
-    nextUrl = data.next
+    nextUrl = data.next ? validateIntegrationContinuationUrl(data.next, integrationId) : null
     page++
   }
 
@@ -574,17 +639,22 @@ export async function fetchIntegrationShipments(
       maxPages,
       integrationId,
     })
-    // Unlike parcels/returns, this endpoint is a non-incremental snapshot: the
-    // next cron tick starts again at page 1 and does not advance a cursor. A
-    // bounded partial result is therefore recoverable and must not prevent
-    // fresh parcel updates for the whole tenant.
+    // Unlike parcels/returns, this endpoint is a non-incremental snapshot. The
+    // batch result exposes Sendcloud's validated `next` URL so the cron can
+    // continue the snapshot on a later bounded tick without a watermark.
     console.warn(
       `[Sendcloud] Integration ${integrationId} still has data after ${maxPages} pages; continuing with ${allShipments.length} pending shipments`,
     )
   }
 
   console.log(`[Sendcloud] Integration ${integrationId}: ${allShipments.length} total shipments`)
-  return allShipments
+  return {
+    integrationId,
+    items: allShipments,
+    pagesFetched: page,
+    hasMore: Boolean(nextUrl),
+    nextUrl: nextUrl || undefined,
+  }
 }
 
 /**
@@ -1138,27 +1208,43 @@ export async function fetchAllReturns(
   maxPages: number = 50,
   onPaginationCap?: PaginationCapHandler,
 ): Promise<ParsedReturn[]> {
+  const result = await fetchReturnBatch(
+    credentials,
+    since,
+    undefined,
+    maxPages,
+    onPaginationCap,
+  )
+  return result.items
+}
+
+export async function fetchReturnBatch(
+  credentials: SendcloudCredentials,
+  since: string | undefined,
+  cursor: string | undefined,
+  maxPages: number,
+  onPaginationCap?: PaginationCapHandler,
+): Promise<BoundedFetchResult<ParsedReturn>> {
   const allReturns: ParsedReturn[] = []
-  let cursor: string | undefined
+  let nextCursor = cursor
   let page = 0
   let hasMore = false
 
   while (page < maxPages) {
-    const { returns, nextCursor } = await fetchReturns(credentials, {
+    const response = await fetchReturns(credentials, {
       since,
-      cursor,
+      cursor: nextCursor,
       limit: 100,
     })
 
-    allReturns.push(...returns)
+    allReturns.push(...response.returns)
     page++
 
-    hasMore = Boolean(nextCursor && returns.length > 0)
+    nextCursor = response.nextCursor
+    hasMore = Boolean(nextCursor)
     if (!hasMore) {
       break
     }
-
-    cursor = nextCursor
   }
 
   if (hasMore) {
@@ -1175,7 +1261,12 @@ export async function fetchAllReturns(
     )
   }
 
-  return allReturns
+  return {
+    items: allReturns,
+    pagesFetched: page,
+    hasMore,
+    nextCursor: hasMore ? nextCursor : undefined,
+  }
 }
 
 /**
