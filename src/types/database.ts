@@ -145,6 +145,7 @@ type SendcloudSyncCheckpointRow = {
   continuation_url: string | null
   window_ends_at: string | null
   has_more: boolean
+  consecutive_failures: number
   updated_at: string
 }
 

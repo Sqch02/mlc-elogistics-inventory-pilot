@@ -17,10 +17,14 @@ CREATE TABLE public.sendcloud_sync_checkpoints (
   continuation_url text,
   window_ends_at timestamptz,
   has_more boolean NOT NULL DEFAULT false,
+  consecutive_failures integer NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (tenant_id, resource, partition_key),
   CONSTRAINT sendcloud_sync_checkpoints_resource CHECK (
     resource IN ('parcels', 'returns', 'integration_shipments')
+  ),
+  CONSTRAINT sendcloud_sync_checkpoints_failures_non_negative CHECK (
+    consecutive_failures >= 0
   ),
   CONSTRAINT sendcloud_sync_checkpoints_shape CHECK (
     (

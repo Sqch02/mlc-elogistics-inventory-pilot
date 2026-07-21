@@ -2,6 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 
 export type IncrementalResource = 'parcels' | 'returns'
+export type CheckpointResource = IncrementalResource | 'integration_shipments'
+
+export const CHECKPOINT_MAX_RESUME_AGE_MS = 2 * 60 * 60 * 1000
+export const CHECKPOINT_MAX_CONSECUTIVE_FAILURES = 3
 
 export interface IncrementalDrain {
   resource: IncrementalResource
@@ -9,6 +13,8 @@ export interface IncrementalDrain {
   cursor?: string
   windowEndsAt: string
   resuming: boolean
+  failureCount: number
+  resetReason?: 'stale' | 'repeated_failures'
 }
 
 export interface IntegrationContinuation {
@@ -16,12 +22,62 @@ export interface IntegrationContinuation {
   continuationUrl?: string
   snapshotStartedAt: string
   resuming: boolean
+  failureCount: number
+}
+
+export interface StoredIntegrationContinuation {
+  continuationUrl: string
+  snapshotStartedAt: string
+  failureCount: number
 }
 
 type AdminClient = SupabaseClient<Database>
 
-function checkpointError(action: string, error: { message: string }): Error {
+interface CheckpointError {
+  code?: string
+  message: string
+}
+
+function isMissingCheckpointTable(error: CheckpointError | null): boolean {
+  return error?.code === '42P01'
+}
+
+function checkpointError(action: string, error: CheckpointError): Error {
   return new Error(`Sendcloud checkpoint ${action}: ${error.message}`)
+}
+
+function freshIncrementalDrain(
+  resource: IncrementalResource,
+  watermark: string,
+  cycleStartedAt: string,
+  resetReason?: IncrementalDrain['resetReason'],
+): IncrementalDrain {
+  return {
+    resource,
+    watermark,
+    windowEndsAt: cycleStartedAt,
+    resuming: false,
+    failureCount: 0,
+    ...(resetReason ? { resetReason } : {}),
+  }
+}
+
+function resumeResetReason(
+  updatedAt: string,
+  cycleStartedAt: string,
+  failureCount: number,
+): IncrementalDrain['resetReason'] | undefined {
+  if (failureCount >= CHECKPOINT_MAX_CONSECUTIVE_FAILURES) return 'repeated_failures'
+  const updatedTime = Date.parse(updatedAt)
+  const cycleTime = Date.parse(cycleStartedAt)
+  if (
+    !Number.isFinite(updatedTime)
+    || !Number.isFinite(cycleTime)
+    || cycleTime - updatedTime > CHECKPOINT_MAX_RESUME_AGE_MS
+  ) {
+    return 'stale'
+  }
+  return undefined
 }
 
 export async function loadIncrementalDrain(
@@ -33,17 +89,28 @@ export async function loadIncrementalDrain(
 ): Promise<IncrementalDrain> {
   const { data, error } = await client
     .from('sendcloud_sync_checkpoints')
-    .select('watermark, cursor, window_ends_at, has_more')
+    .select('watermark, cursor, window_ends_at, has_more, consecutive_failures, updated_at')
     .eq('tenant_id', tenantId)
     .eq('resource', resource)
     .eq('partition_key', '')
     .maybeSingle()
 
+  if (isMissingCheckpointTable(error)) {
+    return freshIncrementalDrain(resource, fallbackWatermark, cycleStartedAt)
+  }
   if (error) throw checkpointError(`load ${resource}`, error)
 
   if (data?.has_more) {
     if (!data.watermark || !data.cursor || !data.window_ends_at) {
       throw new Error(`Invalid persisted ${resource} checkpoint for tenant ${tenantId}`)
+    }
+    const resetReason = resumeResetReason(
+      data.updated_at,
+      cycleStartedAt,
+      data.consecutive_failures,
+    )
+    if (resetReason) {
+      return freshIncrementalDrain(resource, data.watermark, cycleStartedAt, resetReason)
     }
     return {
       resource,
@@ -51,15 +118,15 @@ export async function loadIncrementalDrain(
       cursor: data.cursor,
       windowEndsAt: data.window_ends_at,
       resuming: true,
+      failureCount: data.consecutive_failures,
     }
   }
 
-  return {
+  return freshIncrementalDrain(
     resource,
-    watermark: data?.watermark || fallbackWatermark,
-    windowEndsAt: cycleStartedAt,
-    resuming: false,
-  }
+    data?.watermark || fallbackWatermark,
+    cycleStartedAt,
+  )
 }
 
 export async function persistIncrementalDrain(
@@ -87,34 +154,68 @@ export async function persistIncrementalDrain(
     continuation_url: null,
     window_ends_at: continuation.hasMore ? drain.windowEndsAt : null,
     has_more: continuation.hasMore,
+    consecutive_failures: 0,
   }, { onConflict: 'tenant_id,resource,partition_key' })
 
+  if (isMissingCheckpointTable(error)) return completedWatermark
   if (error) throw checkpointError(`persist ${drain.resource}`, error)
   return completedWatermark
+}
+
+export function isAnomalousEmptyResume(
+  drain: IncrementalDrain,
+  fetchedCount: number,
+): boolean {
+  return drain.resuming && fetchedCount === 0
+}
+
+export async function restartIncrementalDrain(
+  client: AdminClient,
+  tenantId: string,
+  drain: IncrementalDrain,
+): Promise<void> {
+  const { error } = await client.from('sendcloud_sync_checkpoints').upsert({
+    tenant_id: tenantId,
+    resource: drain.resource,
+    partition_key: '',
+    watermark: drain.watermark,
+    cursor: null,
+    continuation_url: null,
+    window_ends_at: null,
+    has_more: false,
+    consecutive_failures: 0,
+  }, { onConflict: 'tenant_id,resource,partition_key' })
+
+  if (isMissingCheckpointTable(error)) return
+  if (error) throw checkpointError(`restart ${drain.resource}`, error)
 }
 
 export async function loadIntegrationContinuations(
   client: AdminClient,
   tenantId: string,
-): Promise<Map<number, { continuationUrl: string; snapshotStartedAt: string }>> {
+  cycleStartedAt: string,
+): Promise<Map<number, StoredIntegrationContinuation>> {
   const { data, error } = await client
     .from('sendcloud_sync_checkpoints')
-    .select('partition_key, continuation_url, window_ends_at, has_more')
+    .select('partition_key, continuation_url, window_ends_at, has_more, consecutive_failures, updated_at')
     .eq('tenant_id', tenantId)
     .eq('resource', 'integration_shipments')
     .eq('has_more', true)
 
+  if (isMissingCheckpointTable(error)) return new Map()
   if (error) throw checkpointError('load integration_shipments', error)
 
-  const checkpoints = new Map<number, { continuationUrl: string; snapshotStartedAt: string }>()
+  const checkpoints = new Map<number, StoredIntegrationContinuation>()
   for (const row of data || []) {
     const integrationId = Number(row.partition_key)
     if (!Number.isSafeInteger(integrationId) || !row.continuation_url || !row.window_ends_at) {
       throw new Error(`Invalid persisted integration checkpoint for tenant ${tenantId}`)
     }
+    if (resumeResetReason(row.updated_at, cycleStartedAt, row.consecutive_failures)) continue
     checkpoints.set(integrationId, {
       continuationUrl: row.continuation_url,
       snapshotStartedAt: row.window_ends_at,
+      failureCount: row.consecutive_failures,
     })
   }
   return checkpoints
@@ -123,13 +224,14 @@ export async function loadIntegrationContinuations(
 export function integrationContinuation(
   integrationId: number,
   cycleStartedAt: string,
-  stored?: { continuationUrl: string; snapshotStartedAt: string },
+  stored?: StoredIntegrationContinuation,
 ): IntegrationContinuation {
   return {
     integrationId,
     continuationUrl: stored?.continuationUrl,
     snapshotStartedAt: stored?.snapshotStartedAt || cycleStartedAt,
     resuming: Boolean(stored),
+    failureCount: stored?.failureCount || 0,
   }
 }
 
@@ -155,7 +257,27 @@ export async function persistIntegrationContinuation(
     continuation_url: nextUrl,
     window_ends_at: continuation.hasMore ? checkpoint.snapshotStartedAt : null,
     has_more: continuation.hasMore,
+    consecutive_failures: 0,
   }, { onConflict: 'tenant_id,resource,partition_key' })
 
+  if (isMissingCheckpointTable(error)) return
   if (error) throw checkpointError('persist integration_shipments', error)
+}
+
+export async function recordCheckpointFailure(
+  client: AdminClient,
+  tenantId: string,
+  resource: CheckpointResource,
+  partitionKey: string,
+  currentFailureCount: number,
+): Promise<void> {
+  const { error } = await client
+    .from('sendcloud_sync_checkpoints')
+    .update({ consecutive_failures: currentFailureCount + 1 })
+    .eq('tenant_id', tenantId)
+    .eq('resource', resource)
+    .eq('partition_key', partitionKey)
+
+  if (isMissingCheckpointTable(error)) return
+  if (error) throw checkpointError(`record failure ${resource}`, error)
 }

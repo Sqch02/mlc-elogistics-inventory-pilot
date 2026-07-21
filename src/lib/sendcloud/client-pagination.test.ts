@@ -87,8 +87,9 @@ describe('Sendcloud pagination completion', () => {
 
     expect(parcels.map((parcel) => parcel.sendcloud_id)).toEqual(['1', '2'])
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    for (const [requestUrl] of fetchMock.mock.calls) {
+    for (const [requestUrl, init] of fetchMock.mock.calls) {
       expect(new URL(String(requestUrl)).searchParams.get('errors')).toBe('verbose-carrier')
+      expect(init).toEqual(expect.objectContaining({ redirect: 'error' }))
     }
   })
 
@@ -231,6 +232,24 @@ describe('Sendcloud pagination completion', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('refuses Sendcloud redirects instead of following an unvalidated Location', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, {
+      status: 302,
+      headers: { Location: 'https://example.com/internal' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(fetchIntegrationShipmentBatch(
+      credentials,
+      7,
+      1,
+    )).rejects.toThrow('Sendcloud integration shipments API error: 302')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/integrations/7/shipments'),
+      expect.objectContaining({ redirect: 'error' }),
+    )
+  })
+
   it('marks integration shipments only from blocking structured collections', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse([{ id: 7, shop_name: 'Shopify', system: 'shopify' }]))
@@ -304,6 +323,7 @@ describe('Sendcloud pagination completion', () => {
 
     expect(new URL(String(fetchMock.mock.calls[0][0])).searchParams.get('cursor'))
       .toBe('returns-page-2')
+    expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({ redirect: 'error' }))
     expect(result).toMatchObject({ hasMore: false, pagesFetched: 1 })
   })
 })

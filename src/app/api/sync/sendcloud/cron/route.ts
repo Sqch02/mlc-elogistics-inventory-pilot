@@ -44,7 +44,11 @@ import {
   loadIntegrationContinuations,
   persistIncrementalDrain,
   persistIntegrationContinuation,
+  recordCheckpointFailure,
+  restartIncrementalDrain,
+  isAnomalousEmptyResume,
   type IntegrationContinuation,
+  type StoredIntegrationContinuation,
 } from '@/lib/sendcloud/checkpoints'
 
 type ResourceName = 'parcels' | 'integration_shipments' | 'returns'
@@ -60,6 +64,7 @@ interface ResourceSyncStats {
   resumed: boolean
   watermark_before?: string
   watermark_after?: string
+  checkpoint_reset_reason?: string
   error?: string
 }
 
@@ -77,7 +82,7 @@ async function fetchIntegrationBatches(
   credentials: SendcloudCredentials,
   maxPages: number,
   cycleStartedAt: string,
-  stored: Map<number, { continuationUrl: string; snapshotStartedAt: string }>,
+  stored: Map<number, StoredIntegrationContinuation>,
   onPaginationCap?: PaginationCapHandler,
 ): Promise<IntegrationBatchOutcome[]> {
   const integrations = await fetchIntegrations(credentials, true)
@@ -309,7 +314,7 @@ async function runSync(correlationId: string) {
           fallbackWatermark,
           cycleStartedAt,
         ),
-        loadIntegrationContinuations(adminClient, tenant.id),
+        loadIntegrationContinuations(adminClient, tenant.id, cycleStartedAt),
       ])
 
       logger.info('Incremental drains:', {
@@ -357,6 +362,9 @@ async function runSync(correlationId: string) {
           has_more: parcelFetch.hasMore,
           resumed: parcelDrain.resuming,
           watermark_before: parcelDrain.watermark,
+          ...(parcelDrain.resetReason
+            ? { checkpoint_reset_reason: parcelDrain.resetReason }
+            : {}),
         } : {
           status: 'failed',
           fetched: 0,
@@ -365,6 +373,9 @@ async function runSync(correlationId: string) {
           has_more: parcelDrain.resuming,
           resumed: parcelDrain.resuming,
           watermark_before: parcelDrain.watermark,
+          ...(parcelDrain.resetReason
+            ? { checkpoint_reset_reason: parcelDrain.resetReason }
+            : {}),
           error: errorMessage(
             parcelSettled.status === 'rejected' ? parcelSettled.reason : 'unknown parcels error',
           ),
@@ -388,6 +399,9 @@ async function runSync(correlationId: string) {
           has_more: returnFetch.hasMore,
           resumed: returnDrain.resuming,
           watermark_before: returnDrain.watermark,
+          ...(returnDrain.resetReason
+            ? { checkpoint_reset_reason: returnDrain.resetReason }
+            : {}),
         } : {
           status: 'failed',
           fetched: 0,
@@ -396,6 +410,9 @@ async function runSync(correlationId: string) {
           has_more: returnDrain.resuming,
           resumed: returnDrain.resuming,
           watermark_before: returnDrain.watermark,
+          ...(returnDrain.resetReason
+            ? { checkpoint_reset_reason: returnDrain.resetReason }
+            : {}),
           error: errorMessage(
             returnSettled.status === 'rejected' ? returnSettled.reason : 'unknown returns error',
           ),
@@ -405,6 +422,52 @@ async function runSync(correlationId: string) {
       const parcelsRecent = parcelFetch?.items || []
       const pendingOrders = integrationOutcomes.flatMap((outcome) => outcome.result?.items || [])
       const returnsRecent = returnFetch?.items || []
+
+      // Count only failed resumptions. This write happens exclusively on the
+      // error path and remains one bounded row update per affected resource.
+      if (parcelSettled.status === 'rejected' && parcelDrain.resuming) {
+        try {
+          await recordCheckpointFailure(
+            adminClient,
+            tenant.id,
+            'parcels',
+            '',
+            parcelDrain.failureCount,
+          )
+        } catch (error) {
+          logger.error('Failed to record parcels checkpoint failure:', error)
+        }
+      }
+      if (returnSettled.status === 'rejected' && returnDrain.resuming) {
+        try {
+          await recordCheckpointFailure(
+            adminClient,
+            tenant.id,
+            'returns',
+            '',
+            returnDrain.failureCount,
+          )
+        } catch (error) {
+          logger.error('Failed to record returns checkpoint failure:', error)
+        }
+      }
+      for (const outcome of integrationOutcomes) {
+        if (!outcome.error || !outcome.checkpoint.resuming) continue
+        try {
+          await recordCheckpointFailure(
+            adminClient,
+            tenant.id,
+            'integration_shipments',
+            String(outcome.checkpoint.integrationId),
+            outcome.checkpoint.failureCount,
+          )
+        } catch (error) {
+          logger.error(
+            `Failed to record integration ${outcome.checkpoint.integrationId} checkpoint failure:`,
+            error,
+          )
+        }
+      }
 
       if (paginationCaps.length > 0) {
         logger.warn('Pagination cap reached:', paginationCaps)
@@ -710,12 +773,20 @@ async function runSync(correlationId: string) {
           resourceStats.parcels.error = shipmentPersistenceError
         } else {
           try {
-            resourceStats.parcels.watermark_after = await persistIncrementalDrain(
-              adminClient,
-              tenant.id,
-              parcelDrain,
-              parcelFetch,
-            )
+            if (isAnomalousEmptyResume(parcelDrain, parcelFetch.items.length)) {
+              await restartIncrementalDrain(adminClient, tenant.id, parcelDrain)
+              resourceStats.parcels.status = 'partial'
+              resourceStats.parcels.has_more = false
+              resourceStats.parcels.watermark_after = parcelDrain.watermark
+              resourceStats.parcels.checkpoint_reset_reason = 'empty_resume'
+            } else {
+              resourceStats.parcels.watermark_after = await persistIncrementalDrain(
+                adminClient,
+                tenant.id,
+                parcelDrain,
+                parcelFetch,
+              )
+            }
           } catch (error) {
             resourceStats.parcels.status = 'failed'
             resourceStats.parcels.error = errorMessage(error)
@@ -748,12 +819,20 @@ async function runSync(correlationId: string) {
           resourceStats.returns.error = returnsPersistenceError
         } else {
           try {
-            resourceStats.returns.watermark_after = await persistIncrementalDrain(
-              adminClient,
-              tenant.id,
-              returnDrain,
-              returnFetch,
-            )
+            if (isAnomalousEmptyResume(returnDrain, returnFetch.items.length)) {
+              await restartIncrementalDrain(adminClient, tenant.id, returnDrain)
+              resourceStats.returns.status = 'partial'
+              resourceStats.returns.has_more = false
+              resourceStats.returns.watermark_after = returnDrain.watermark
+              resourceStats.returns.checkpoint_reset_reason = 'empty_resume'
+            } else {
+              resourceStats.returns.watermark_after = await persistIncrementalDrain(
+                adminClient,
+                tenant.id,
+                returnDrain,
+                returnFetch,
+              )
+            }
           } catch (error) {
             resourceStats.returns.status = 'failed'
             resourceStats.returns.error = errorMessage(error)

@@ -266,6 +266,7 @@ export async function fetchParcels(
   console.log(`[Sendcloud API] Params: since=${options?.since || 'NONE'}, limit=${options?.limit || 'default'}, cursor=${options?.cursor || 'NONE'}`)
 
   const response = await fetch(url, {
+    redirect: 'error',
     headers: {
       Authorization: `Basic ${auth}`,
       'Content-Type': 'application/json',
@@ -387,6 +388,7 @@ export async function fetchParcelsByOrderNumber(
   const url = `${SENDCLOUD_API_URL}/parcels?${params.toString()}`
 
   const response = await fetch(url, {
+    redirect: 'error',
     headers: {
       Authorization: `Basic ${auth}`,
       'Content-Type': 'application/json',
@@ -470,6 +472,7 @@ export async function fetchIntegrations(
   const auth = Buffer.from(`${credentials.apiKey}:${credentials.secret}`).toString('base64')
 
   const response = await fetch(`${SENDCLOUD_API_URL}/integrations`, {
+    redirect: 'error',
     headers: {
       Authorization: `Basic ${auth}`,
       'Content-Type': 'application/json',
@@ -610,6 +613,7 @@ export async function fetchIntegrationShipmentBatch(
 
   while (nextUrl && page < maxPages) {
     const response = await fetch(nextUrl, {
+      redirect: 'error',
       headers: {
         Authorization: `Basic ${auth}`,
         'Content-Type': 'application/json',
@@ -741,6 +745,7 @@ export async function createParcel(
   try {
     const response = await fetch(`${SENDCLOUD_API_URL}/parcels`, {
       method: 'POST',
+      redirect: 'error',
       headers: {
         Authorization: `Basic ${auth}`,
         'Content-Type': 'application/json',
@@ -818,6 +823,7 @@ export async function updateParcel(
   try {
     const response = await fetch(`${SENDCLOUD_API_URL}/parcels/${sendcloudId}`, {
       method: 'PUT',
+      redirect: 'error',
       headers: {
         Authorization: `Basic ${auth}`,
         'Content-Type': 'application/json',
@@ -869,6 +875,7 @@ export async function cancelParcel(
   try {
     const response = await fetch(`${SENDCLOUD_API_URL}/parcels/${sendcloudId}/cancel`, {
       method: 'POST',
+      redirect: 'error',
       headers: {
         Authorization: `Basic ${auth}`,
         'Content-Type': 'application/json',
@@ -915,6 +922,7 @@ export async function getParcel(
   try {
     const response = await fetch(`${SENDCLOUD_API_URL}/parcels/${sendcloudId}`, {
       method: 'GET',
+      redirect: 'error',
       headers: {
         Authorization: `Basic ${auth}`,
         'Content-Type': 'application/json',
@@ -972,6 +980,7 @@ export async function getIntegrationShipment(
         `${SENDCLOUD_API_URL}/integrations/${integration.id}/shipments/${shipmentUuid}`,
         {
           method: 'GET',
+          redirect: 'error',
           headers: {
             Authorization: `Basic ${auth}`,
             'Content-Type': 'application/json',
@@ -1174,6 +1183,7 @@ export async function fetchReturns(
   const url = `${SENDCLOUD_API_URL}/returns?${params.toString()}`
 
   const response = await fetch(url, {
+    redirect: 'error',
     headers: {
       Authorization: `Basic ${auth}`,
       'Content-Type': 'application/json',
@@ -1285,6 +1295,7 @@ export async function getReturn(
   try {
     const response = await fetch(`${SENDCLOUD_API_URL}/returns/${returnId}`, {
       method: 'GET',
+      redirect: 'error',
       headers: {
         Authorization: `Basic ${auth}`,
         'Content-Type': 'application/json',

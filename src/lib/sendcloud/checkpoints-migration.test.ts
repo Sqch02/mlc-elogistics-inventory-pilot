@@ -19,6 +19,11 @@ describe('00095 Sendcloud checkpoint migration contract', () => {
     expect(sql).toContain('NOT has_more AND cursor IS NULL AND window_ends_at IS NULL')
   })
 
+  it('stores a bounded consecutive failure counter for cursor recovery', () => {
+    expect(sql).toContain('consecutive_failures integer NOT NULL DEFAULT 0')
+    expect(sql).toContain('consecutive_failures >= 0')
+  })
+
   it('keeps the internal checkpoint table service-role only', () => {
     expect(sql).toContain('ALTER TABLE public.sendcloud_sync_checkpoints FORCE ROW LEVEL SECURITY')
     expect(sql).toContain(
