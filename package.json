@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "sendcloud:write-validation": "node --env-file=.env.local --import tsx scripts/sendcloud-write-validation.ts"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.1.11",

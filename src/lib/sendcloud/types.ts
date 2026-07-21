@@ -2,6 +2,7 @@ import type { Json } from '@/types/database'
 
 export interface SendcloudParcel {
   id: number
+  shipment_uuid?: string
   tracking_number: string
   tracking_url?: string
   carrier: {
@@ -59,6 +60,9 @@ export interface SendcloudParcel {
     origin_country?: string
     product_id?: string
   }>
+  errors?: unknown
+  warnings?: unknown
+  checkout_payload_errors?: unknown
 }
 
 export interface SendcloudResponse {

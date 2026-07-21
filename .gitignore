@@ -53,3 +53,6 @@ CLAUDE.md
 
 # MCP config
 .mcp.json
+
+# Local Sendcloud write-validation manifests (contain test shipment snapshots)
+/.sendcloud-write-validation/

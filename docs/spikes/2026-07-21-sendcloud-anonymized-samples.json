@@ -1,0 +1,159 @@
+{
+  "generated_at": "2026-07-21T11:37:00Z",
+  "mode": "read_only",
+  "sample_window_days": 120,
+  "scanned": {
+    "accounts": 4,
+    "integrations": 8,
+    "integration_shipments": 702,
+    "parcels_with_status_1002": 391,
+    "database_shipments_scanned": 0
+  },
+  "samples": {
+    "currency_chf_integration_shipment": {
+      "source": "GET /api/v2/integrations/{integration_id}/shipments",
+      "shipment_uuid": "[SHIPMENT_UUID:001]",
+      "order_status": {
+        "id": "on_hold",
+        "message": "On Hold"
+      },
+      "country": "CH",
+      "currency": "CHF",
+      "shipping_method_checkout_name": "Standard UE + Suisse - 4 à 10 jours",
+      "errors": null,
+      "warnings": null,
+      "checkout_payload_errors": null,
+      "parcel_items": [
+        {
+          "weight": "0.100",
+          "hs_code": "210690",
+          "origin_country": "FR"
+        }
+      ],
+      "observation": "Le statut On Hold et la devise sont présents, mais aucun détail d'erreur n'est exposé sur cet exemple."
+    },
+    "currency_chf_parcel": {
+      "source": "GET /api/v2/parcels?parcel_status=1002&errors=verbose-carrier",
+      "id": "[PARCEL_ID:001]",
+      "shipment_uuid": "[SHIPMENT_UUID:002]",
+      "status": {
+        "id": 1002,
+        "message": "Announcement failed"
+      },
+      "date_announced": null,
+      "country": "CH",
+      "total_order_value": "[REDACTED]",
+      "total_order_value_currency": "CHF",
+      "carrier": "colissimo",
+      "errors": {
+        "non_field_errors": [
+          "La devise fournie n'est pas prise en charge par Colissimo ; convertissez le montant en EUR et ajustez la devise de la commande."
+        ]
+      },
+      "parcel_items": [
+        {
+          "weight": "0.600",
+          "hs_code": "210690",
+          "origin_country": "FR"
+        }
+      ]
+    },
+    "address_too_long_parcel": {
+      "source": "GET /api/v2/parcels?parcel_status=1002&errors=verbose-carrier",
+      "id": "[PARCEL_ID:002]",
+      "shipment_uuid": "[SHIPMENT_UUID:003]",
+      "status": {
+        "id": 1002,
+        "message": "Announcement failed"
+      },
+      "date_announced": null,
+      "country": "FR",
+      "address_2": "[REDACTED len=31]",
+      "to_service_point": "[SERVICE_POINT_ID:001]",
+      "carrier": "mondial_relay",
+      "errors": {
+        "address_add2": [
+          "La deuxième ligne d'adresse dépasse 30 caractères ; veuillez la raccourcir."
+        ]
+      }
+    },
+    "announcement_failed_unknown_cause": {
+      "source": "GET /api/v2/parcels?parcel_status=1002&errors=verbose-carrier",
+      "id": "[PARCEL_ID:003]",
+      "shipment_uuid": "[SHIPMENT_UUID:004]",
+      "status": {
+        "id": 1002,
+        "message": "Announcement failed"
+      },
+      "date_announced": null,
+      "country": "CH",
+      "errors": {
+        "non_field_errors": [
+          "Le numéro EORI de l'expéditeur est requis pour ce mode d'expédition ; veuillez le fournir pour continuer."
+        ]
+      },
+      "observation": "1002 décrit un résultat d'annonce, pas une cause unique. Cette cause n'appartient pas aux six corrections prévues."
+    },
+    "service_point_missing_heuristic": {
+      "source": "GET /api/v2/integrations/{integration_id}/shipments",
+      "shipment_uuid": "[SHIPMENT_UUID:005]",
+      "order_status": {
+        "id": "completed",
+        "message": "Completed"
+      },
+      "country": "FR",
+      "shipping_method_checkout_name": "Livraison point relais (4-5 jours ouvrés)",
+      "to_service_point": null,
+      "allowed_shipping_methods_count": 24,
+      "errors": null,
+      "observation": "Candidat structurel seulement : cet exemple n'est ni On Hold ni accompagné d'une erreur API."
+    }
+  },
+  "service_point_probes": {
+    "request": "GET /api/v2/service-points?country={country}&carrier=mondial_relay&address={postal_code}&radius=5000",
+    "attempted_accounts": 3,
+    "results": [
+      {
+        "country": "FR",
+        "http_status": 400,
+        "message": "Service point support is not activated for this integration"
+      },
+      {
+        "country": "FR",
+        "http_status": 400,
+        "message": "Service point support is not activated for this integration"
+      },
+      {
+        "country": "DE",
+        "http_status": 400,
+        "message": "Service point support is not activated for this integration"
+      }
+    ]
+  },
+  "not_observed": {
+    "hs_code_missing": {
+      "found": false,
+      "expected_locations": [
+        "integration_shipment.parcel_items[].hs_code",
+        "integration_shipment.parcel_items[].origin_country",
+        "parcel.errors"
+      ]
+    },
+    "weight_too_low": {
+      "found": false,
+      "expected_locations": [
+        "integration_shipment.parcel_items[].weight",
+        "parcel.weight",
+        "parcel.errors"
+      ]
+    },
+    "service_point_missing_api_error": {
+      "found": false,
+      "expected_locations": [
+        "integration_shipment.to_service_point",
+        "integration_shipment.checkout_payload_errors",
+        "parcel.errors"
+      ]
+    }
+  }
+}
