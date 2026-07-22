@@ -1,23 +1,19 @@
 -- Consume-at-ship bounded sweeper and reviewed one-time recalibration.
 -- FILE ONLY until the client rollout is explicitly approved.
 
--- Historical reversal is opt-in tenant by tenant only after the report,
--- backup and recalibration have been signed. Missing shipped consumption is
--- still reconciled globally by the second half of the sweeper.
+-- Both retrospective sweeper directions are opt-in tenant by tenant only after
+-- the report, backup and recalibration have been signed. Normal go-forward
+-- cron/webhook/manual-sync transitions do not depend on this flag.
 ALTER TABLE public.tenant_settings
   ADD COLUMN IF NOT EXISTS consume_at_ship_enabled boolean NOT NULL DEFAULT false;
 
 COMMENT ON COLUMN public.tenant_settings.consume_at_ship_enabled IS
-  'Allows historical non-consumable stock reversal after tenant rollout approval';
+  'Allows bounded retrospective consume/reversal after tenant rollout approval';
 
--- This statement MUST be run outside a transaction and outside peak hours.
--- Its predicate exactly matches the first sweeper query, so PostgreSQL can stop
--- after 200 index candidates instead of filtering the tenant consumed heap.
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_shipments_tenant_non_consumable_consumed
-  ON public.shipments (tenant_id, stock_consumed_at DESC, id)
-  INCLUDE (status_id, status_message, is_return)
-  WHERE stock_consumed_at IS NOT NULL
-    AND NOT public.is_consumable_shipment(status_id, status_message, is_return);
+-- IMPORTANT: concurrent index DDL is deliberately absent from this migration,
+-- because `supabase db push` wraps it in a transaction. After 00096/00097, run
+-- supabase/operations/2026-07-22_consume_at_ship_indexes.sql standalone,
+-- outside peak hours, then run the two EXPLAIN checks before tenant activation.
 
 CREATE OR REPLACE FUNCTION public.reconcile_tenant_stock(
   p_tenant_id uuid,
@@ -33,7 +29,7 @@ DECLARE
   v_consumed integer := 0;
   v_reversed integer := 0;
   v_changed boolean;
-  v_historical_reversal_enabled boolean := false;
+  v_consume_at_ship_enabled boolean := false;
   v_shipment record;
 BEGIN
   IF auth.uid() IS NOT NULL AND NOT public.is_super_admin()
@@ -42,34 +38,39 @@ BEGIN
   END IF;
 
   SELECT COALESCE(ts.consume_at_ship_enabled, false)
-    INTO v_historical_reversal_enabled
+    INTO v_consume_at_ship_enabled
   FROM public.tenant_settings ts
   WHERE ts.tenant_id = p_tenant_id;
+
+  -- One deliberate tenant switch controls every retrospective stock movement.
+  -- Go-forward event paths remain active independently in TypeScript.
+  IF NOT v_consume_at_ship_enabled THEN
+    RETURN QUERY SELECT 0, 0;
+    RETURN;
+  END IF;
 
   -- Restore historical wrong consumption only after this tenant's reviewed
   -- rollout. The predicate-matched partial index makes LIMIT 200 a true bounded
   -- candidate lookup; it does not restart by filtering the consumed heap.
-  IF v_historical_reversal_enabled THEN
-    FOR v_shipment IN
-      SELECT s.id
-      FROM public.shipments s
-      WHERE s.tenant_id = p_tenant_id
-        AND s.stock_consumed_at IS NOT NULL
-        AND NOT public.is_consumable_shipment(s.status_id, s.status_message, s.is_return)
-      ORDER BY s.stock_consumed_at DESC, s.id
-      LIMIT v_limit
-      FOR UPDATE SKIP LOCKED
-    LOOP
-      SELECT r.restocked INTO v_changed
-      FROM public.restock_shipment_stock(
-        p_tenant_id,
-        v_shipment.id,
-        'Réconciliation consume-at-ship'
-      ) r;
-      IF COALESCE(v_changed, false) THEN v_reversed := v_reversed + 1; END IF;
-      v_examined := v_examined + 1;
-    END LOOP;
-  END IF;
+  FOR v_shipment IN
+    SELECT s.id
+    FROM public.shipments s
+    WHERE s.tenant_id = p_tenant_id
+      AND s.stock_consumed_at IS NOT NULL
+      AND NOT public.is_consumable_shipment(s.status_id, s.status_message, s.is_return)
+    ORDER BY s.stock_consumed_at DESC, s.id
+    LIMIT v_limit
+    FOR UPDATE SKIP LOCKED
+  LOOP
+    SELECT r.restocked INTO v_changed
+    FROM public.restock_shipment_stock(
+      p_tenant_id,
+      v_shipment.id,
+      'Réconciliation consume-at-ship'
+    ) r;
+    IF COALESCE(v_changed, false) THEN v_reversed := v_reversed + 1; END IF;
+    v_examined := v_examined + 1;
+  END LOOP;
 
   -- Spend only the remaining shared budget on missed consumptions.
   IF v_examined < v_limit THEN

@@ -6,6 +6,23 @@ import type { SendcloudCredentials } from '@/lib/sendcloud/types'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { restockShipmentStock } from '@/lib/stock/consume'
 
+const CANCEL_RESTOCK_MAX_ATTEMPTS = 3
+
+async function restockCancelledShipmentWithRetry(
+  tenantId: string,
+  shipmentId: string,
+) {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= CANCEL_RESTOCK_MAX_ATTEMPTS; attempt++) {
+    try {
+      return await restockShipmentStock(tenantId, shipmentId, 'Annulation UI')
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -114,13 +131,16 @@ export async function POST(
     let stockRestocked = false
     let stockReconciliationPending = false
     try {
-      const reversal = await restockShipmentStock(tenantId, id, 'Annulation UI')
+      // Targeted and independent of consume_at_ship_enabled: a transient RPC
+      // failure cannot strand this cancellation behind the rollout sweeper gate.
+      const reversal = await restockCancelledShipmentWithRetry(tenantId, id)
       stockRestocked = reversal.restocked
     } catch (stockError) {
       // Sendcloud is already cancelled. Keep that successful business action
-      // and let the bounded sweeper retry the atomic reversal.
+      // visible, report the exhausted targeted retry, and rely on the Sendcloud
+      // webhook as the final automatic path until this tenant is activated.
       stockReconciliationPending = true
-      console.error('Cancel shipment stock reversal deferred:', stockError)
+      console.error('Cancel shipment stock reversal retries exhausted:', stockError)
     }
 
     return NextResponse.json({

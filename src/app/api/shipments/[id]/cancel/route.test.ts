@@ -80,8 +80,28 @@ describe('POST /api/shipments/[id]/cancel', () => {
     expect(restockShipmentStock).toHaveBeenCalledWith('tenant-1', 'shipment-1', 'Annulation UI')
   })
 
-  it('keeps cancellation successful and reports a deferred atomic retry', async () => {
-    vi.mocked(restockShipmentStock).mockRejectedValue(new Error('database timeout'))
+  it('retries the exact cancelled shipment outside the tenant sweeper gate', async () => {
+    vi.mocked(restockShipmentStock)
+      .mockRejectedValueOnce(new Error('database timeout'))
+      .mockResolvedValueOnce({ restocked: true, count: 1 })
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const response = await POST(
+      new NextRequest('https://example.test/api/shipments/shipment-1/cancel', { method: 'POST' }),
+      { params: Promise.resolve({ id: 'shipment-1' }) },
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      success: true,
+      stock_restocked: true,
+      stock_reconciliation_pending: false,
+    })
+    expect(restockShipmentStock).toHaveBeenCalledTimes(2)
+  })
+
+  it('bounds targeted retries and reports pending when all attempts fail', async () => {
+    vi.mocked(restockShipmentStock).mockRejectedValue(new Error('database unavailable'))
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
     const response = await POST(
@@ -95,5 +115,6 @@ describe('POST /api/shipments/[id]/cancel', () => {
       stock_restocked: false,
       stock_reconciliation_pending: true,
     })
+    expect(restockShipmentStock).toHaveBeenCalledTimes(3)
   })
 })

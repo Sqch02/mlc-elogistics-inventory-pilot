@@ -6,24 +6,48 @@ const sql = readFileSync(
   join(process.cwd(), 'supabase/migrations/00097_stock_reconcile_and_recalibration.sql'),
   'utf8',
 )
+const indexSql = readFileSync(
+  join(process.cwd(), 'supabase/operations/2026-07-22_consume_at_ship_indexes.sql'),
+  'utf8',
+)
+const explainSql = readFileSync(
+  join(process.cwd(), 'docs/plans/2026-07-22-consume-at-ship-explain.sql'),
+  'utf8',
+)
+
+const executableMigrationSql = sql.replace(/--.*$/gm, '')
 
 describe('00097 stock reconciliation and recalibration contract', () => {
-  it('hard-caps the sweeper and gates historical reversal per tenant', () => {
+  it('hard-caps both sweeper directions behind one tenant rollout flag', () => {
     expect(sql).toContain('CREATE OR REPLACE FUNCTION public.reconcile_tenant_stock')
     expect(sql).toContain('LEAST(200, GREATEST(1, COALESCE(p_limit, 200)))')
     expect(sql.match(/FOR UPDATE SKIP LOCKED/g)?.length).toBeGreaterThanOrEqual(2)
     expect(sql).toContain('consume_at_ship_enabled boolean NOT NULL DEFAULT false')
-    expect(sql).toContain('IF v_historical_reversal_enabled THEN')
+    expect(sql).toContain('IF NOT v_consume_at_ship_enabled THEN')
+    expect(sql.indexOf('IF NOT v_consume_at_ship_enabled THEN')).toBeLessThan(
+      sql.indexOf('-- Restore historical wrong consumption'),
+    )
     expect(sql).toContain('public.consume_shipment_stock')
     expect(sql).toContain('public.restock_shipment_stock')
   })
 
-  it('uses a concurrent predicate-matched partial index for historical reversal', () => {
-    expect(sql).toContain('CREATE INDEX CONCURRENTLY IF NOT EXISTS')
-    expect(sql).toContain('idx_shipments_tenant_non_consumable_consumed')
-    expect(sql).toContain('NOT public.is_consumable_shipment(status_id, status_message, is_return)')
-    expect(sql).toContain('INCLUDE (status_id, status_message, is_return)')
-    expect(sql).not.toContain('DROP INDEX')
+  it('keeps concurrent indexes out of the transactional migration', () => {
+    expect(executableMigrationSql).not.toContain('CREATE INDEX CONCURRENTLY')
+    expect(sql).toContain('supabase/operations/2026-07-22_consume_at_ship_indexes.sql')
+    expect(indexSql.match(/CREATE INDEX CONCURRENTLY IF NOT EXISTS/g)).toHaveLength(2)
+    expect(indexSql).not.toMatch(/\bBEGIN\b/)
+  })
+
+  it('provides symmetric partial indexes and EXPLAIN checks for both loops', () => {
+    expect(indexSql).toContain('idx_shipments_tenant_non_consumable_consumed')
+    expect(indexSql).toContain('NOT public.is_consumable_shipment(status_id, status_message, is_return)')
+    expect(indexSql).toContain('idx_shipments_tenant_unconsumed_shipped_recent')
+    expect(indexSql).toContain('shipped_at DESC NULLS LAST, id')
+    expect(indexSql.match(/INCLUDE \(status_id, status_message, is_return\)/g)).toHaveLength(2)
+    expect(indexSql).toContain('WHERE stock_consumed_at IS NULL')
+    expect(explainSql.match(/EXPLAIN \(ANALYZE, BUFFERS, VERBOSE, FORMAT TEXT\)/g)).toHaveLength(2)
+    expect(explainSql).toContain('idx_shipments_tenant_non_consumable_consumed')
+    expect(explainSql).toContain('idx_shipments_tenant_unconsumed_shipped_recent')
   })
 
   it('reports requested and effective floor-clamped restoration separately', () => {
