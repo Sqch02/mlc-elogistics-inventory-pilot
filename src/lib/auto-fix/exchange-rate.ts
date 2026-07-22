@@ -6,6 +6,8 @@ const ECB_CHF_URL = 'https://data-api.ecb.europa.eu/service/data/EXR/D.CHF.EUR.S
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const MAX_RATE_AGE_MS = 7 * 24 * 60 * 60 * 1000
 const FETCH_TIMEOUT_MS = 5_000
+const MIN_PLAUSIBLE_CHF_TO_EUR_RATE = 0.5
+const MAX_PLAUSIBLE_CHF_TO_EUR_RATE = 2
 const CACHE_COLUMNS = 'base_currency,target_currency,rate,rate_date,provider,provider_quote,fetched_at,expires_at,refresh_not_before'
 const BIGINT_ZERO = BigInt(0)
 const BIGINT_ONE = BigInt(1)
@@ -77,6 +79,13 @@ function normalizedDecimal(value: number | string): string | null {
   return normalized.endsWith('.') ? normalized.slice(0, -1) : normalized
 }
 
+function isPlausibleChfToEurRate(value: string): boolean {
+  const numeric = Number(value)
+  return Number.isFinite(numeric)
+    && numeric >= MIN_PLAUSIBLE_CHF_TO_EUR_RATE
+    && numeric <= MAX_PLAUSIBLE_CHF_TO_EUR_RATE
+}
+
 function decimalParts(value: string): { integer: bigint; scale: bigint } | null {
   const normalized = normalizedDecimal(value)
   if (!normalized) return null
@@ -127,7 +136,12 @@ function fromCache(row: CachedRateRow | null, now: Date): ChfToEurRate | null {
   if (!Number.isFinite(expiresAt) || expiresAt <= now.getTime() || !rateDateIsAcceptable(row.rate_date, now)) return null
   const rate = normalizedDecimal(row.rate)
   const providerQuote = normalizedDecimal(row.provider_quote)
-  if (!rate || !providerQuote) return null
+  const derivedFromProviderQuote = providerQuote ? inverseDecimal(providerQuote) : null
+  if (
+    !rate || !providerQuote || !derivedFromProviderQuote ||
+    !isPlausibleChfToEurRate(rate) || !isPlausibleChfToEurRate(derivedFromProviderQuote) ||
+    rate !== derivedFromProviderQuote
+  ) return null
   return {
     baseCurrency: 'CHF',
     targetCurrency: 'EUR',
@@ -209,7 +223,9 @@ export async function resolveChfToEurRate(
     return { ok: false, reason: 'provider_rate_too_old' }
   }
   const derivedRate = inverseDecimal(quote.chfPerEur)
-  if (!derivedRate) return { ok: false, reason: 'provider_unavailable' }
+  if (!derivedRate || !isPlausibleChfToEurRate(derivedRate)) {
+    return { ok: false, reason: 'provider_unavailable' }
+  }
   const fetchedAt = now.toISOString()
   const rate: ChfToEurRate = {
     baseCurrency: 'CHF',
@@ -263,6 +279,7 @@ export function createSupabaseExchangeRateRepository(
         provider_quote: Number(rate.providerQuote.rate),
         fetched_at: rate.fetchedAt,
         expires_at: rate.expiresAt,
+        refresh_not_before: rate.expiresAt,
       }, { onConflict: 'base_currency,target_currency' })
       if (error) throw new Error(`exchange_rates_cache write: ${error.message}`)
     },

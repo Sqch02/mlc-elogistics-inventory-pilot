@@ -22,6 +22,16 @@ CREATE TABLE IF NOT EXISTS public.exchange_rates_cache (
     (rate IS NULL OR rate > 0)
     AND (provider_quote IS NULL OR provider_quote > 0)
   ),
+  CONSTRAINT exchange_rates_cache_chf_eur_plausibility CHECK (
+    base_currency <> 'CHF'
+    OR target_currency <> 'EUR'
+    OR rate IS NULL
+    OR (
+      rate BETWEEN 0.5 AND 2.0
+      AND provider_quote BETWEEN 0.5 AND 2.0
+      AND abs((rate * provider_quote) - 1) <= 0.000000001
+    )
+  ),
   CONSTRAINT exchange_rates_cache_provider CHECK (provider IS NULL OR provider = 'ECB'),
   CONSTRAINT exchange_rates_cache_complete_rate CHECK (
     (rate IS NULL AND rate_date IS NULL AND provider IS NULL AND provider_quote IS NULL
@@ -45,9 +55,10 @@ CREATE TRIGGER exchange_rates_cache_updated_at
   BEFORE UPDATE ON public.exchange_rates_cache
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
--- Reservation atomique du rafraichissement. Elle est ecrite AVANT l'appel BCE
--- et bloque toute nouvelle tentative pendant 24 h, y compris apres un echec :
--- au plus un appel externe par paire et par jour, meme avec deux workers.
+-- Reservation atomique du rafraichissement. Le bail court est ecrit AVANT
+-- l'appel BCE : il evite les appels concurrents, mais autorise un nouveau retry
+-- borne apres un echec. Un save reussi pose refresh_not_before a expires_at
+-- (24 h) dans l'upsert applicatif.
 CREATE OR REPLACE FUNCTION public.claim_exchange_rate_refresh(
   p_base_currency text,
   p_target_currency text
@@ -70,10 +81,10 @@ BEGIN
     INSERT INTO public.exchange_rates_cache (
       base_currency, target_currency, refresh_not_before
     ) VALUES (
-      v_base, v_target, now() + interval '24 hours'
+      v_base, v_target, now() + interval '15 minutes'
     )
     ON CONFLICT (base_currency, target_currency) DO UPDATE
-      SET refresh_not_before = now() + interval '24 hours', updated_at = now()
+      SET refresh_not_before = now() + interval '15 minutes', updated_at = now()
       WHERE public.exchange_rates_cache.refresh_not_before <= now()
         AND (
           public.exchange_rates_cache.expires_at IS NULL

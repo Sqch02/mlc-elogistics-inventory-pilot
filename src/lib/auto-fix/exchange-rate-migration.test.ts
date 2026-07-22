@@ -8,12 +8,19 @@ const sql = readFileSync(
 )
 
 describe('00094 exchange rate cache contract', () => {
-  it('uses exact numerics, a dated rate and a 24 hour refresh lease', () => {
+  it('uses exact numerics, a dated rate and a short failed-refresh lease', () => {
     expect(sql).toContain('rate numeric(20, 12)')
     expect(sql).toContain('rate_date date')
-    expect(sql).toContain("now() + interval '24 hours'")
+    expect(sql).toContain("now() + interval '15 minutes'")
     expect(sql).toContain('ON CONFLICT (base_currency, target_currency) DO UPDATE')
     expect(sql).toContain('refresh_not_before <= now()')
+  })
+
+  it('rejects derived CHF to EUR rates outside the plausibility band', () => {
+    expect(sql).toContain('exchange_rates_cache_chf_eur_plausibility')
+    expect(sql).toMatch(/rate\s+BETWEEN\s+0\.5\s+AND\s+2\.0/i)
+    expect(sql).toMatch(/provider_quote\s+BETWEEN\s+0\.5\s+AND\s+2\.0/i)
+    expect(sql).toContain('abs((rate * provider_quote) - 1) <= 0.000000001')
   })
 
   it('is inaccessible to public users and writable only by service role', () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  createSupabaseExchangeRateRepository,
   fetchLatestEcbChfQuote,
   resolveChfToEurRate,
   type ChfToEurRate,
@@ -123,5 +124,53 @@ describe('ECB CHF exchange rate', () => {
     })
     expect(result).toEqual({ ok: false, reason: 'provider_rate_too_old' })
     expect(repository.save).not.toHaveBeenCalled()
+  })
+
+  it('rejects a positive but implausible derived CHF to EUR rate before caching it', async () => {
+    const repository = memoryRepository()
+    const result = await resolveChfToEurRate(repository, {
+      now,
+      fetchQuote: async () => ({ rateDate: '2026-07-21', chfPerEur: '0.09259' }),
+    })
+
+    expect(result).toEqual({ ok: false, reason: 'provider_unavailable' })
+    expect(repository.save).not.toHaveBeenCalled()
+  })
+
+  it('does not trust a fresh cache row whose provider quote is implausible', async () => {
+    const repository = memoryRepository({
+      baseCurrency: 'CHF', targetCurrency: 'EUR', rate: '1.080030240847',
+      rateDate: '2026-07-21', provider: 'ECB', providerSeries: 'EXR.D.CHF.EUR.SP00.A',
+      providerQuote: { baseCurrency: 'EUR', targetCurrency: 'CHF', rate: '9.259' },
+      fetchedAt: '2026-07-22T07:00:00.000Z', expiresAt: '2026-07-23T07:00:00.000Z', cacheStatus: 'hit',
+    }, false)
+
+    const result = await resolveChfToEurRate(repository, { now })
+
+    expect(result).toEqual({ ok: false, reason: 'refresh_suppressed' })
+  })
+
+  it('extends refresh_not_before to the 24 hour expiry only after a successful save', async () => {
+    const upsert = vi.fn(async () => ({ error: null }))
+    const client = {
+      from: vi.fn(() => ({ upsert })),
+    } as unknown as Parameters<typeof createSupabaseExchangeRateRepository>[0]
+    const repository = createSupabaseExchangeRateRepository(client)
+    const refreshed: ChfToEurRate = {
+      baseCurrency: 'CHF', targetCurrency: 'EUR', rate: '1.080030240847',
+      rateDate: '2026-07-21', provider: 'ECB', providerSeries: 'EXR.D.CHF.EUR.SP00.A',
+      providerQuote: { baseCurrency: 'EUR', targetCurrency: 'CHF', rate: '0.9259' },
+      fetchedAt: '2026-07-22T08:00:00.000Z', expiresAt: '2026-07-23T08:00:00.000Z', cacheStatus: 'refreshed',
+    }
+
+    await repository.save(refreshed)
+
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expires_at: refreshed.expiresAt,
+        refresh_not_before: refreshed.expiresAt,
+      }),
+      { onConflict: 'base_currency,target_currency' },
+    )
   })
 })

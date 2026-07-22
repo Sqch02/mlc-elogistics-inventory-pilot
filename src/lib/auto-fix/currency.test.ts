@@ -110,7 +110,48 @@ describe('buildChfToEurConversion', () => {
       direct_total_conversion: '0.01',
       item_sum_total: '0.00',
       allocation_delta: '-0.01',
+      theoretical_max_allocation_delta: '0.01',
+      allowed_allocation_delta: '0.01',
     })
+    expect(change.consistency).toMatchObject({ allocation_delta_within_tolerance: true })
+    expect(change.consistency).not.toHaveProperty('target_total_equals_item_sum')
+  })
+
+  it('keeps a materially accumulated rounding delta pending for manual review', () => {
+    const highQuote: ChfRateResolution = {
+      ...rate,
+      rate: {
+        ...rate.rate,
+        rate: '0.333333333333',
+        providerQuote: { ...rate.rate.providerQuote, rate: '3' },
+      },
+    }
+    const result = buildChfToEurConversion({
+      currency: 'CHF',
+      monetary: {
+        total_order_value: '0.05',
+        parcel_items: Array.from({ length: 5 }, (_, index) => ({
+          index,
+          quantity: 1,
+          value: '0.01',
+        })),
+      },
+    }, highQuote)
+
+    expect(result.ready).toBe(false)
+    if (!result.ready) {
+      expect(result.reason).toBe('allocation_delta_exceeds_tolerance')
+      expect(result.change).toMatchObject({
+        calculation_status: 'pending_manual',
+        reason_code: 'allocation_delta_exceeds_tolerance',
+        rounding: {
+          allocation_delta: '-0.02',
+          theoretical_max_allocation_delta: '0.03',
+          allowed_allocation_delta: '0.01',
+        },
+        consistency: { allocation_delta_within_tolerance: false },
+      })
+    }
   })
 
   it.each([

@@ -158,7 +158,7 @@ describe('auto-fix queue model', () => {
       before: { currency: 'CHF', total_order_value: '10.00' },
       after: { currency: 'EUR', total_order_value: '10.80' },
       exchange_rate: { provider: 'ECB', rate_date: '2026-07-21' },
-      consistency: { source_total_equals_item_sum: true, target_total_equals_item_sum: true },
+      consistency: { source_total_equals_item_sum: true, allocation_delta_within_tolerance: true },
     })
   })
 })

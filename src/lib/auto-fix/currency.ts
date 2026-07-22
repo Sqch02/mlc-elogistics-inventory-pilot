@@ -6,6 +6,9 @@ const BIGINT_ONE = BigInt(1)
 const BIGINT_TWO = BigInt(2)
 const BIGINT_TEN = BigInt(10)
 const BIGINT_HUNDRED = BigInt(100)
+// Future live application must not silently move the order total by more than
+// one cent solely to reconcile independently rounded item values.
+const MAX_MATERIAL_ALLOCATION_DELTA_CENTS = BigInt(1)
 
 export type CurrencyConversionFailureReason =
   | 'rate_unavailable'
@@ -15,6 +18,7 @@ export type CurrencyConversionFailureReason =
   | 'item_value_missing_or_invalid'
   | 'item_quantity_invalid'
   | 'source_total_items_mismatch'
+  | 'allocation_delta_exceeds_tolerance'
 
 export type CurrencyConversionPlan =
   | { ready: true; change: Json }
@@ -72,6 +76,27 @@ function sumItemValues(items: MonetaryItem[], semantics: ItemValueSemantics): bi
       ? value * BigInt(item.quantity)
       : value)
   }, BIGINT_ZERO)
+}
+
+function absolute(value: bigint): bigint {
+  return value < BIGINT_ZERO ? -value : value
+}
+
+function minimum(left: bigint, right: bigint): bigint {
+  return left < right ? left : right
+}
+
+function theoreticalAllocationDeltaCents(
+  items: MonetaryItem[],
+  semantics: ItemValueSemantics,
+): bigint {
+  // Each independently rounded item value contributes at most half a cent of
+  // error. For unit values, that error is repeated by quantity when totals are
+  // rebuilt. The separately rounded order total adds another half cent.
+  const effectiveItemRoundings = semantics === 'unit_value_multiplied_by_quantity'
+    ? items.reduce((sum, item) => sum + BigInt(item.quantity), BIGINT_ZERO)
+    : BigInt(items.length)
+  return (effectiveItemRoundings + BIGINT_ONE) / BIGINT_TWO
 }
 
 function unavailable(
@@ -210,35 +235,52 @@ export function buildChfToEurConversion(
   }
   const delta = targetTotal - directTargetTotal
 
+  const theoreticalMaxDelta = theoreticalAllocationDeltaCents(items, itemValueSemantics)
+  const allowedDelta = minimum(theoreticalMaxDelta, MAX_MATERIAL_ALLOCATION_DELTA_CENTS)
+  const deltaWithinTolerance = absolute(delta) <= allowedDelta
+  const conversionDetails = {
+    pattern: 'currency_chf',
+    calculation_status: deltaWithinTolerance ? 'ready' : 'pending_manual',
+    ...(!deltaWithinTolerance ? { reason_code: 'allocation_delta_exceeds_tolerance' } : {}),
+    before: {
+      currency: 'CHF',
+      total_order_value: formatMinorUnits(total),
+      parcel_items: items,
+    },
+    after: {
+      currency: 'EUR',
+      total_order_value: formatMinorUnits(targetTotal),
+      parcel_items: safeTargetItems,
+    },
+    exchange_rate: rateAudit(rateResolution.rate),
+    rounding: {
+      decimals: 2,
+      mode: 'half_up',
+      strategy: 'round_each_item_then_sum',
+      item_value_semantics: itemValueSemantics,
+      direct_total_conversion: formatMinorUnits(directTargetTotal),
+      item_sum_total: formatMinorUnits(targetTotal),
+      allocation_delta: `${delta < BIGINT_ZERO ? '-' : ''}${formatMinorUnits(absolute(delta))}`,
+      theoretical_max_allocation_delta: formatMinorUnits(theoreticalMaxDelta),
+      allowed_allocation_delta: formatMinorUnits(allowedDelta),
+    },
+    consistency: {
+      source_total_equals_item_sum: true,
+      allocation_delta_within_tolerance: deltaWithinTolerance,
+    },
+  }
+
+  if (!deltaWithinTolerance) {
+    return {
+      ready: false,
+      reason: 'allocation_delta_exceeds_tolerance',
+      warning: 'Ecart cumule des arrondis superieur a la tolerance monetaire',
+      change: conversionDetails as unknown as Json,
+    }
+  }
+
   return {
     ready: true,
-    change: {
-      pattern: 'currency_chf',
-      calculation_status: 'ready',
-      before: {
-        currency: 'CHF',
-        total_order_value: formatMinorUnits(total),
-        parcel_items: items,
-      },
-      after: {
-        currency: 'EUR',
-        total_order_value: formatMinorUnits(targetTotal),
-        parcel_items: safeTargetItems,
-      },
-      exchange_rate: rateAudit(rateResolution.rate),
-      rounding: {
-        decimals: 2,
-        mode: 'half_up',
-        strategy: 'round_each_item_then_sum',
-        item_value_semantics: itemValueSemantics,
-        direct_total_conversion: formatMinorUnits(directTargetTotal),
-        item_sum_total: formatMinorUnits(targetTotal),
-        allocation_delta: `${delta < BIGINT_ZERO ? '-' : ''}${formatMinorUnits(delta < BIGINT_ZERO ? -delta : delta)}`,
-      },
-      consistency: {
-        source_total_equals_item_sum: true,
-        target_total_equals_item_sum: true,
-      },
-    } as unknown as Json,
+    change: conversionDetails as unknown as Json,
   }
 }
