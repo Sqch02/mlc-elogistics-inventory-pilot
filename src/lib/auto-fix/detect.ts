@@ -84,6 +84,32 @@ function numericWeight(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function monetaryValue(value: unknown): string | null {
+  const raw = typeof value === 'number' || typeof value === 'string' ? String(value).trim() : ''
+  if (!/^\d+(?:\.\d{1,2})?$/.test(raw)) return null
+  const [whole, fraction = ''] = raw.split('.')
+  return `${whole.replace(/^0+(?=\d)/, '') || '0'}.${fraction.padEnd(2, '0')}`
+}
+
+function itemQuantity(value: unknown): number | null {
+  const parsed = typeof value === 'number' ? value : Number(value)
+  return Number.isInteger(parsed) && parsed >= 1 ? parsed : null
+}
+
+function monetarySummary(
+  raw: Record<string, unknown>,
+  items: Array<Record<string, unknown>>,
+): Json {
+  return {
+    total_order_value: monetaryValue(raw.total_order_value),
+    parcel_items: items.map((item, index) => ({
+      index,
+      quantity: itemQuantity(item.quantity),
+      value: monetaryValue(item.value),
+    })),
+  }
+}
+
 function extractMaxLength(text: string): number | null {
   const normalized = normalizeText(text)
   const match = normalized.match(/(?:max(?:imum)?|at most|au plus|depasse|limite(?:e)? a?)\D{0,20}(\d{1,3})/)
@@ -198,6 +224,9 @@ export function detectAutoFixCause(
     low_weight_item_indexes: lowWeightIndexes,
     service_point_present: Boolean(raw.to_service_point),
   }
+  // Amounts are retained only for a real structured CHF cause. No SKU,
+  // description or customer data enters the queue; retention remains 30 days.
+  if (detected.has('currency_chf')) summary.monetary = monetarySummary(raw, items)
 
   const sourceFingerprint = fingerprintJson({
     source_kind: sourceKind,
