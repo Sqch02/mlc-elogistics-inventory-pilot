@@ -101,6 +101,54 @@ describe('Sendcloud persistent checkpoints', () => {
     })
   })
 
+  it('degrades gracefully for the real PostgREST missing-table response', async () => {
+    const { client } = selectClient(null, {
+      code: 'PGRST205',
+      message: "Could not find the table 'public.sendcloud_sync_checkpoints' in the schema cache",
+    })
+
+    await expect(loadIncrementalDrain(
+      client,
+      'tenant-1',
+      'parcels',
+      '2026-07-13T08:00:00.000Z',
+      '2026-07-13T09:00:00.000Z',
+    )).resolves.toMatchObject({
+      watermark: '2026-07-13T08:00:00.000Z',
+      resuming: false,
+    })
+  })
+
+  it('does not swallow PGRST205 for a different missing relation', async () => {
+    const { client } = selectClient(null, {
+      code: 'PGRST205',
+      message: "Could not find the table 'public.tenant_settings' in the schema cache",
+    })
+
+    await expect(loadIncrementalDrain(
+      client,
+      'tenant-1',
+      'parcels',
+      '2026-07-13T08:00:00.000Z',
+      '2026-07-13T09:00:00.000Z',
+    )).rejects.toThrow('tenant_settings')
+  })
+
+  it('keeps permission errors on the checkpoint table fatal', async () => {
+    const { client } = selectClient(null, {
+      code: '42501',
+      message: 'permission denied for table sendcloud_sync_checkpoints',
+    })
+
+    await expect(loadIncrementalDrain(
+      client,
+      'tenant-1',
+      'returns',
+      '2026-07-13T08:00:00.000Z',
+      '2026-07-13T09:00:00.000Z',
+    )).rejects.toThrow('permission denied')
+  })
+
   it('uses no integration continuation when migration 00095 is missing', async () => {
     const { client } = listClient(null, {
       code: '42P01',

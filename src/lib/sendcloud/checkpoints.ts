@@ -39,7 +39,20 @@ interface CheckpointError {
 }
 
 function isMissingCheckpointTable(error: CheckpointError | null): boolean {
-  return error?.code === '42P01'
+  if (!error) return false
+
+  const message = error.message.toLowerCase()
+  if (!message.includes('sendcloud_sync_checkpoints')) return false
+
+  if (error.code === '42P01') return message.includes('does not exist')
+  if (error.code === 'PGRST205') {
+    return message.includes('could not find the table') && message.includes('schema cache')
+  }
+
+  // Some adapters omit/normalize the code. The fallback stays deliberately
+  // narrow: it must name this exact table and explicitly describe absence.
+  return message.includes('does not exist')
+    || (message.includes('could not find the table') && message.includes('schema cache'))
 }
 
 function checkpointError(action: string, error: CheckpointError): Error {
