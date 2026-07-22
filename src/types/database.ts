@@ -63,6 +63,22 @@ interface LocalFunctions {
       units_reversed: number
     }>
   }
+  restock_shipment_stock: {
+    Args: { p_tenant_id: string; p_shipment_id: string; p_reason?: string }
+    Returns: Array<{ restocked: boolean; item_count: number }>
+  }
+  reconcile_tenant_stock: {
+    Args: { p_tenant_id: string; p_limit?: number }
+    Returns: Array<{ consumed_count: number; reversed_count: number }>
+  }
+  recalibrate_consumed_not_shipped_report: {
+    Args: { p_tenant_id: string }
+    Returns: Array<{ sku_id: string; units_to_restore: number; shipment_count: number }>
+  }
+  recalibrate_consumed_not_shipped_apply: {
+    Args: { p_tenant_id: string; p_expected_total: number }
+    Returns: Array<{ skus_restored: number; units_restored: number }>
+  }
 }
 
 type AutoFixJobRow = Record<string, unknown> & {

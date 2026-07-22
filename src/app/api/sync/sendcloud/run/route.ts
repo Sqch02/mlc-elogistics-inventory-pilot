@@ -5,6 +5,7 @@ import { handleAuthError } from '@/lib/api/errors'
 import { fetchAllParcels } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
 import { consumeShipmentStockOnce } from '@/lib/stock/consume'
+import { isConsumableStatus } from '@/lib/stock/consumable-status'
 import type { PricingRule } from '@/lib/utils/pricing'
 import { processShipmentItems } from '@/lib/utils/sku-mapping'
 import { buildShipmentRow } from '@/lib/sendcloud/build-shipment-row'
@@ -115,10 +116,12 @@ export async function POST() {
     // Process each parcel
     for (const parcel of parcels) {
       try {
-        // Check if shipment already exists (to know if we should consume stock)
+        // Scope existence and the consumption marker to this tenant. Existence
+        // is only used for stats; stock eligibility is transition-based.
         const { data: existingShipment } = await adminClient
           .from('shipments')
-          .select('id')
+          .select('id, stock_consumed_at')
+          .eq('tenant_id', tenantId)
           .eq('sendcloud_id', parcel.sendcloud_id)
           .single()
 
@@ -171,10 +174,13 @@ export async function POST() {
             )
             stats.itemsCreated += mappedCount
 
-            // Consume stock once for the whole shipment (idempotent CAS on
-            // stock_consumed_at) rather than per item, so webhook/cron/manual sync
-            // can never double-consume the same parcel.
-            if (isNewShipment && mappedCount > 0) {
+            // Consume on the first consumable observation, including an
+            // existing On-Hold shipment transitioning to Fulfilled/Completed.
+            if (
+              isConsumableStatus(parcel) &&
+              existingShipment?.stock_consumed_at == null &&
+              mappedCount > 0
+            ) {
               try {
                 const { count } = await consumeShipmentStockOnce(tenantId, shipment.id)
                 stats.stockConsumed += count

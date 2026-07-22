@@ -17,10 +17,12 @@ import type { SendcloudCredentials, ParsedShipment, ParsedReturn } from '@/lib/s
 import type { PricingRule } from '@/lib/utils/pricing'
 import { processShipmentItems } from '@/lib/utils/sku-mapping'
 import { consumeShipmentStockOnce } from '@/lib/stock/consume'
+import { isConsumableStatus } from '@/lib/stock/consumable-status'
 import { reconcileTenant } from '@/lib/sendcloud/reconcile'
 import { getCronMaxPages } from '@/lib/sendcloud/pagination'
 import { safeEqual } from '@/lib/utils/safe-compare'
 import { reverseDuplicateShipmentStock } from '@/lib/stock/reverse-duplicates'
+import { reconcileTenantStock, type StockReconcileResult } from '@/lib/stock/reconcile-stock'
 import { buildShipmentRow } from '@/lib/sendcloud/build-shipment-row'
 import {
   createSyncCorrelationId,
@@ -568,23 +570,28 @@ async function runSync(correlationId: string) {
       )
       let shipmentPersistenceError: string | undefined
 
-      // Identify which sendcloud_ids already exist BEFORE the upsert, so we
-      // know which shipments are truly new and need stock consumption afterwards.
-      // Without this the cron silently re-creates shipment_items without ever
-      // decrementing stock — bug reported by Quentin on REBORN21 le 21/05.
-      const newSendcloudIds = new Set<string>()
+      // Capture the consumption marker before the upsert. Eligibility is based
+      // on the current status, not on row creation: an existing On-Hold order
+      // must consume when it later transitions to Fulfilled/Completed.
+      const existingConsumedAt = new Map<string, string | null>()
+      let consumptionLookupSucceeded = true
       if (shipmentsToUpsert.length > 0) {
         const incomingIds = shipmentsToUpsert.map((s) => s.sendcloud_id)
-        const { data: existingRows } = await adminClient
+        const { data: existingRows, error: existingRowsError } = await adminClient
           .from('shipments')
-          .select('sendcloud_id')
+          .select('sendcloud_id, stock_consumed_at')
           .eq('tenant_id', tenant.id)
           .in('sendcloud_id', incomingIds)
-        const existing = new Set(
-          (existingRows || []).map((r: { sendcloud_id: string }) => r.sendcloud_id),
-        )
-        for (const id of incomingIds) {
-          if (!existing.has(id)) newSendcloudIds.add(id)
+        if (existingRowsError) {
+          consumptionLookupSucceeded = false
+          logger.error('Stock consumption marker lookup failed; deferring to sweeper:', existingRowsError)
+        } else {
+          for (const row of (existingRows ?? []) as Array<{
+            sendcloud_id: string
+            stock_consumed_at: string | null
+          }>) {
+            existingConsumedAt.set(row.sendcloud_id, row.stock_consumed_at)
+          }
         }
 
         const { error: shipmentError } = await adminClient
@@ -687,10 +694,12 @@ async function runSync(correlationId: string) {
             totalMapped += mappedCount
             totalUnmapped += unmappedCount
 
-            // Consume stock only for shipments that were created during THIS
-            // sync run (mirrors the webhook's isNewShipment logic). Skipping
-            // this caused REBORN21 stock to drift on 21/05.
-            if (newSendcloudIds.has(parcel.sendcloud_id) && mappedCount > 0) {
+            if (
+              consumptionLookupSucceeded &&
+              isConsumableStatus(parcel) &&
+              existingConsumedAt.get(parcel.sendcloud_id) == null &&
+              mappedCount > 0
+            ) {
               // Idempotent CAS on stock_consumed_at: even if the webhook processes
               // this same freshly-created parcel concurrently, only one path
               // actually consumes it (fixes the isNewShipment TOCTOU double-count).
@@ -866,6 +875,21 @@ async function runSync(correlationId: string) {
       }
 
       // ============================================
+      // BOUNDED STOCK RECONCILIATION
+      // ============================================
+      // Runs under the tenant lock already held by this loop. Its own hard cap
+      // is 200 and a failure is observability-only for the shipment sync.
+      let stockReconciliation: StockReconcileResult | null = null
+      try {
+        stockReconciliation = await reconcileTenantStock(adminClient, tenant.id, 200)
+        if (stockReconciliation.consumed > 0 || stockReconciliation.reversed > 0) {
+          logger.info(`Stock reconcile tenant ${tenant.id}:`, stockReconciliation)
+        }
+      } catch (stockReconcileError) {
+        logger.error(`Stock reconcile failed for tenant ${tenant.id}:`, stockReconcileError)
+      }
+
+      // ============================================
       // RECORD SYNC RUN
       // ============================================
       const duration = Date.now() - startTime
@@ -896,6 +920,11 @@ async function runSync(correlationId: string) {
             detected: autoFixDetectionStats.detected,
             enqueued_or_seen: autoFixDetectionStats.enqueuedOrSeen,
             truncated: autoFixDetectionStats.truncated,
+          },
+          stock_reconciliation: stockReconciliation === null ? null : {
+            consumed: stockReconciliation.consumed,
+            reversed: stockReconciliation.reversed,
+            paused: stockReconciliation.paused,
           },
           correlation_id: correlationId,
         },

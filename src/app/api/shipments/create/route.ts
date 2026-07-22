@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
-import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
+import { requireTenant } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 import { createParcel, CreateParcelData } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
@@ -46,7 +46,6 @@ interface PricingRule {
 export async function POST(request: NextRequest) {
   try {
     const tenantId = await requireTenant()
-    const user = await getCurrentUser()
     const adminClient = getAdminDb()
     const body = await request.json()
 
@@ -208,7 +207,9 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Process items if provided (link to SKUs and update stock)
+    // Link items only. A parcel created in Sendcloud has not necessarily left
+    // the warehouse; webhook/sync will call consume_shipment_stock when its
+    // status first becomes physically shipped.
     if (data.items && data.items.length > 0 && shipment) {
       // Get SKUs for matching
       const { data: skus } = await adminClient
@@ -231,40 +232,6 @@ export async function POST(request: NextRequest) {
               qty: item.qty,
             })
 
-          // Update stock (decrement)
-          const { data: currentStock } = await adminClient
-            .from('stock_snapshots')
-            .select('qty_current')
-            .eq('sku_id', skuId)
-            .single()
-
-          const previousQty = currentStock?.qty_current || 0
-          const newQty = Math.max(0, previousQty - item.qty)
-
-          await adminClient
-            .from('stock_snapshots')
-            .upsert({
-              tenant_id: tenantId,
-              sku_id: skuId,
-              qty_current: newQty,
-              updated_at: new Date().toISOString(),
-            }, { onConflict: 'sku_id' })
-
-          // Log stock movement
-          await adminClient
-            .from('stock_movements')
-            .insert({
-              tenant_id: tenantId,
-              sku_id: skuId,
-              qty_before: previousQty,
-              qty_after: newQty,
-              adjustment: -item.qty,
-              movement_type: 'shipment',
-              reason: `Expédition ${parcel.sendcloud_id}`,
-              reference_id: shipment.id,
-              reference_type: 'shipment',
-              user_id: user?.id || null,
-            })
         }
       }
     }
