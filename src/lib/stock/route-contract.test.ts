@@ -38,10 +38,11 @@ describe('consume-at-ship route contracts', () => {
     expect(code).not.toContain('consumeStock(')
   })
 
-  it('UI cancellation and numeric webhook cancellation use atomic restock', () => {
+  it('UI cancellation and every non-consumable status transition use atomic restock', () => {
     expect(source('src/app/api/shipments/[id]/cancel/route.ts')).toContain('restockShipmentStock')
     const webhook = source('src/app/api/webhooks/sendcloud/[tenantCode]/route.ts')
-    expect(webhook).toContain('CANCELLED_STATUS_IDS')
+    expect(webhook).toContain("payload.action === 'parcel_status_changed'")
+    expect(webhook).toContain('!isConsumableStatus(parcel)')
     expect(webhook).toContain('restockShipmentStock')
   })
 

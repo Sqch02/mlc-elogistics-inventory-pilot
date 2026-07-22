@@ -18,6 +18,32 @@ $$;
 REVOKE ALL ON FUNCTION public.is_consumable_shipment(integer, text, boolean) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.is_consumable_shipment(integer, text, boolean) TO service_role;
 
+-- Legacy shipments could already have a shipment ledger entry while their
+-- marker stayed NULL (00062 only backfilled rows with shipped_at). Mark those
+-- rows before any transition-based caller or sweeper can see them as missing.
+-- Run this migration with sync paused and outside peak hours.
+UPDATE public.shipments AS s
+SET stock_consumed_at = COALESCE(s.shipped_at, s.created_at, now())
+WHERE s.stock_consumed_at IS NULL
+  AND EXISTS (
+    SELECT 1
+    FROM public.stock_movements sm
+    WHERE sm.tenant_id = s.tenant_id
+      AND sm.reference_id = s.id
+      AND sm.reference_type = 'shipment'
+      AND sm.movement_type = 'shipment'
+  )
+  -- A completed shipment/restock cycle is already neutralized. Do not revive
+  -- its marker if this idempotent migration is replayed after rollout.
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.stock_movements sm
+    WHERE sm.tenant_id = s.tenant_id
+      AND sm.reference_id = s.id
+      AND sm.reference_type = 'shipment'
+      AND sm.movement_type = 'restock'
+  );
+
 CREATE OR REPLACE FUNCTION public.consume_shipment_stock(
   p_tenant_id uuid,
   p_shipment_id uuid
@@ -61,7 +87,20 @@ BEGIN
   SET stock_consumed_at = now()
   WHERE id = p_shipment_id
     AND tenant_id = p_tenant_id
-    AND stock_consumed_at IS NULL;
+    AND stock_consumed_at IS NULL
+    -- Defense in depth for a legacy/environment-drift row whose marker was not
+    -- backfilled. A neutralized shipment/restock cycle has net effect zero and
+    -- may legitimately be consumed again after a re-send.
+    AND NOT EXISTS (
+      SELECT 1
+      FROM public.stock_movements sm
+      WHERE sm.tenant_id = p_tenant_id
+        AND sm.reference_id = p_shipment_id
+        AND sm.reference_type = 'shipment'
+        AND sm.movement_type IN ('shipment', 'restock')
+      GROUP BY sm.sku_id
+      HAVING SUM(sm.qty_before - sm.qty_after) > 0
+    );
   GET DIAGNOSTICS v_claimed = ROW_COUNT;
 
   IF v_claimed = 0 THEN
@@ -133,14 +172,14 @@ BEGIN
   FOR v_delta IN
     SELECT
       sm.sku_id,
-      GREATEST(0, -SUM(sm.adjustment))::integer AS qty_to_restore
+      GREATEST(0, SUM(sm.qty_before - sm.qty_after))::integer AS qty_to_restore
     FROM public.stock_movements sm
     WHERE sm.tenant_id = p_tenant_id
       AND sm.reference_id = p_shipment_id
       AND sm.reference_type = 'shipment'
       AND sm.movement_type IN ('shipment', 'restock')
     GROUP BY sm.sku_id
-    HAVING SUM(sm.adjustment) < 0
+    HAVING SUM(sm.qty_before - sm.qty_after) > 0
     ORDER BY sm.sku_id
   LOOP
     PERFORM public.apply_stock_delta(

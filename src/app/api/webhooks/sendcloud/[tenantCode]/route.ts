@@ -3,7 +3,7 @@ import { getAdminDb } from '@/lib/supabase/untyped'
 import { parseParcel } from '@/lib/sendcloud/client'
 import type { SendcloudParcel, ParsedShipment } from '@/lib/sendcloud/types'
 import { consumeShipmentStockOnce, restockShipmentStock } from '@/lib/stock/consume'
-import { CANCELLED_STATUS_IDS, isConsumableStatus } from '@/lib/stock/consumable-status'
+import { isConsumableStatus } from '@/lib/stock/consumable-status'
 import type { PricingRule } from '@/lib/utils/pricing'
 import { processShipmentItems } from '@/lib/utils/sku-mapping'
 import { buildShipmentRow } from '@/lib/sendcloud/build-shipment-row'
@@ -365,19 +365,19 @@ export async function POST(
         results.processed++
         console.log('[Webhook]', tenantCode, ': Processed parcel:', parcel.sendcloud_id, '- Status:', parcel.status_message, isNewShipment ? '(NEW)' : '(UPDATE)')
 
-        // Some Sendcloud accounts emit only parcel_status_changed when a parcel
-        // becomes cancelled/refused. Reverse the previous consumption even when
-        // no dedicated parcel_cancelled action follows.
+        // A status transition can become non-consumable by message even without
+        // Sendcloud's numeric cancellation IDs. The atomic RPC is a no-op when
+        // the shipment was never consumed or was already reversed.
         if (
           shipment &&
-          parcel.status_id !== null &&
-          (CANCELLED_STATUS_IDS as readonly number[]).includes(parcel.status_id)
+          payload.action === 'parcel_status_changed' &&
+          !isConsumableStatus(parcel)
         ) {
           try {
             const { restocked } = await restockShipmentStock(
               tenantId,
               shipment.id,
-              'Annulation/refus Sendcloud',
+              'Statut Sendcloud devenu non consommable',
             )
             if (restocked) stockConsumedInBatch = true
           } catch (stockError) {

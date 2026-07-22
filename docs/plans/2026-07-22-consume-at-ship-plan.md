@@ -41,11 +41,15 @@
 
 3. **Consommation à la transition, pas seulement à la création.** On remplace le gate `isNewShipment` par « consommable ET pas encore consommé (`stock_consumed_at IS NULL`) ET au moins un item mappé ». Le CAS sur `stock_consumed_at` garantit l'unicité. Une commande On-Hold n'est donc pas consommée à sa création ; elle le sera quand elle deviendra un vrai colis (transition NULL→status_id, ou remplacement UUID→numérique).
 
-4. **Recalibration = restore revu, ledger-based, périmètre strict.** On ne rembobine QUE les shipments avec `stock_consumed_at IS NOT NULL` qui ne sont **pas** consommables (On-Hold / annulés). Le montant rendu par SKU = `-SUM(stock_movements.adjustment)` net (mouvements `movement_type='shipment'`), appliqué via `apply_stock_delta(+qty)`. Un **rapport dry-run par tenant est produit et revu** avant application.
+4. **Recalibration = restore revu, ledger-based, périmètre strict.** On ne rembobine QUE les shipments avec `stock_consumed_at IS NOT NULL` qui ne sont **pas** consommables (On-Hold / annulés). Le montant rendu est l'effet réel du ledger, `SUM(qty_before - qty_after)`, et non le delta demandé : le plancher `GREATEST(0, ...)` peut rendre ces deux valeurs différentes. Le rapport affiche les deux. L'application réutilise `restock_shipment_stock` par colis afin de créer un mouvement `restock` rattaché au colis et de neutraliser son ledger atomiquement.
+
+5. **Idempotence = marqueur + ledger.** Avant activation, 00096 backfille `stock_consumed_at` pour tout shipment ayant déjà un mouvement `shipment`. La RPC centrale refuse aussi défensivement une nouvelle consommation lorsqu'un effet de consommation non neutralisé existe encore dans le ledger. Un vrai ré-envoi reste possible après un reversal net à zéro.
+
+6. **Reversal historique signé par tenant.** `tenant_settings.consume_at_ship_enabled` vaut `false` par défaut. La boucle du sweeper qui rend le stock historique reste inactive jusqu'au backup, rapport et apply signés du tenant. La boucle qui rattrape une expédition consommable manquée reste active.
 
 ### Découverte Phase 0 déjà exécutée (22/07, read-only) — impact chiffré
 
-- **Impact recalibration (unités de stock rendues, prédicat corrigé) : FLORNA ≈ 1 826 (603 colis), Anteos = 1, MOTIJET = 0, REBORN21 = 0.** Modeste (FLORNA ~62k u/mois → ~3 % d'un mois), dans le bon sens (le stock remonte).
+- **Impact initial calculé depuis les deltas demandés : FLORNA ≈ 1 826 (603 colis), Anteos = 1, MOTIJET = 0, REBORN21 = 0.** Ce chiffre doit être recalculé avec `SUM(qty_before - qty_after)` avant signature : il constitue une borne haute lorsque certaines consommations ont touché le plancher zéro.
 - **Découverte critique :** MOTIJET & Anteos laissent `status_id = NULL` sur des commandes expédiées (`status_message` = 'Fulfilled'/'Completed') → prédicat corrigé en message-based (cf Décision 1). Sans ça, on cassait le stock de ces 2 clients.
 - **Triggers de remap : DÉSACTIVÉS en prod** (confirmé) — rien à réactiver.
 
@@ -66,11 +70,12 @@
 - `src/lib/stock/reconcile-stock.test.ts`.
 - `supabase/migrations/00096_consume_at_ship_gate.sql` — `is_consumable_shipment()` + `consume_shipment_stock` v2 (gate) + gate dans `remap_unmapped_items`.
 - `supabase/migrations/00097_stock_reconcile_and_recalibration.sql` — RPC `reconcile_tenant_stock` (sweeper borné) + `recalibrate_consumed_not_shipped_report` (dry-run) + `recalibrate_consumed_not_shipped_apply`.
+- `docs/plans/2026-07-22-consume-at-ship-explain.sql` — EXPLAIN read-only obligatoire sur FLORNA avant activation du flag tenant.
 - `docs/plans/2026-07-22-consume-at-ship-plan.md` — ce document.
 
 **Modifiés**
 - `src/app/api/sync/sendcloud/cron/route.ts` — gate de conso (`~575-588`, `~693-705`) + appel sweeper borné en fin de tenant.
-- `src/app/api/webhooks/sendcloud/[tenantCode]/route.ts` — gate de conso (`413-423`), reversal aussi sur retour/annulation numérique.
+- `src/app/api/webhooks/sendcloud/[tenantCode]/route.ts` — gate de conso (`413-423`), reversal dès qu'un `parcel_status_changed` devient non-consommable selon le prédicat partagé.
 - `src/app/api/sync/sendcloud/run/route.ts` — gate de conso (`177-184`) + corriger la divergence `isNewShipment` (tester `sendcloud_id` **avec** `tenant_id`, `119-123`).
 - `src/app/api/stock/recalculate/route.ts` — filtrer les shipments non-consommables ; router par `consume_shipment_stock`.
 - `src/app/api/shipments/create/route.ts` — remplacer le read-modify-write direct (`211-270`) par `apply_stock_delta` et **ne consommer qu'à l'expédition** (un colis créé mais pas encore expédié ne consomme pas).
@@ -103,23 +108,28 @@ ORDER BY n DESC;
 - [ ] **Step 1 : compter le stock consommé à tort, par tenant et par SKU (read-only) :**
 
 ```sql
-SELECT s.tenant_id, sm.sku_id,
-       -sum(sm.adjustment) AS units_to_restore,
-       count(DISTINCT s.id) AS shipments
-FROM stock_movements sm
-JOIN shipments s ON s.id = sm.reference_id
-WHERE sm.reference_type = 'shipment'
-  AND sm.movement_type = 'shipment'
-  AND s.stock_consumed_at IS NOT NULL
-  AND s.is_return = false
-  AND (
-    s.status_id IS NULL
-    OR s.status_id IN (2000, 2001)
-    OR s.status_message IN ('On Hold','Cancelled','Cancelled - customer','Unfulfilled')
-  )
-GROUP BY s.tenant_id, sm.sku_id
-HAVING -sum(sm.adjustment) <> 0
-ORDER BY units_to_restore DESC;
+WITH shipment_sku_deltas AS (
+  SELECT s.tenant_id, s.id AS shipment_id, sm.sku_id,
+         greatest(0, -sum(sm.adjustment)) AS requested_units_to_restore,
+         greatest(0, sum(sm.qty_before - sm.qty_after)) AS effective_units_to_restore
+  FROM shipments s
+  JOIN stock_movements sm
+    ON sm.tenant_id = s.tenant_id
+   AND sm.reference_id = s.id
+   AND sm.reference_type = 'shipment'
+   AND sm.movement_type IN ('shipment', 'restock')
+  WHERE s.stock_consumed_at IS NOT NULL
+    AND NOT is_consumable_shipment(s.status_id, s.status_message, s.is_return)
+  GROUP BY s.tenant_id, s.id, sm.sku_id
+)
+SELECT tenant_id, sku_id,
+       sum(requested_units_to_restore) AS requested_units_to_restore,
+       sum(effective_units_to_restore) AS effective_units_to_restore,
+       count(DISTINCT shipment_id) AS shipments
+FROM shipment_sku_deltas
+WHERE requested_units_to_restore > 0 OR effective_units_to_restore > 0
+GROUP BY tenant_id, sku_id
+ORDER BY effective_units_to_restore DESC;
 ```
 
 - [ ] **Step 2 :** produire le total par tenant (unités à rendre) et le présenter dans le dossier de signature Aurélien. C'est l'ordre de grandeur de la correction visible côté client.
@@ -269,6 +279,8 @@ GRANT EXECUTE ON FUNCTION public.is_consumable_shipment(integer, text, boolean) 
 
 - [ ] **Step 1 : réécrire la RPC en gardant tout le reste identique à 00085**
 
+Avant la définition de la RPC, backfiller le marqueur des shipments legacy ayant déjà un mouvement `shipment`. Dans la CAS, ajouter une seconde garde ledger : aucun effet réel `SUM(qty_before - qty_after) > 0` ne doit déjà être ouvert pour ce colis. Cela empêche une double-consommation même si le marqueur dérive, sans bloquer un ré-envoi après un reversal net à zéro.
+
 ```sql
 CREATE OR REPLACE FUNCTION public.consume_shipment_stock(
   p_tenant_id uuid,
@@ -402,14 +414,14 @@ if (
 **Files:**
 - Modify: `src/app/api/webhooks/sendcloud/[tenantCode]/route.ts` (`252-297`)
 
-- [ ] **Step 1 :** en plus de `parcel_cancelled`, traiter le passage d'un colis précédemment consommable vers un statut annulé (status_id 2000/2001) détecté sur `parcel_status_changed` → `restockShipmentStock`. (Les retours `is_return=true` ne consomment jamais, donc rien à rembobiner de ce côté.)
+- [ ] **Step 1 :** en plus de `parcel_cancelled`, traiter tout `parcel_status_changed` dont le nouveau statut est non-consommable selon `isConsumableStatus(parcel)` → `restockShipmentStock`. La RPC est un no-op si le colis n'avait pas été consommé.
 - [ ] **Step 2 :** test. Commit.
 
 ---
 
 ## Phase 4 — Sweeper de réconciliation borné (filet de sécurité)
 
-Objectif : rattraper deux dérives sans dépendre d'un événement temps-réel — (A) shipments **consommables, mappés, `stock_consumed_at IS NULL`** → consommer ; (B) shipments **non-consommables avec `stock_consumed_at IS NOT NULL`** → rembobiner. Borné, sérialisé, coupable.
+Objectif : rattraper deux dérives sans dépendre d'un événement temps-réel — (A) shipments **consommables, mappés, `stock_consumed_at IS NULL`** → consommer ; (B) shipments **non-consommables avec `stock_consumed_at IS NOT NULL`** → rembobiner. Borné, sérialisé, coupable. Le cas B est en plus opt-in par tenant via `consume_at_ship_enabled=false` par défaut et ne s'active qu'après la procédure signée.
 
 ### Task 4.1 : RPC `reconcile_tenant_stock` (migration 00097)
 
@@ -419,8 +431,9 @@ Objectif : rattraper deux dérives sans dépendre d'un événement temps-réel �
 **Interfaces:**
 - Produces: `reconcile_tenant_stock(p_tenant_id uuid, p_limit integer DEFAULT 200) RETURNS TABLE(consumed_count integer, reversed_count integer)`.
 
-- [ ] **Step 1 :** écrire la RPC : sélectionner au plus `p_limit` shipments récents à corriger (via l'index partiel `idx_shipments_stock_consumed_at_null` pour le cas A), et pour chacun appeler `consume_shipment_stock` (cas A) ou la logique de reversal (cas B, réutiliser le motif `reverse_duplicate_shipment_stock` **sans DELETE**). Verrou `FOR UPDATE SKIP LOCKED` sur le lot. `SECURITY DEFINER`, `SET search_path=public`, `REVOKE … / GRANT service_role`.
-- [ ] **Step 2 :** test DB (Task 5.3). Commit.
+- [ ] **Step 1 :** ajouter `tenant_settings.consume_at_ship_enabled boolean NOT NULL DEFAULT false`. Écrire la RPC : sélectionner au plus `p_limit` shipments récents à corriger et appeler `consume_shipment_stock` (cas A) ou `restock_shipment_stock` (cas B). Le cas B ne s'exécute que si le flag du tenant est vrai. Verrou `FOR UPDATE SKIP LOCKED` sur le lot. `SECURITY DEFINER`, `SET search_path=public`, `REVOKE … / GRANT service_role`.
+- [ ] **Step 2 :** créer hors transaction et hors pic l'index partiel `idx_shipments_tenant_non_consumable_consumed`, avec exactement `NOT is_consumable_shipment(...)` dans son prédicat. Exécuter l'EXPLAIN FLORNA fourni et refuser l'activation si le plan contient un `Seq Scan` ou ne s'arrête pas au lot de 200.
+- [ ] **Step 3 :** test DB (Task 5.3). Commit.
 
 ### Task 4.2 : Orchestration TS bornée + branchement cron
 
@@ -444,9 +457,9 @@ Périmètre STRICT : rendre le stock consommé à tort par des lignes **non-exp�
 ### Task 5.1 : RPC rapport dry-run (migration 00097)
 
 **Interfaces:**
-- Produces: `recalibrate_consumed_not_shipped_report(p_tenant_id uuid) RETURNS TABLE(sku_id uuid, units_to_restore integer, shipment_count integer)`.
+- Produces: `recalibrate_consumed_not_shipped_report(p_tenant_id uuid) RETURNS TABLE(sku_id uuid, requested_units_to_restore integer, effective_units_to_restore integer, shipment_count integer)`.
 
-- [ ] **Step 1 :** implémenter la requête de la Task 0.2 comme RPC (lecture seule), par tenant, retournant les unités à rendre par SKU. `SECURITY DEFINER`, service_role.
+- [ ] **Step 1 :** implémenter la requête de la Task 0.2 comme RPC (lecture seule), par tenant, retournant côte à côte le delta demandé et l'effet réel planché. Seul `effective_units_to_restore` est utilisé comme total d'application. `SECURITY DEFINER`, service_role.
 - [ ] **Step 2 :** test DB. Commit.
 
 ### Task 5.2 : RPC application revue (migration 00097)
@@ -454,7 +467,7 @@ Périmètre STRICT : rendre le stock consommé à tort par des lignes **non-exp�
 **Interfaces:**
 - Produces: `recalibrate_consumed_not_shipped_apply(p_tenant_id uuid, p_expected_total integer) RETURNS TABLE(skus_restored integer, units_restored integer)`.
 
-- [ ] **Step 1 :** implémenter : recompute le total attendu, **refuser si `p_expected_total` ne correspond pas** (garde-fou anti-dérive entre le rapport revu et l'application). Pour chaque SKU, `apply_stock_delta(+units, 'Recalibration consume-at-ship', NULL, 'recalibration', p_user_id, 'manual')`, puis `UPDATE shipments SET stock_consumed_at = NULL` pour les shipments concernés (ils pourront re-consommer proprement s'ils deviennent expédiés). Verrou `FOR UPDATE`, transaction unique par tenant. `SECURITY DEFINER`, service_role.
+- [ ] **Step 1 :** implémenter : recompute le total effectif attendu par colis+SKU, **refuser si `p_expected_total` ne correspond pas**, puis appeler `restock_shipment_stock(..., 'Recalibration consume-at-ship')` pour chaque colis verrouillé. Aucun crédit `manual` sans référence : chaque reversal produit un mouvement `restock` rattaché au colis et remet son ledger net à zéro. Transaction unique par tenant. `SECURITY DEFINER`, service_role.
 - [ ] **Step 2 :** test DB — idempotent (2e passage → 0 unité, car plus rien de non-consommable n'a `stock_consumed_at`). Commit.
 
 ### Task 5.3 : Suite de tests d'intégration DB (branche Supabase)
@@ -468,26 +481,27 @@ Périmètre STRICT : rendre le stock consommé à tort par des lignes **non-exp�
 ### Task 6.1 : Backup & application des migrations
 
 - [ ] **Step 1 :** point de restauration Supabase.
-- [ ] **Step 2 :** appliquer 00096 puis 00097 (additives/idempotentes). Vérifier présence des fonctions + grants (`is_consumable_shipment`, RPC) et `REVOKE anon/authenticated` effectif.
+- [ ] **Step 2 :** mettre la sync en pause, appliquer 00096 puis 00097 (additives/idempotentes). L'index `CONCURRENTLY` de 00097 doit être exécuté hors transaction/hors pic. Vérifier présence et validité de l'index, fonctions + grants et `consume_at_ship_enabled=false` pour tous les tenants.
+- [ ] **Step 3 :** exécuter `docs/plans/2026-07-22-consume-at-ship-explain.sql` sur FLORNA et archiver le plan. Aucun `Seq Scan`, lot de 200 réellement borné.
 
 ### Task 6.2 : Déploiement code (gate actif, sweeper actif, recalibration NON lancée)
 
-- [ ] **Step 1 :** merger le code (gate + sweeper). À partir de là, **plus aucune nouvelle sur-conso** ne se crée. Le sweeper commence à réconcilier au fil de l'eau, borné.
+- [ ] **Step 1 :** merger le code (gate + sweeper). À partir de là, **plus aucune nouvelle sur-conso** ne se crée. Le sweeper rattrape les consommations manquées, mais sa boucle de reversal historique reste inactive pour tous les tenants.
 - [ ] **Step 2 :** surveiller 1–2 cycles : `/api/health/sync`, lignes `sync_runs`, latence I/O (aucun pic), volume de `stock_movements` par run (borné). Kill-switch `SYNC_PAUSED` prêt.
 
 ### Task 6.3 : Recalibration tenant par tenant (revue avant application)
 
 - [ ] **Step 1 :** pour chaque tenant, dans l'ordre (petit tenant d'abord, ex. ANTEOS, puis FLORNA/REBORN21) : exécuter `recalibrate_consumed_not_shipped_report`, présenter le total à Maxime (et Aurélien si volume élevé).
-- [ ] **Step 2 :** appliquer `recalibrate_consumed_not_shipped_apply(tenant, total_revu)` — refuse si le total a bougé.
+- [ ] **Step 2 :** comparer les colonnes demandée/effective, puis appliquer `recalibrate_consumed_not_shipped_apply(tenant, total_effectif_revu)` — refuse si le total a bougé.
 - [ ] **Step 3 :** `SELECT public.refresh_all_analytics_views();` (rafraîchit `v_physical_shipment_items`, `mv_dashboard_daily`, `mv_sku_metrics`).
-- [ ] **Step 4 :** vérifier le stock avant/après sur quelques SKU témoins avec Quentin. Passer au tenant suivant seulement si cohérent.
+- [ ] **Step 4 :** vérifier le stock avant/après sur quelques SKU témoins avec Quentin, puis seulement activer `tenant_settings.consume_at_ship_enabled=true` pour ce tenant. Passer au tenant suivant seulement si cohérent.
 
 ---
 
 ## Risques & garde-fous
 
-- **I/O (incident 13/07) :** sweeper borné (200/run/tenant), sous lock tenant, `SYNC_PAUSED` coupable, refresh mat views 1×/run inchangé, `DEFAULT_CRON_MAX_PAGES=2` inchangé.
-- **Sur-restore par le plancher `GREATEST(0)` :** possible seulement si un SKU a réellement touché 0 pendant la conso à tort ; le rapport dry-run rend l'ampleur visible SKU par SKU avant application ; garde-fou `p_expected_total`.
+- **I/O (incident 13/07) :** sweeper borné (200/run/tenant), index partiel exactement aligné sur le cas B, EXPLAIN FLORNA obligatoire, sous lock tenant, `SYNC_PAUSED` coupable, refresh mat views 1×/run inchangé, `DEFAULT_CRON_MAX_PAGES=2` inchangé.
+- **Sur-restore par le plancher `GREATEST(0)` :** empêché par le calcul `SUM(qty_before - qty_after)`. Le rapport conserve aussi `-SUM(adjustment)` pour rendre l'écart visible avant application ; garde-fou `p_expected_total` sur le total effectif.
 - **Prédicat trop/pas assez strict :** isolé dans une fonction unique (TS+SQL), ajustable en une ligne après la Phase 0 ; la RPC reste le backstop même si le pré-filtre TS diverge.
 - **Cohérence stock↔facturation :** le prédicat réutilise l'ensemble d'exclusion de la facturation (00078) → alignement par construction.
 - **Multi-tenant :** correction de la divergence `run/route.ts` (test d'existence sans `tenant_id`) incluse (Task 2.3).

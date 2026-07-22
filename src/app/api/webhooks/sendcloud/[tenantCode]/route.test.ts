@@ -190,7 +190,25 @@ describe('POST /api/webhooks/sendcloud/[tenantCode]', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Stale payload' })
   })
 
-  it('reverses stock when parcel_status_changed moves to numeric cancellation', async () => {
+  it('reverses stock when parcel_status_changed becomes non-consumable by message', async () => {
+    mockGetAdminDb.mockReturnValue(parcelAdminClient())
+    vi.mocked(restockShipmentStock).mockResolvedValue({ restocked: true, count: 1 })
+    const payload = JSON.stringify({
+      action: 'parcel_status_changed',
+      parcel: parcel(0, 'On Hold'),
+    })
+
+    const response = await POST(webhookRequest(payload, 'dedicated-secret'), context)
+
+    expect(response.status).toBe(200)
+    expect(restockShipmentStock).toHaveBeenCalledWith(
+      'tenant-1',
+      'shipment-1',
+      'Statut Sendcloud devenu non consommable',
+    )
+  })
+
+  it('still reverses numeric Sendcloud cancellation statuses', async () => {
     mockGetAdminDb.mockReturnValue(parcelAdminClient())
     vi.mocked(restockShipmentStock).mockResolvedValue({ restocked: true, count: 1 })
     const payload = JSON.stringify({
@@ -204,7 +222,7 @@ describe('POST /api/webhooks/sendcloud/[tenantCode]', () => {
     expect(restockShipmentStock).toHaveBeenCalledWith(
       'tenant-1',
       'shipment-1',
-      'Annulation/refus Sendcloud',
+      'Statut Sendcloud devenu non consommable',
     )
   })
 
