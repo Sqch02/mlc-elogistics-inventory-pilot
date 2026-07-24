@@ -136,6 +136,19 @@ type AutoFixAuditRow = Record<string, unknown> & {
   created_at: string
 }
 
+type SendcloudSyncCheckpointRow = {
+  tenant_id: string
+  resource: 'parcels' | 'returns' | 'integration_shipments'
+  partition_key: string
+  watermark: string | null
+  cursor: string | null
+  continuation_url: string | null
+  window_ends_at: string | null
+  has_more: boolean
+  consecutive_failures: number
+  updated_at: string
+}
+
 type ReadOnlyLocalTable<Row extends Record<string, unknown>> = {
   Row: Row
   Insert: Record<string, never>
@@ -148,6 +161,20 @@ type GeneratedTables = GeneratedDatabase['public']['Tables']
 type TablesWithLocalMigrations = Omit<GeneratedTables, 'tenant_settings'> & {
   auto_fix_jobs: ReadOnlyLocalTable<AutoFixJobRow>
   auto_fixes: ReadOnlyLocalTable<AutoFixAuditRow>
+  sendcloud_sync_checkpoints: {
+    Row: SendcloudSyncCheckpointRow
+    Insert: Omit<SendcloudSyncCheckpointRow, 'updated_at'> & { updated_at?: string }
+    Update: Partial<SendcloudSyncCheckpointRow>
+    Relationships: [
+      {
+        foreignKeyName: 'sendcloud_sync_checkpoints_tenant_id_fkey'
+        columns: ['tenant_id']
+        isOneToOne: false
+        referencedRelation: 'tenants'
+        referencedColumns: ['id']
+      },
+    ]
+  }
   tenant_settings: {
     Row: GeneratedTables['tenant_settings']['Row'] & {
       auto_fix_mode: 'off' | 'simulated' | 'live'

@@ -1,11 +1,11 @@
 // INCIDENT 13/07: raising this to 10 (PR #26) made the 5-min cron re-fetch and
 // re-write up to ~1000 objects PER resource PER tenant every cycle. The Sendcloud
-// integration-shipments feed is NON-incremental (it always restarts from page 1),
-// so every existing pending order was re-UPSERTed + re-mapped + its unmapped rows
-// deleted/re-inserted, and 3 heavy mat views refreshed, every 5 minutes. That
-// exhausted the Supabase disk I/O budget and saturated the DB. 2 pages (~200
-// objects) is the value that ran stable for hours; keep the default here and tune
-// UP only via the SENDCLOUD_CRON_MAX_PAGES env var after confirming I/O headroom.
+// integration-shipments feed is NON-incremental (it historically restarted at
+// page 1 each tick), so every existing pending order was re-UPSERTed + re-mapped
+// and 3 heavy mat views refreshed every 5 minutes. Persistent checkpoints now
+// continue its snapshot between ticks, but the per-tick I/O budget remains the
+// same. 2 pages (~200 objects) is the value that ran stable for hours; keep the
+// default here and tune UP only after confirming I/O headroom.
 export const DEFAULT_CRON_MAX_PAGES = 2
 export const MAX_CRON_MAX_PAGES = 50
 

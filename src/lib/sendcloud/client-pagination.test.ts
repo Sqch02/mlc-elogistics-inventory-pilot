@@ -3,6 +3,9 @@ import {
   fetchAllIntegrationShipments,
   fetchAllParcels,
   fetchAllReturns,
+  fetchIntegrationShipmentBatch,
+  fetchParcelBatch,
+  fetchReturnBatch,
   parseParcel,
 } from './client'
 import type { SendcloudParcel } from './types'
@@ -84,8 +87,9 @@ describe('Sendcloud pagination completion', () => {
 
     expect(parcels.map((parcel) => parcel.sendcloud_id)).toEqual(['1', '2'])
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    for (const [requestUrl] of fetchMock.mock.calls) {
+    for (const [requestUrl, init] of fetchMock.mock.calls) {
       expect(new URL(String(requestUrl)).searchParams.get('errors')).toBe('verbose-carrier')
+      expect(init).toEqual(expect.objectContaining({ redirect: 'error' }))
     }
   })
 
@@ -138,6 +142,30 @@ describe('Sendcloud pagination completion', () => {
     warnSpy.mockRestore()
   })
 
+  it('resumes parcels from the persisted cursor with the same bounded budget', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      parcels: [rawParcel(2)],
+      next: 'https://panel.sendcloud.sc/api/v2/parcels?cursor=page-3',
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchParcelBatch(
+      credentials,
+      '2026-07-13T08:00:00.000Z',
+      'page-2',
+      1,
+    )
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(new URL(String(fetchMock.mock.calls[0][0])).searchParams.get('cursor')).toBe('page-2')
+    expect(result).toMatchObject({
+      pagesFetched: 1,
+      hasMore: true,
+      nextCursor: 'page-3',
+    })
+  })
+
   it('keeps a bounded integration snapshot without failing the tenant sync', async () => {
     const onPaginationCap = vi.fn()
     const fetchMock = vi.fn()
@@ -167,6 +195,59 @@ describe('Sendcloud pagination completion', () => {
       maxPages: 1,
       integrationId: 7,
     })
+  })
+
+  it('continues an integration snapshot from its persisted next URL', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const continuationUrl = 'https://panel.sendcloud.sc/api/v2/integrations/7/shipments?page=3'
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      results: [integrationShipment('shipment-3')],
+      previous: null,
+      next: null,
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchIntegrationShipmentBatch(
+      credentials,
+      7,
+      1,
+      continuationUrl,
+    )
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock).toHaveBeenCalledWith(continuationUrl, expect.any(Object))
+    expect(result).toMatchObject({ hasMore: false, pagesFetched: 1 })
+  })
+
+  it('rejects a persisted integration URL outside Sendcloud before fetching', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(fetchIntegrationShipmentBatch(
+      credentials,
+      7,
+      1,
+      'https://example.com/api/v2/integrations/7/shipments?page=2',
+    )).rejects.toThrow('Invalid Sendcloud continuation URL')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses Sendcloud redirects instead of following an unvalidated Location', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, {
+      status: 302,
+      headers: { Location: 'https://example.com/internal' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(fetchIntegrationShipmentBatch(
+      credentials,
+      7,
+      1,
+    )).rejects.toThrow('Sendcloud integration shipments API error: 302')
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/integrations/7/shipments'),
+      expect.objectContaining({ redirect: 'error' }),
+    )
   })
 
   it('marks integration shipments only from blocking structured collections', async () => {
@@ -218,5 +299,31 @@ describe('Sendcloud pagination completion', () => {
       maxPages: 1,
     })
     warnSpy.mockRestore()
+  })
+
+  it('resumes returns from the persisted cursor', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      returns: [{
+        id: 10,
+        created_at: '2026-07-13T09:00:00.000Z',
+        status: 'open',
+        incoming_parcel: 124,
+      }],
+      next: null,
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchReturnBatch(
+      credentials,
+      '2026-07-13T08:00:00.000Z',
+      'returns-page-2',
+      1,
+    )
+
+    expect(new URL(String(fetchMock.mock.calls[0][0])).searchParams.get('cursor'))
+      .toBe('returns-page-2')
+    expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({ redirect: 'error' }))
+    expect(result).toMatchObject({ hasMore: false, pagesFetched: 1 })
   })
 })

@@ -6,7 +6,7 @@ vi.mock('@/lib/sendcloud/client', () => ({
   fetchAllReturns: vi.fn(),
 }))
 
-import { fetchCronData, refreshCronAnalytics } from './route'
+import { fetchCronData, overallRunStatus, refreshCronAnalytics } from './route'
 import {
   fetchAllIntegrationShipments,
   fetchAllParcels,
@@ -97,5 +97,32 @@ describe('refreshCronAnalytics', () => {
       refreshed: ['refresh_dashboard_daily', 'refresh_sku_metrics'],
       failed: ['refresh_physical_items_view'],
     })
+  })
+})
+
+describe('overallRunStatus', () => {
+  const resource = (status: 'success' | 'partial' | 'failed') => ({
+    status,
+    fetched: 0,
+    pages_fetched: 0,
+    pagination_capped: status === 'partial',
+    has_more: status === 'partial',
+    resumed: false,
+  })
+
+  it('records a capped resource as a partial run', () => {
+    expect(overallRunStatus({
+      parcels: resource('success'),
+      integration_shipments: resource('success'),
+      returns: resource('partial'),
+    })).toBe('partial')
+  })
+
+  it('records an entirely unavailable tenant sync as failed', () => {
+    expect(overallRunStatus({
+      parcels: resource('failed'),
+      integration_shipments: resource('failed'),
+      returns: resource('failed'),
+    })).toBe('failed')
   })
 })
