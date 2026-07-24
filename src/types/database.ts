@@ -67,6 +67,27 @@ interface LocalFunctions {
       units_reversed: number
     }>
   }
+  restock_shipment_stock: {
+    Args: { p_tenant_id: string; p_shipment_id: string; p_reason?: string }
+    Returns: Array<{ restocked: boolean; item_count: number }>
+  }
+  reconcile_tenant_stock: {
+    Args: { p_tenant_id: string; p_limit?: number }
+    Returns: Array<{ consumed_count: number; reversed_count: number }>
+  }
+  recalibrate_consumed_not_shipped_report: {
+    Args: { p_tenant_id: string }
+    Returns: Array<{
+      sku_id: string
+      requested_units_to_restore: number
+      effective_units_to_restore: number
+      shipment_count: number
+    }>
+  }
+  recalibrate_consumed_not_shipped_apply: {
+    Args: { p_tenant_id: string; p_expected_total: number }
+    Returns: Array<{ skus_restored: number; units_restored: number }>
+  }
 }
 
 type AutoFixJobRow = Record<string, unknown> & {
@@ -173,6 +194,19 @@ type ExchangeRateCacheTable = {
   Relationships: []
 }
 
+type SendcloudSyncCheckpointRow = {
+  tenant_id: string
+  resource: 'parcels' | 'returns' | 'integration_shipments'
+  partition_key: string
+  watermark: string | null
+  cursor: string | null
+  continuation_url: string | null
+  window_ends_at: string | null
+  has_more: boolean
+  consecutive_failures: number
+  updated_at: string
+}
+
 type ReadOnlyLocalTable<Row extends Record<string, unknown>> = {
   Row: Row
   Insert: Record<string, never>
@@ -186,18 +220,35 @@ type TablesWithLocalMigrations = Omit<GeneratedTables, 'tenant_settings'> & {
   auto_fix_jobs: ReadOnlyLocalTable<AutoFixJobRow>
   auto_fixes: ReadOnlyLocalTable<AutoFixAuditRow>
   exchange_rates_cache: ExchangeRateCacheTable
+  sendcloud_sync_checkpoints: {
+    Row: SendcloudSyncCheckpointRow
+    Insert: Omit<SendcloudSyncCheckpointRow, 'updated_at'> & { updated_at?: string }
+    Update: Partial<SendcloudSyncCheckpointRow>
+    Relationships: [
+      {
+        foreignKeyName: 'sendcloud_sync_checkpoints_tenant_id_fkey'
+        columns: ['tenant_id']
+        isOneToOne: false
+        referencedRelation: 'tenants'
+        referencedColumns: ['id']
+      },
+    ]
+  }
   tenant_settings: {
     Row: GeneratedTables['tenant_settings']['Row'] & {
       auto_fix_mode: 'off' | 'simulated' | 'live'
       auto_fix_max_candidates: number
+      consume_at_ship_enabled: boolean
     }
     Insert: GeneratedTables['tenant_settings']['Insert'] & {
       auto_fix_mode?: 'off' | 'simulated' | 'live'
       auto_fix_max_candidates?: number
+      consume_at_ship_enabled?: boolean
     }
     Update: GeneratedTables['tenant_settings']['Update'] & {
       auto_fix_mode?: 'off' | 'simulated' | 'live'
       auto_fix_max_candidates?: number
+      consume_at_ship_enabled?: boolean
     }
     Relationships: GeneratedTables['tenant_settings']['Relationships']
   }

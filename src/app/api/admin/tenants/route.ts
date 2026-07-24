@@ -157,6 +157,11 @@ export async function POST(request: Request) {
       .insert({
         tenant_id: tenant.id,
         sync_enabled: true,
+        // Explicite plutot que dependre du DEFAULT : sans ce drapeau, le tenant
+        // consommerait le stock (les chemins go-forward ne le consultent pas)
+        // sans jamais beneficier de la boucle de reversal du sweeper, seul
+        // mecanisme de retour de stock qui ait reellement tire en production.
+        consume_at_ship_enabled: true,
         invoice_prefix: body.invoice_prefix || 'FAC',
         invoice_next_number: body.invoice_next_number || 1,
         payment_terms: body.payment_terms || null,

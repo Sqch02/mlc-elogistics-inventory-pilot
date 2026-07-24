@@ -1,15 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireRole, requireTenant } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 import { cancelParcel, getParcel } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
 import { getAdminDb } from '@/lib/supabase/untyped'
+import { restockShipmentStock } from '@/lib/stock/consume'
+
+const CANCEL_RESTOCK_MAX_ATTEMPTS = 3
+
+async function restockCancelledShipmentWithRetry(
+  tenantId: string,
+  shipmentId: string,
+) {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= CANCEL_RESTOCK_MAX_ATTEMPTS; attempt++) {
+    try {
+      return await restockShipmentStock(tenantId, shipmentId, 'Annulation UI')
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError
+}
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Cette route annule un vrai colis chez Sendcloud (etiquette transporteur
+    // invalidee, action externe irreversible) et, depuis consume-at-ship, rend
+    // le stock. requireTenant ne verifie que l'authentification : sans garde de
+    // role, un compte client peut annuler une expedition et muter le stock.
+    // Meme garde que les autres routes mutant le stock (skus/[id]/stock).
+    await requireRole(['super_admin', 'admin', 'ops'])
     const tenantId = await requireTenant()
     const { id } = await params
     const adminClient = getAdminDb()
@@ -88,27 +112,48 @@ export async function POST(
 
     if (refreshResult.success && refreshResult.parcel) {
       // Update local database with new status
-      await adminClient
+      const { error: updateError } = await adminClient
         .from('shipments')
         .update({
           status_id: refreshResult.parcel.status_id,
           status_message: refreshResult.parcel.status_message || 'Cancelled',
         })
         .eq('id', id)
+        .eq('tenant_id', tenantId)
+      if (updateError) throw new Error(`Mise à jour locale impossible: ${updateError.message}`)
     } else {
       // Just mark as cancelled locally
-      await adminClient
+      const { error: updateError } = await adminClient
         .from('shipments')
         .update({
           status_id: 2000,
           status_message: 'Cancelled',
         })
         .eq('id', id)
+        .eq('tenant_id', tenantId)
+      if (updateError) throw new Error(`Mise à jour locale impossible: ${updateError.message}`)
+    }
+
+    let stockRestocked = false
+    let stockReconciliationPending = false
+    try {
+      // Targeted and independent of consume_at_ship_enabled: a transient RPC
+      // failure cannot strand this cancellation behind the rollout sweeper gate.
+      const reversal = await restockCancelledShipmentWithRetry(tenantId, id)
+      stockRestocked = reversal.restocked
+    } catch (stockError) {
+      // Sendcloud is already cancelled. Keep that successful business action
+      // visible, report the exhausted targeted retry, and rely on the Sendcloud
+      // webhook as the final automatic path until this tenant is activated.
+      stockReconciliationPending = true
+      console.error('Cancel shipment stock reversal retries exhausted:', stockError)
     }
 
     return NextResponse.json({
       success: true,
       message: 'Expédition annulée avec succès',
+      stock_restocked: stockRestocked,
+      stock_reconciliation_pending: stockReconciliationPending,
     })
   } catch (error) {
     const authResponse = handleAuthError(error)

@@ -2,20 +2,23 @@ import { NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { requireTenant, requireRole } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
-import { consumeStock } from '@/lib/stock/consume'
+import { consumeShipmentStockOnce } from '@/lib/stock/consume'
+import { isConsumableStatus } from '@/lib/stock/consumable-status'
 
-interface ShipmentItemRow {
-  shipment_id: string
-  sku_id: string
-  qty: number
+interface ShipmentCandidate {
+  id: string
+  status_id: number | null
+  status_message: string | null
+  is_return: boolean | null
 }
+
+const RECALCULATE_LIMIT = 200
 
 /**
  * POST /api/stock/recalculate
  *
- * Recalculates stock by processing all shipment_items that don't have
- * corresponding stock_movements. This is useful to "catch up" on historical
- * shipments that were synced before stock consumption was implemented.
+ * Re-drives a bounded batch of consumable shipments whose central
+ * stock_consumed_at marker is still NULL.
  */
 export async function POST() {
   try {
@@ -25,74 +28,62 @@ export async function POST() {
 
     console.log('[Recalculate] Starting stock recalculation for tenant:', tenantId)
 
-    // Get all shipment_items (simple query without joins to avoid issues)
-    const { data: allItems, error: queryError } = await adminClient
-      .from('shipment_items')
-      .select('shipment_id, sku_id, qty')
+    // Bounded legacy catch-up. The central RPC owns bundle decomposition,
+    // movement logging, the consumability backstop and stock_consumed_at CAS.
+    const { data: candidateRows, error: queryError } = await adminClient
+      .from('shipments')
+      .select('id, status_id, status_message, is_return')
       .eq('tenant_id', tenantId)
+      .is('stock_consumed_at', null)
+      .order('shipped_at', { ascending: false })
+      .limit(RECALCULATE_LIMIT)
 
     if (queryError) {
       console.error('[Recalculate] Query error:', queryError)
-      throw new Error(`Failed to fetch shipment_items: ${queryError.message}`)
+      throw new Error(`Failed to fetch shipments: ${queryError.message}`)
     }
 
-    console.log('[Recalculate] Found', allItems?.length || 0, 'shipment_items')
+    const candidates = ((candidateRows ?? []) as ShipmentCandidate[])
+      .filter(isConsumableStatus)
+    console.log('[Recalculate] Found', candidates.length, 'consumable shipments')
 
-    if (!allItems || allItems.length === 0) {
+    if (candidates.length === 0) {
       return NextResponse.json({
         success: true,
-        message: 'Aucun article à traiter',
+        message: 'Aucune expédition consommable à traiter',
         stats: { processed: 0, skipped: 0, errors: 0 },
       })
     }
 
-    // Get existing stock_movements to know which items are already processed
-    const { data: existingMovements } = await adminClient
-      .from('stock_movements')
-      .select('reference_id, sku_id')
+    const candidateIds = candidates.map((shipment) => shipment.id)
+    const { data: mappedRows, error: mappedError } = await adminClient
+      .from('shipment_items')
+      .select('shipment_id')
       .eq('tenant_id', tenantId)
-      .eq('reference_type', 'shipment')
-
-    console.log('[Recalculate] Found', existingMovements?.length || 0, 'existing movements')
-
-    // Dedup at the SHIPMENT level: a shipment that already has ANY stock_movement
-    // has been consumed. Keying by `shipment_id:sku_id` is wrong for bundles -
-    // apply_stock_delta logs movements for the bundle's COMPONENTS, never for the
-    // bundle sku_id itself - so a bundle item never matched and was re-consumed
-    // (its components double-decremented) on every run.
-    const processedShipments = new Set(
-      existingMovements?.map((m: { reference_id: string | null }) =>
-        m.reference_id || ''
-      ) || []
+      .in('shipment_id', candidateIds)
+    if (mappedError) throw new Error(`Failed to fetch shipment_items: ${mappedError.message}`)
+    const shipmentsWithItems = new Set(
+      (mappedRows ?? []).map((row: { shipment_id: string }) => row.shipment_id),
     )
 
     const stats = {
-      total: allItems.length,
+      total: candidates.length,
       processed: 0,
       skipped: 0,
       errors: 0,
       errorMessages: [] as string[],
     }
 
-    // Process each item
-    for (const item of allItems as ShipmentItemRow[]) {
-      // Skip if this shipment already has stock_movements (already consumed).
-      if (processedShipments.has(item.shipment_id)) {
+    for (const shipment of candidates) {
+      if (!shipmentsWithItems.has(shipment.id)) {
         stats.skipped++
         continue
       }
 
       try {
-        // Consume stock for this item
-        await consumeStock(
-          tenantId,
-          item.sku_id,
-          item.qty,
-          item.shipment_id,
-          'shipment'
-        )
-
-        stats.processed++
+        const { consumed } = await consumeShipmentStockOnce(tenantId, shipment.id)
+        if (consumed) stats.processed++
+        else stats.skipped++
 
         // Log progress every 100 items
         if (stats.processed % 100 === 0) {
@@ -100,7 +91,7 @@ export async function POST() {
         }
       } catch (error) {
         stats.errors++
-        const msg = `SKU ${item.sku_id}: ${error instanceof Error ? error.message : 'Unknown error'}`
+        const msg = `Expédition ${shipment.id}: ${error instanceof Error ? error.message : 'Unknown error'}`
         if (stats.errorMessages.length < 10) {
           stats.errorMessages.push(msg)
         }
@@ -112,7 +103,7 @@ export async function POST() {
 
     return NextResponse.json({
       success: true,
-      message: `Recalcul terminé: ${stats.processed} articles traités, ${stats.skipped} déjà traités, ${stats.errors} erreurs`,
+      message: `Recalcul terminé: ${stats.processed} expéditions traitées, ${stats.skipped} ignorées, ${stats.errors} erreurs`,
       stats,
     })
   } catch (error) {

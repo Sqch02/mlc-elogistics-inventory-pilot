@@ -4,6 +4,12 @@ import {
   fetchAllParcels,
   fetchAllReturns,
   fetchAllIntegrationShipments,
+  fetchIntegrations,
+  fetchIntegrationShipmentBatch,
+  fetchParcelBatch,
+  fetchReturnBatch,
+  type BoundedFetchResult,
+  type IntegrationFetchResult,
   type PaginationCapHandler,
   type PaginationCapNotice,
 } from '@/lib/sendcloud/client'
@@ -11,10 +17,12 @@ import type { SendcloudCredentials, ParsedShipment, ParsedReturn } from '@/lib/s
 import type { PricingRule } from '@/lib/utils/pricing'
 import { processShipmentItems } from '@/lib/utils/sku-mapping'
 import { consumeShipmentStockOnce } from '@/lib/stock/consume'
+import { isConsumableStatus } from '@/lib/stock/consumable-status'
 import { reconcileTenant } from '@/lib/sendcloud/reconcile'
 import { getCronMaxPages } from '@/lib/sendcloud/pagination'
 import { safeEqual } from '@/lib/utils/safe-compare'
 import { reverseDuplicateShipmentStock } from '@/lib/stock/reverse-duplicates'
+import { reconcileTenantStock, type StockReconcileResult } from '@/lib/stock/reconcile-stock'
 import { buildShipmentRow } from '@/lib/sendcloud/build-shipment-row'
 import {
   createSyncCorrelationId,
@@ -32,6 +40,109 @@ import {
   loadCronTenantSettings,
   loadTenantAutoFixMode,
 } from '@/lib/sendcloud/cron-settings'
+import {
+  integrationContinuation,
+  loadIncrementalDrain,
+  loadIntegrationContinuations,
+  persistIncrementalDrain,
+  persistIntegrationContinuation,
+  recordCheckpointFailure,
+  restartIncrementalDrain,
+  isAnomalousEmptyResume,
+  type IntegrationContinuation,
+  type StoredIntegrationContinuation,
+} from '@/lib/sendcloud/checkpoints'
+
+type ResourceName = 'parcels' | 'integration_shipments' | 'returns'
+type ResourceStatus = 'success' | 'partial' | 'failed'
+
+interface ResourceSyncStats {
+  [key: string]: string | number | boolean | undefined
+  status: ResourceStatus
+  fetched: number
+  pages_fetched: number
+  pagination_capped: boolean
+  has_more: boolean
+  resumed: boolean
+  watermark_before?: string
+  watermark_after?: string
+  checkpoint_reset_reason?: string
+  error?: string
+}
+
+interface IntegrationBatchOutcome {
+  checkpoint: IntegrationContinuation
+  result?: IntegrationFetchResult
+  error?: string
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+async function fetchIntegrationBatches(
+  credentials: SendcloudCredentials,
+  maxPages: number,
+  cycleStartedAt: string,
+  stored: Map<number, StoredIntegrationContinuation>,
+  onPaginationCap?: PaginationCapHandler,
+): Promise<IntegrationBatchOutcome[]> {
+  const integrations = await fetchIntegrations(credentials, true)
+  const outcomes: IntegrationBatchOutcome[] = []
+
+  // Deliberately serial, as before the checkpoint change: maxPages remains a
+  // per-integration hard cap and we do not add a burst of parallel API/DB work.
+  for (const integration of integrations) {
+    if (integration.system === 'api') continue
+    const checkpoint = integrationContinuation(
+      integration.id,
+      cycleStartedAt,
+      stored.get(integration.id),
+    )
+    try {
+      const result = await fetchIntegrationShipmentBatch(
+        credentials,
+        integration.id,
+        maxPages,
+        checkpoint.continuationUrl,
+        onPaginationCap,
+      )
+      outcomes.push({ checkpoint, result })
+    } catch (error) {
+      outcomes.push({ checkpoint, error: errorMessage(error) })
+    }
+  }
+  return outcomes
+}
+
+function aggregateIntegrationStats(outcomes: IntegrationBatchOutcome[]): ResourceSyncStats {
+  const fetched = outcomes.filter((outcome) => outcome.result)
+  const successful = outcomes.filter((outcome) => outcome.result && !outcome.error)
+  const failures = outcomes.filter((outcome) => outcome.error)
+  const hasMore = fetched.some((outcome) => outcome.result?.hasMore)
+  const status: ResourceStatus = failures.length > 0
+    ? (successful.length > 0 ? 'partial' : 'failed')
+    : (hasMore ? 'partial' : 'success')
+
+  return {
+    status,
+    fetched: fetched.reduce((sum, outcome) => sum + (outcome.result?.items.length || 0), 0),
+    pages_fetched: fetched.reduce((sum, outcome) => sum + (outcome.result?.pagesFetched || 0), 0),
+    pagination_capped: hasMore,
+    has_more: hasMore,
+    resumed: outcomes.some((outcome) => outcome.checkpoint.resuming),
+    ...(failures.length > 0
+      ? { error: failures.map((outcome) => outcome.error).join('; ') }
+      : {}),
+  }
+}
+
+export function overallRunStatus(resources: Record<ResourceName, ResourceSyncStats>): ResourceStatus {
+  const statuses = Object.values(resources).map((resource) => resource.status)
+  if (statuses.every((status) => status === 'success')) return 'success'
+  if (statuses.every((status) => status === 'failed')) return 'failed'
+  return 'partial'
+}
 
 export async function fetchCronData(
   credentials: SendcloudCredentials,
@@ -46,9 +157,17 @@ export async function fetchCronData(
   ])
 }
 
+// Seule mv_sku_metrics est rafraichie par tick : elle porte qty_current et doit
+// suivre le stock de pres, et elle coute ~2,3 s, tres en dessous du plafond.
+//
+// v_physical_shipment_items (~35 s) et mv_dashboard_daily (~6,9 s, max mesure
+// 7 995 ms) ont ete deplacees vers pg_cron (migration 00099). Elles ne POUVAIENT
+// pas aboutir ici : le role authenticator porte statement_timeout=8s, herite par
+// tous les appels PostgREST. Mesure sur ~3 174 tentatives : 0 succes pour la vue
+// physique, et dashboard_daily frolait le plafond a chaque appel. La vue n'etait
+// a jour que si un humain la rafraichissait a la main -- 2 h 40 de retard
+// constatees. Chaque tick brulait 8 s d'I/O pour rien avant de se faire tuer.
 const ANALYTICS_REFRESH_RPCS = [
-  'refresh_physical_items_view',
-  'refresh_dashboard_daily',
   'refresh_sku_metrics',
 ] as const
 
@@ -168,9 +287,11 @@ async function runSync(correlationId: string) {
         .order('weight_min_grams', { ascending: true })
 
       // ============================================
-      // FETCH DATA (parallel)
+      // FETCH DATA (bounded, checkpointed per resource)
       // ============================================
-      // Use last sync time to only fetch updated parcels (faster)
+      // sync_runs is only a bootstrap source for tenants that do not have a
+      // checkpoint yet. Once a checkpoint exists, ended_at never drives the
+      // incremental watermark again.
       const { data: lastSync } = await adminClient
         .from('sync_runs')
         .select('ended_at')
@@ -181,24 +302,190 @@ async function runSync(correlationId: string) {
         .limit(1)
         .single()
 
-      // Fetch parcels updated in the last 2 hours (fallback if no previous sync)
-      const since = lastSync?.ended_at || new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
-      logger.info(`Fetching data in parallel (since: ${since})...`)
-
+      const fallbackWatermark = lastSync?.ended_at
+        || new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+      const cycleStartedAt = new Date().toISOString()
       logger.info(`Pagination budget: ${maxPages} pages per resource`)
       const paginationCaps: PaginationCapNotice[] = []
-      const [parcelsRecent, pendingOrders, returnsRecent] = await fetchCronData(
-        credentials,
-        since,
-        maxPages,
-        (notice) => paginationCaps.push(notice),
-      )
+      const onPaginationCap = (notice: PaginationCapNotice) => paginationCaps.push(notice)
+
+      const [parcelDrain, returnDrain, storedIntegrationContinuations] = await Promise.all([
+        loadIncrementalDrain(
+          adminClient,
+          tenant.id,
+          'parcels',
+          fallbackWatermark,
+          cycleStartedAt,
+        ),
+        loadIncrementalDrain(
+          adminClient,
+          tenant.id,
+          'returns',
+          fallbackWatermark,
+          cycleStartedAt,
+        ),
+        loadIntegrationContinuations(adminClient, tenant.id, cycleStartedAt),
+      ])
+
+      logger.info('Incremental drains:', {
+        parcels: { since: parcelDrain.watermark, resumed: parcelDrain.resuming },
+        returns: { since: returnDrain.watermark, resumed: returnDrain.resuming },
+      })
+
+      const [parcelSettled, integrationSettled, returnSettled] = await Promise.allSettled([
+        fetchParcelBatch(
+          credentials,
+          parcelDrain.watermark,
+          parcelDrain.cursor,
+          maxPages,
+          onPaginationCap,
+        ),
+        fetchIntegrationBatches(
+          credentials,
+          maxPages,
+          cycleStartedAt,
+          storedIntegrationContinuations,
+          onPaginationCap,
+        ),
+        fetchReturnBatch(
+          credentials,
+          returnDrain.watermark,
+          returnDrain.cursor,
+          maxPages,
+          onPaginationCap,
+        ),
+      ])
+
+      const parcelFetch: BoundedFetchResult<ParsedShipment> | undefined =
+        parcelSettled.status === 'fulfilled' ? parcelSettled.value : undefined
+      const integrationOutcomes: IntegrationBatchOutcome[] =
+        integrationSettled.status === 'fulfilled' ? integrationSettled.value : []
+      const returnFetch: BoundedFetchResult<ParsedReturn> | undefined =
+        returnSettled.status === 'fulfilled' ? returnSettled.value : undefined
+
+      const resourceStats: Record<ResourceName, ResourceSyncStats> = {
+        parcels: parcelFetch ? {
+          status: parcelFetch.hasMore ? 'partial' : 'success',
+          fetched: parcelFetch.items.length,
+          pages_fetched: parcelFetch.pagesFetched,
+          pagination_capped: parcelFetch.hasMore,
+          has_more: parcelFetch.hasMore,
+          resumed: parcelDrain.resuming,
+          watermark_before: parcelDrain.watermark,
+          ...(parcelDrain.resetReason
+            ? { checkpoint_reset_reason: parcelDrain.resetReason }
+            : {}),
+        } : {
+          status: 'failed',
+          fetched: 0,
+          pages_fetched: 0,
+          pagination_capped: false,
+          has_more: parcelDrain.resuming,
+          resumed: parcelDrain.resuming,
+          watermark_before: parcelDrain.watermark,
+          ...(parcelDrain.resetReason
+            ? { checkpoint_reset_reason: parcelDrain.resetReason }
+            : {}),
+          error: errorMessage(
+            parcelSettled.status === 'rejected' ? parcelSettled.reason : 'unknown parcels error',
+          ),
+        },
+        integration_shipments: integrationSettled.status === 'fulfilled'
+          ? aggregateIntegrationStats(integrationOutcomes)
+          : {
+            status: 'failed',
+            fetched: 0,
+            pages_fetched: 0,
+            pagination_capped: false,
+            has_more: storedIntegrationContinuations.size > 0,
+            resumed: storedIntegrationContinuations.size > 0,
+            error: errorMessage(integrationSettled.reason),
+          },
+        returns: returnFetch ? {
+          status: returnFetch.hasMore ? 'partial' : 'success',
+          fetched: returnFetch.items.length,
+          pages_fetched: returnFetch.pagesFetched,
+          pagination_capped: returnFetch.hasMore,
+          has_more: returnFetch.hasMore,
+          resumed: returnDrain.resuming,
+          watermark_before: returnDrain.watermark,
+          ...(returnDrain.resetReason
+            ? { checkpoint_reset_reason: returnDrain.resetReason }
+            : {}),
+        } : {
+          status: 'failed',
+          fetched: 0,
+          pages_fetched: 0,
+          pagination_capped: false,
+          has_more: returnDrain.resuming,
+          resumed: returnDrain.resuming,
+          watermark_before: returnDrain.watermark,
+          ...(returnDrain.resetReason
+            ? { checkpoint_reset_reason: returnDrain.resetReason }
+            : {}),
+          error: errorMessage(
+            returnSettled.status === 'rejected' ? returnSettled.reason : 'unknown returns error',
+          ),
+        },
+      }
+
+      const parcelsRecent = parcelFetch?.items || []
+      const pendingOrders = integrationOutcomes.flatMap((outcome) => outcome.result?.items || [])
+      const returnsRecent = returnFetch?.items || []
+
+      // Count only failed resumptions. This write happens exclusively on the
+      // error path and remains one bounded row update per affected resource.
+      if (parcelSettled.status === 'rejected' && parcelDrain.resuming) {
+        try {
+          await recordCheckpointFailure(
+            adminClient,
+            tenant.id,
+            'parcels',
+            '',
+            parcelDrain.failureCount,
+          )
+        } catch (error) {
+          logger.error('Failed to record parcels checkpoint failure:', error)
+        }
+      }
+      if (returnSettled.status === 'rejected' && returnDrain.resuming) {
+        try {
+          await recordCheckpointFailure(
+            adminClient,
+            tenant.id,
+            'returns',
+            '',
+            returnDrain.failureCount,
+          )
+        } catch (error) {
+          logger.error('Failed to record returns checkpoint failure:', error)
+        }
+      }
+      for (const outcome of integrationOutcomes) {
+        if (!outcome.error || !outcome.checkpoint.resuming) continue
+        try {
+          await recordCheckpointFailure(
+            adminClient,
+            tenant.id,
+            'integration_shipments',
+            String(outcome.checkpoint.integrationId),
+            outcome.checkpoint.failureCount,
+          )
+        } catch (error) {
+          logger.error(
+            `Failed to record integration ${outcome.checkpoint.integrationId} checkpoint failure:`,
+            error,
+          )
+        }
+      }
 
       if (paginationCaps.length > 0) {
         logger.warn('Pagination cap reached:', paginationCaps)
       }
 
-      logger.info(`Fetched: ${parcelsRecent.length} parcels, ${pendingOrders.length} pending, ${returnsRecent.length} returns`)
+      logger.info(`Fetched: ${parcelsRecent.length} parcels, ${pendingOrders.length} pending, ${returnsRecent.length} returns`, {
+        resources: resourceStats,
+      })
 
       // Merge parcels: parcels take priority over pending orders
       const shipmentMap = new Map<string, ParsedShipment>()
@@ -289,24 +576,30 @@ async function runSync(correlationId: string) {
       const shipmentsToUpsert = parcels.map((parcel) =>
         buildShipmentRow(tenant.id, parcel, pricingRules as PricingRule[] | null),
       )
+      let shipmentPersistenceError: string | undefined
 
-      // Identify which sendcloud_ids already exist BEFORE the upsert, so we
-      // know which shipments are truly new and need stock consumption afterwards.
-      // Without this the cron silently re-creates shipment_items without ever
-      // decrementing stock — bug reported by Quentin on REBORN21 le 21/05.
-      const newSendcloudIds = new Set<string>()
+      // Capture the consumption marker before the upsert. Eligibility is based
+      // on the current status, not on row creation: an existing On-Hold order
+      // must consume when it later transitions to Fulfilled/Completed.
+      const existingConsumedAt = new Map<string, string | null>()
+      let consumptionLookupSucceeded = true
       if (shipmentsToUpsert.length > 0) {
         const incomingIds = shipmentsToUpsert.map((s) => s.sendcloud_id)
-        const { data: existingRows } = await adminClient
+        const { data: existingRows, error: existingRowsError } = await adminClient
           .from('shipments')
-          .select('sendcloud_id')
+          .select('sendcloud_id, stock_consumed_at')
           .eq('tenant_id', tenant.id)
           .in('sendcloud_id', incomingIds)
-        const existing = new Set(
-          (existingRows || []).map((r: { sendcloud_id: string }) => r.sendcloud_id),
-        )
-        for (const id of incomingIds) {
-          if (!existing.has(id)) newSendcloudIds.add(id)
+        if (existingRowsError) {
+          consumptionLookupSucceeded = false
+          logger.error('Stock consumption marker lookup failed; deferring to sweeper:', existingRowsError)
+        } else {
+          for (const row of (existingRows ?? []) as Array<{
+            sendcloud_id: string
+            stock_consumed_at: string | null
+          }>) {
+            existingConsumedAt.set(row.sendcloud_id, row.stock_consumed_at)
+          }
         }
 
         const { error: shipmentError } = await adminClient
@@ -315,6 +608,7 @@ async function runSync(correlationId: string) {
 
         if (shipmentError) {
           logger.error('Shipments batch upsert error:', shipmentError.message)
+          shipmentPersistenceError = shipmentError.message
         }
       }
 
@@ -408,10 +702,12 @@ async function runSync(correlationId: string) {
             totalMapped += mappedCount
             totalUnmapped += unmappedCount
 
-            // Consume stock only for shipments that were created during THIS
-            // sync run (mirrors the webhook's isNewShipment logic). Skipping
-            // this caused REBORN21 stock to drift on 21/05.
-            if (newSendcloudIds.has(parcel.sendcloud_id) && mappedCount > 0) {
+            if (
+              consumptionLookupSucceeded &&
+              isConsumableStatus(parcel) &&
+              existingConsumedAt.get(parcel.sendcloud_id) == null &&
+              mappedCount > 0
+            ) {
               // Idempotent CAS on stock_consumed_at: even if the webhook processes
               // this same freshly-created parcel concurrently, only one path
               // actually consumes it (fixes the isNewShipment TOCTOU double-count).
@@ -468,6 +764,7 @@ async function runSync(correlationId: string) {
         announced_at: ret.announced_at,
         raw_json: ret.raw_json,
       }))
+      let returnsPersistenceError: string | undefined
 
       if (returnsToUpsert.length > 0) {
         const { error: returnsError } = await adminClient
@@ -476,6 +773,87 @@ async function runSync(correlationId: string) {
 
         if (returnsError) {
           logger.error('Returns batch upsert error:', returnsError.message)
+          returnsPersistenceError = returnsError.message
+        }
+      }
+
+      // ============================================
+      // COMMIT RESOURCE CHECKPOINTS
+      // ============================================
+      // A checkpoint is written only after its bounded batch is durably
+      // upserted. Reprocessing after a checkpoint failure is safe because the
+      // business upserts are idempotent and stock consumption remains guarded
+      // by the existing stock_consumed_at CAS.
+      if (parcelFetch) {
+        if (shipmentPersistenceError) {
+          resourceStats.parcels.status = 'failed'
+          resourceStats.parcels.error = shipmentPersistenceError
+        } else {
+          try {
+            if (isAnomalousEmptyResume(parcelDrain, parcelFetch.items.length)) {
+              await restartIncrementalDrain(adminClient, tenant.id, parcelDrain)
+              resourceStats.parcels.status = 'partial'
+              resourceStats.parcels.has_more = false
+              resourceStats.parcels.watermark_after = parcelDrain.watermark
+              resourceStats.parcels.checkpoint_reset_reason = 'empty_resume'
+            } else {
+              resourceStats.parcels.watermark_after = await persistIncrementalDrain(
+                adminClient,
+                tenant.id,
+                parcelDrain,
+                parcelFetch,
+              )
+            }
+          } catch (error) {
+            resourceStats.parcels.status = 'failed'
+            resourceStats.parcels.error = errorMessage(error)
+          }
+        }
+      }
+
+      for (const outcome of integrationOutcomes) {
+        if (!outcome.result) continue
+        if (shipmentPersistenceError) {
+          outcome.error = shipmentPersistenceError
+          continue
+        }
+        try {
+          await persistIntegrationContinuation(
+            adminClient,
+            tenant.id,
+            outcome.checkpoint,
+            outcome.result,
+          )
+        } catch (error) {
+          outcome.error = errorMessage(error)
+        }
+      }
+      resourceStats.integration_shipments = aggregateIntegrationStats(integrationOutcomes)
+
+      if (returnFetch) {
+        if (returnsPersistenceError) {
+          resourceStats.returns.status = 'failed'
+          resourceStats.returns.error = returnsPersistenceError
+        } else {
+          try {
+            if (isAnomalousEmptyResume(returnDrain, returnFetch.items.length)) {
+              await restartIncrementalDrain(adminClient, tenant.id, returnDrain)
+              resourceStats.returns.status = 'partial'
+              resourceStats.returns.has_more = false
+              resourceStats.returns.watermark_after = returnDrain.watermark
+              resourceStats.returns.checkpoint_reset_reason = 'empty_resume'
+            } else {
+              resourceStats.returns.watermark_after = await persistIncrementalDrain(
+                adminClient,
+                tenant.id,
+                returnDrain,
+                returnFetch,
+              )
+            }
+          } catch (error) {
+            resourceStats.returns.status = 'failed'
+            resourceStats.returns.error = errorMessage(error)
+          }
         }
       }
 
@@ -505,21 +883,44 @@ async function runSync(correlationId: string) {
       }
 
       // ============================================
+      // BOUNDED STOCK RECONCILIATION
+      // ============================================
+      // Runs under the tenant lock already held by this loop. Its own hard cap
+      // is 200 and a failure is observability-only for the shipment sync.
+      let stockReconciliation: StockReconcileResult | null = null
+      try {
+        stockReconciliation = await reconcileTenantStock(adminClient, tenant.id, 200)
+        if (stockReconciliation.consumed > 0 || stockReconciliation.reversed > 0) {
+          logger.info(`Stock reconcile tenant ${tenant.id}:`, stockReconciliation)
+        }
+      } catch (stockReconcileError) {
+        logger.error(`Stock reconcile failed for tenant ${tenant.id}:`, stockReconcileError)
+      }
+
+      // ============================================
       // RECORD SYNC RUN
       // ============================================
       const duration = Date.now() - startTime
+      const runStatus = overallRunStatus(resourceStats)
+      const resourceErrors = Object.entries(resourceStats)
+        .filter(([, stats]) => stats.error)
+        .map(([resource, stats]) => `${resource}: ${stats.error}`)
+        .join('; ')
       await adminClient.from('sync_runs').insert({
         tenant_id: tenant.id,
         source: 'sendcloud',
-        status: 'success',
+        status: runStatus,
         ended_at: new Date().toISOString(),
+        error_text: resourceErrors || null,
         stats_json: {
           shipments: shipmentsToUpsert.length,
           returns: returnsToUpsert.length,
           duration_ms: duration,
           max_pages: maxPages,
-          pagination_capped: paginationCaps.length > 0,
+          pagination_capped: Object.values(resourceStats)
+            .some((resource) => resource.pagination_capped),
           pagination_caps: paginationCaps,
+          resources: resourceStats,
           auto_fix_detection: autoFixDetectionStats === null ? null : {
             observed: autoFixDetectionStats.observed,
             eligible: autoFixDetectionStats.eligible,
@@ -528,18 +929,23 @@ async function runSync(correlationId: string) {
             enqueued_or_seen: autoFixDetectionStats.enqueuedOrSeen,
             truncated: autoFixDetectionStats.truncated,
           },
+          stock_reconciliation: stockReconciliation === null ? null : {
+            consumed: stockReconciliation.consumed,
+            reversed: stockReconciliation.reversed,
+            paused: stockReconciliation.paused,
+          },
           correlation_id: correlationId,
         },
       })
 
       results.push({
         tenantId: tenant.id,
-        success: true,
+        success: runStatus !== 'failed',
         shipments: shipmentsToUpsert.length,
         returns: returnsToUpsert.length,
       })
 
-      logger.info(`Tenant ${tenant.id} done in ${duration}ms`)
+      logger.info(`Tenant ${tenant.id} done in ${duration}ms with status=${runStatus}`)
 
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : 'Unknown error'

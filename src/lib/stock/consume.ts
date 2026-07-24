@@ -76,8 +76,8 @@ export async function consumeStock(
  * non-NULL value, claims nothing, and skips. This replaces the non-atomic
  * `isNewShipment` existence check as the source of idempotency.
  *
- * Callers should still gate on "this shipment is new AND has mapped items" to
- * avoid marking an all-unmapped shipment as consumed before its items resolve.
+ * Callers pre-filter on the shared consumable-status predicate and mapped item
+ * count. The SQL RPC repeats both checks as the authoritative backstop.
  *
  * @returns { consumed } false if another path already consumed this shipment.
  */
@@ -112,55 +112,33 @@ export async function consumeShipmentStockOnce(
 /**
  * Reverse the stock consumption of a shipment (parcel cancelled), exactly once.
  *
- * CAS in the other direction: only a shipment currently marked consumed
- * (stock_consumed_at IS NOT NULL) is restocked, and the marker is cleared in the
- * same atomic step so two cancel events cannot double-restock.
+ * The inverse CAS and ledger-based deltas run in one database transaction.
+ * Clearing stock_consumed_at before the deltas would make a partial failure
+ * impossible to retry safely.
  *
  * @returns { restocked } false if the shipment was not consumed / already reversed.
  */
 export async function restockShipmentStock(
   tenantId: string,
   shipmentId: string,
+  reason = 'Annulation colis',
 ): Promise<{ restocked: boolean; count: number }> {
   const adminClient = getAdminDb()
 
-  const { data: claimed } = await adminClient
-    .from('shipments')
-    .update({ stock_consumed_at: null })
-    .eq('tenant_id', tenantId)
-    .eq('id', shipmentId)
-    .not('stock_consumed_at', 'is', null)
-    .select('id')
+  const { data, error } = await adminClient.rpc('restock_shipment_stock', {
+    p_tenant_id: tenantId,
+    p_shipment_id: shipmentId,
+    p_reason: reason,
+  })
 
-  if (!claimed || claimed.length === 0) {
-    return { restocked: false, count: 0 }
+  if (error) {
+    throw new Error(
+      `restock_shipment_stock failed for shipment ${shipmentId}: ${error.message}`,
+    )
   }
 
-  const { data: items } = await adminClient
-    .from('shipment_items')
-    .select('sku_id, qty')
-    .eq('tenant_id', tenantId)
-    .eq('shipment_id', shipmentId)
-
-  let count = 0
-  for (const it of (items ?? []) as Array<{ sku_id: string; qty: number }>) {
-    try {
-      await adminClient.rpc('apply_stock_delta', {
-        p_tenant_id: tenantId,
-        p_sku_id: it.sku_id,
-        p_delta: it.qty,
-        p_reason: 'Annulation colis',
-        p_reference_id: shipmentId,
-        p_reference_type: 'shipment',
-        p_movement_type: 'restock',
-      })
-      count++
-    } catch (e) {
-      console.error(`[Stock] restock error sku ${it.sku_id} shipment ${shipmentId}:`, e)
-    }
-  }
-
-  return { restocked: true, count }
+  const row = ((data ?? []) as Array<{ restocked: boolean; item_count: number }>)[0]
+  return { restocked: row?.restocked ?? false, count: row?.item_count ?? 0 }
 }
 
 /**
