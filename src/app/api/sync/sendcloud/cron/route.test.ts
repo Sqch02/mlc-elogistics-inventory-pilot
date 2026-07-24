@@ -64,39 +64,24 @@ describe('fetchCronData', () => {
 })
 
 describe('refreshCronAnalytics', () => {
-  it('refreshes each global view once in dependency order', async () => {
+  it('refreshes only the light per-tick view', async () => {
     const rpc = vi.fn().mockResolvedValue({ error: null })
 
     const result = await refreshCronAnalytics({ rpc })
 
-    expect(rpc.mock.calls.map(([name]) => name)).toEqual([
-      'refresh_physical_items_view',
-      'refresh_dashboard_daily',
-      'refresh_sku_metrics',
-    ])
-    expect(result).toEqual({
-      refreshed: [
-        'refresh_physical_items_view',
-        'refresh_dashboard_daily',
-        'refresh_sku_metrics',
-      ],
-      failed: [],
-    })
+    // Les deux vues lourdes sont passees sous pg_cron (migration 00099) : elles
+    // ne pouvaient pas aboutir sous le statement_timeout de 8 s de PostgREST.
+    expect(rpc.mock.calls.map(([name]) => name)).toEqual(['refresh_sku_metrics'])
+    expect(result).toEqual({ refreshed: ['refresh_sku_metrics'], failed: [] })
   })
 
-  it('continues refreshing later views when one RPC times out', async () => {
-    const rpc = vi.fn()
-      .mockRejectedValueOnce(new Error('network timeout'))
-      .mockResolvedValueOnce({ error: null })
-      .mockResolvedValueOnce({ error: null })
+  it('reports the refresh as failed instead of throwing', async () => {
+    const rpc = vi.fn().mockRejectedValueOnce(new Error('network timeout'))
 
     const result = await refreshCronAnalytics({ rpc })
 
-    expect(rpc).toHaveBeenCalledTimes(3)
-    expect(result).toEqual({
-      refreshed: ['refresh_dashboard_daily', 'refresh_sku_metrics'],
-      failed: ['refresh_physical_items_view'],
-    })
+    expect(rpc).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({ refreshed: [], failed: ['refresh_sku_metrics'] })
   })
 })
 
