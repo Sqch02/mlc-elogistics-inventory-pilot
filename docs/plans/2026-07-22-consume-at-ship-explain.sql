@@ -45,7 +45,31 @@ ROLLBACK;
 
 -- Acceptance checklist (archive the returned plan with the rollout evidence):
 -- 1. Loop 1 uses idx_shipments_tenant_non_consumable_consumed.
--- 2. Loop 2 uses idx_shipments_tenant_unconsumed_shipped_recent.
+-- 2. Loop 2 uses idx_shipments_tenant_unconsumed_consumable.
 -- 3. Neither plan contains a Seq Scan on public.shipments or a top-N heapsort.
 -- 4. Each query returns at most 200 rows.
 -- 5. Record execution time and shared/local buffer reads before activation.
+-- 6. "Rows Removed by Filter" on the shipments index scan must stay near zero.
+--    A large value means the index does not materialize the full predicate and
+--    the sweeper is re-scanning the whole cohort every tick (see 7).
+--
+-- MEASURED IN PRODUCTION, 2026-07-24 (FLORNA, tenant f1073a00-...-000000000001):
+--   Loop 1: Index Scan on idx_shipments_tenant_non_consumable_consumed,
+--           35 ms, 75 buffers (all cache hits), 0 rows. PASS.
+--   Loop 2 with idx_shipments_tenant_unconsumed_shipped_recent only:
+--           3293 ms, 6201 buffers, "Rows Removed by Filter: 6063" for 5 real
+--           candidates. FAIL -- see 7.
+--   Loop 2 after adding idx_shipments_tenant_unconsumed_consumable:
+--           16 ms, 67 buffers, 0 rows removed by filter. PASS (203x faster).
+--
+-- 7. WHY the INCLUDE-only index was not enough (keep this in mind before
+--    "optimising" any predicate through INCLUDE columns on this table):
+--      a. The sweeper query takes FOR UPDATE, so PostgreSQL needs the heap
+--         tuple (ctid) and can never use an Index Only Scan. INCLUDE columns
+--         therefore save nothing here.
+--      b. public.is_consumable_shipment is declared SET search_path = public.
+--         PostgreSQL refuses to inline any SQL function carrying a SET clause,
+--         so it is a real per-row function call, not a folded expression.
+--         Do NOT drop the SET clause to win inlining: it is the project's
+--         SECURITY DEFINER/search_path convention. Materialize the predicate in
+--         a partial index instead, exactly like loop 1 does.
