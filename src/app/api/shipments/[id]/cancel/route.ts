@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireRole, requireTenant } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 import { cancelParcel, getParcel } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
@@ -28,6 +28,12 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Cette route annule un vrai colis chez Sendcloud (etiquette transporteur
+    // invalidee, action externe irreversible) et, depuis consume-at-ship, rend
+    // le stock. requireTenant ne verifie que l'authentification : sans garde de
+    // role, un compte client peut annuler une expedition et muter le stock.
+    // Meme garde que les autres routes mutant le stock (skus/[id]/stock).
+    await requireRole(['super_admin', 'admin', 'ops'])
     const tenantId = await requireTenant()
     const { id } = await params
     const adminClient = getAdminDb()

@@ -1,9 +1,32 @@
 -- OUT-OF-BAND OPERATION — never pass this file to `supabase db push`.
 -- Execute each statement standalone (autocommit), after migrations 00096/00097,
 -- outside peak hours. CREATE INDEX CONCURRENTLY cannot run in a transaction.
--- Safe to retry because both indexes use IF NOT EXISTS. If an interrupted run
+-- Safe to retry because every index uses IF NOT EXISTS. If an interrupted run
 -- leaves an invalid index, inspect pg_index.indisvalid and remove that exact
 -- invalid index before retrying.
+--
+-- ============================================================================
+-- READ THIS BEFORE TOUCHING public.is_consumable_shipment
+-- ============================================================================
+-- The partial indexes below carry a call to is_consumable_shipment in their
+-- WHERE predicate, so their contents are frozen against the function body that
+-- existed when they were built. PostgreSQL trusts the IMMUTABLE declaration:
+-- a CREATE OR REPLACE of that function does NOT rebuild them, and raises no
+-- error and no warning. The indexes silently keep classifying shipments with
+-- the OLD rule.
+--
+-- Why that is dangerous here rather than merely stale: consume_shipment_stock
+-- re-checks the predicate under FOR UPDATE, so sweeper direction 2 protects
+-- itself. restock_shipment_stock does NOT re-check anything — direction 1
+-- delegates the entire decision to the index contents. A stale index there
+-- gives stock back for parcels that genuinely shipped, inflating stock.
+--
+-- So any change to the vocabulary — that is, to NON_CONSUMABLE_STATUS_MESSAGES
+-- or CANCELLED_STATUS_IDS in src/lib/stock/consumable-status.ts and its SQL
+-- mirror — MUST be followed, in the same maintenance window, by:
+--   REINDEX INDEX CONCURRENTLY public.idx_shipments_tenant_non_consumable_consumed;
+--   REINDEX INDEX CONCURRENTLY public.idx_shipments_tenant_unconsumed_consumable;
+-- ============================================================================
 
 SET lock_timeout = '2s';
 
