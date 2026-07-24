@@ -1,0 +1,99 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
+
+const sql = readFileSync(
+  join(process.cwd(), 'supabase/migrations/00097_stock_reconcile_and_recalibration.sql'),
+  'utf8',
+)
+const indexSql = readFileSync(
+  join(process.cwd(), 'supabase/operations/2026-07-22_consume_at_ship_indexes.sql'),
+  'utf8',
+)
+const explainSql = readFileSync(
+  join(process.cwd(), 'docs/plans/2026-07-22-consume-at-ship-explain.sql'),
+  'utf8',
+)
+
+const executableMigrationSql = sql.replace(/--.*$/gm, '')
+
+describe('00097 stock reconciliation and recalibration contract', () => {
+  it('hard-caps both sweeper directions behind one tenant rollout flag', () => {
+    expect(sql).toContain('CREATE OR REPLACE FUNCTION public.reconcile_tenant_stock')
+    expect(sql).toContain('LEAST(200, GREATEST(1, COALESCE(p_limit, 200)))')
+    expect(sql.match(/FOR UPDATE SKIP LOCKED/g)?.length).toBeGreaterThanOrEqual(2)
+    expect(sql).toContain('consume_at_ship_enabled boolean NOT NULL DEFAULT false')
+    expect(sql).toContain('IF NOT v_consume_at_ship_enabled THEN')
+    expect(sql.indexOf('IF NOT v_consume_at_ship_enabled THEN')).toBeLessThan(
+      sql.indexOf('-- Restore historical wrong consumption'),
+    )
+    expect(sql).toContain('public.consume_shipment_stock')
+    expect(sql).toContain('public.restock_shipment_stock')
+  })
+
+  it('keeps concurrent indexes out of the transactional migration', () => {
+    expect(executableMigrationSql).not.toContain('CREATE INDEX CONCURRENTLY')
+    expect(sql).toContain('supabase/operations/2026-07-22_consume_at_ship_indexes.sql')
+    expect(indexSql.match(/CREATE INDEX CONCURRENTLY IF NOT EXISTS/g)).toHaveLength(2)
+    expect(indexSql).not.toMatch(/\bBEGIN\b/)
+  })
+
+  it('provides symmetric partial indexes and EXPLAIN checks for both loops', () => {
+    expect(indexSql).toContain('idx_shipments_tenant_non_consumable_consumed')
+    expect(indexSql).toContain('NOT public.is_consumable_shipment(status_id, status_message, is_return)')
+    expect(indexSql).toContain('idx_shipments_tenant_unconsumed_shipped_recent')
+    expect(indexSql).toContain('shipped_at DESC NULLS LAST, id')
+    expect(indexSql.match(/INCLUDE \(status_id, status_message, is_return\)/g)).toHaveLength(2)
+    expect(indexSql).toContain('WHERE stock_consumed_at IS NULL')
+    expect(explainSql.match(/EXPLAIN \(ANALYZE, BUFFERS, VERBOSE, FORMAT TEXT\)/g)).toHaveLength(2)
+    expect(explainSql).toContain('idx_shipments_tenant_non_consumable_consumed')
+    expect(explainSql).toContain('idx_shipments_tenant_unconsumed_shipped_recent')
+  })
+
+  it('reports requested and effective floor-clamped restoration separately', () => {
+    const movements = [
+      { adjustment: -5, qtyBefore: 2, qtyAfter: 0 },
+      { adjustment: -1, qtyBefore: 4, qtyAfter: 3 },
+    ]
+    const requested = -movements.reduce((sum, row) => sum + row.adjustment, 0)
+    const effective = movements.reduce(
+      (sum, row) => sum + row.qtyBefore - row.qtyAfter,
+      0,
+    )
+
+    expect(requested).toBe(6)
+    expect(effective).toBe(3)
+    expect(sql).toContain('CREATE OR REPLACE FUNCTION public.recalibrate_consumed_not_shipped_report')
+    expect(sql).toContain('s.stock_consumed_at IS NOT NULL')
+    expect(sql).toContain('NOT public.is_consumable_shipment')
+    expect(sql).toContain('requested_units_to_restore')
+    expect(sql).toContain('effective_units_to_restore')
+    expect(sql).toContain('SUM(sm.qty_before - sm.qty_after)')
+  })
+
+  it('recalibrates through the shipment reversal ledger, never a manual credit', () => {
+    // Consume 5 against stock 2, restore the real 2, then consume/restore 1.
+    // The shipment ledger is neutral after both cycles, so a later cancellation
+    // cannot manufacture the three units suppressed by the original floor.
+    const realEffects = [2, -2, 1, -1]
+    expect(realEffects.reduce((sum, effect) => sum + effect, 0)).toBe(0)
+
+    expect(sql).toContain('CREATE OR REPLACE FUNCTION public.recalibrate_consumed_not_shipped_apply')
+    expect(sql).toContain('p_expected_total')
+    expect(sql).toContain('recalibration total changed')
+    expect(sql).toContain("'Recalibration consume-at-ship'")
+    expect(sql).toContain('public.restock_shipment_stock(')
+    expect(sql).not.toContain("NULL::uuid,\n      'recalibration'")
+  })
+
+  it('keeps all functions service-role only', () => {
+    for (const signature of [
+      'reconcile_tenant_stock(uuid, integer)',
+      'recalibrate_consumed_not_shipped_report(uuid)',
+      'recalibrate_consumed_not_shipped_apply(uuid, integer)',
+    ]) {
+      expect(sql).toContain(`REVOKE ALL ON FUNCTION public.${signature} FROM PUBLIC, anon, authenticated`)
+      expect(sql).toContain(`GRANT EXECUTE ON FUNCTION public.${signature} TO service_role`)
+    }
+  })
+})

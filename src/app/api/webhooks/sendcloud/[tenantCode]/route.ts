@@ -3,6 +3,7 @@ import { getAdminDb } from '@/lib/supabase/untyped'
 import { parseParcel } from '@/lib/sendcloud/client'
 import type { SendcloudParcel, ParsedShipment } from '@/lib/sendcloud/types'
 import { consumeShipmentStockOnce, restockShipmentStock } from '@/lib/stock/consume'
+import { isConsumableStatus } from '@/lib/stock/consumable-status'
 import type { PricingRule } from '@/lib/utils/pricing'
 import { processShipmentItems } from '@/lib/utils/sku-mapping'
 import { buildShipmentRow } from '@/lib/sendcloud/build-shipment-row'
@@ -264,7 +265,7 @@ export async function POST(
           const parcel = parseParcel(rawParcel)
           const { data: existing } = await adminClient
             .from('shipments')
-            .select('id')
+            .select('id, stock_consumed_at')
             .eq('tenant_id', tenantId)
             .eq('sendcloud_id', parcel.sendcloud_id)
             .single()
@@ -281,7 +282,7 @@ export async function POST(
             reversedCount += count
             await adminClient
               .from('shipments')
-              .update({ has_error: true, status_message: 'Cancelled' })
+              .update({ has_error: true, status_id: 2000, status_message: 'Cancelled' })
               .eq('tenant_id', tenantId)
               .eq('id', shipmentId)
           }
@@ -323,7 +324,7 @@ export async function POST(
       errors: [] as string[],
     }
 
-    // Track whether any stock was decremented in this batch so we know if
+    // Track whether any stock changed in this batch so we know if
     // mv_sku_metrics needs a refresh at the end.
     let stockConsumedInBatch = false
 
@@ -338,7 +339,7 @@ export async function POST(
         // consumption (P0-secu defense in depth).
         const { data: existingShipment } = await adminClient
           .from('shipments')
-          .select('id')
+          .select('id, stock_consumed_at')
           .eq('tenant_id', tenantId)
           .eq('sendcloud_id', parcel.sendcloud_id)
           .single()
@@ -363,6 +364,29 @@ export async function POST(
 
         results.processed++
         console.log('[Webhook]', tenantCode, ': Processed parcel:', parcel.sendcloud_id, '- Status:', parcel.status_message, isNewShipment ? '(NEW)' : '(UPDATE)')
+
+        // A status transition can become non-consumable by message even without
+        // Sendcloud's numeric cancellation IDs. The atomic RPC is a no-op when
+        // the shipment was never consumed or was already reversed.
+        if (
+          shipment &&
+          payload.action === 'parcel_status_changed' &&
+          !isConsumableStatus(parcel)
+        ) {
+          try {
+            const { restocked } = await restockShipmentStock(
+              tenantId,
+              shipment.id,
+              'Statut Sendcloud devenu non consommable',
+            )
+            if (restocked) stockConsumedInBatch = true
+          } catch (stockError) {
+            console.error(
+              `[Webhook] ${tenantCode}: Error restocking cancelled parcel ${parcel.sendcloud_id}:`,
+              stockError,
+            )
+          }
+        }
 
         // Check if status indicates a problem
         if (parcel.status_id && shipment) {
@@ -408,9 +432,14 @@ export async function POST(
                 `[Webhook] ${tenantCode}: Items for ${parcel.sendcloud_id} - ${mappedCount} mapped, ${unmappedCount} unmapped`,
               )
 
-              // Consume stock only for NEW shipments, using the freshly-mapped
-              // shipment_items so bundle/compound SKUs are handled consistently.
-              if (isNewShipment && mappedCount > 0) {
+              // Transition based: existing On-Hold rows consume on their first
+              // physically-shipped status. The SQL RPC repeats the predicate
+              // and owns the idempotent CAS.
+              if (
+                isConsumableStatus(parcel) &&
+                existingShipment?.stock_consumed_at == null &&
+                mappedCount > 0
+              ) {
                 try {
                   const { consumed } = await consumeShipmentStockOnce(tenantId, shipment.id)
                   if (consumed) stockConsumedInBatch = true
@@ -436,7 +465,7 @@ export async function POST(
       }
     }
 
-    // Refresh mv_sku_metrics si du stock a ete consomme dans ce batch. Sans
+    // Refresh mv_sku_metrics si du stock a change dans ce batch. Sans
     // ca, l'UI continue d'afficher l'ancien stock jusqu'au prochain cron
     // (bug observe sur REBORN21 le 27/05). On le fait ici plutot que par
     // parcelle pour eviter N refresh quand plusieurs parcels arrivent dans

@@ -43,7 +43,7 @@ interface PricingRuleFixture {
 }
 
 interface AdminClientOptions {
-  existingShipment?: { id: string } | null
+  existingShipment?: { id: string; stock_consumed_at: string | null } | null
   pricingRules?: PricingRuleFixture[]
   shipmentError?: { message: string } | null
 }
@@ -83,6 +83,7 @@ function createAdminClient(options: AdminClientOptions = {}) {
 
   const syncRunUpdates: Array<Record<string, unknown>> = []
   const shipmentUpserts: Array<Record<string, unknown>> = []
+  const shipmentLookupFilters: Array<[string, unknown]> = []
 
   const client = {
     from: vi.fn((table: string) => {
@@ -136,12 +137,10 @@ function createAdminClient(options: AdminClientOptions = {}) {
       if (table === 'shipments') {
         return {
           select: vi.fn(() => ({
-            eq: vi.fn(() => ({
-              single: vi.fn().mockResolvedValue({
-                data: existingShipment,
-                error: null,
-              }),
-            })),
+            eq: vi.fn(function eq(column: string, value: unknown) {
+              shipmentLookupFilters.push([column, value])
+              return { eq, single: vi.fn().mockResolvedValue({ data: existingShipment, error: null }) }
+            }),
           })),
           upsert: vi.fn((payload: Record<string, unknown>) => {
             shipmentUpserts.push(payload)
@@ -161,7 +160,7 @@ function createAdminClient(options: AdminClientOptions = {}) {
     }),
   }
 
-  return { client, shipmentUpserts, syncRunUpdates }
+  return { client, shipmentUpserts, syncRunUpdates, shipmentLookupFilters }
 }
 
 function makeParcel(overrides: Partial<ParsedShipment> = {}): ParsedShipment {
@@ -276,7 +275,7 @@ describe('POST /api/sync/sendcloud/run', () => {
 
   it('updates an existing shipment without consuming its stock again', async () => {
     const { client, syncRunUpdates } = createAdminClient({
-      existingShipment: { id: 'shipment-1' },
+      existingShipment: { id: 'shipment-1', stock_consumed_at: '2026-07-13T09:10:00.000Z' },
     })
     mockGetAdminDb.mockReturnValue(client as unknown as ReturnType<typeof getAdminDb>)
     mockFetchAllParcels.mockResolvedValue([makeParcel()])
@@ -289,6 +288,36 @@ describe('POST /api/sync/sendcloud/run', () => {
     expect(mockProcessShipmentItems).toHaveBeenCalledTimes(1)
     expect(mockConsumeShipmentStockOnce).not.toHaveBeenCalled()
     expect(syncRunUpdates.at(-1)).toMatchObject({ status: 'success' })
+  })
+
+  it('does not consume a newly observed On Hold shipment', async () => {
+    const { client } = createAdminClient()
+    mockGetAdminDb.mockReturnValue(client as unknown as ReturnType<typeof getAdminDb>)
+    mockFetchAllParcels.mockResolvedValue([makeParcel({ status_id: null, status_message: 'On Hold' })])
+
+    const response = await POST()
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.stats).toMatchObject({ created: 1, stockConsumed: 0 })
+    expect(mockConsumeShipmentStockOnce).not.toHaveBeenCalled()
+  })
+
+  it('consumes an existing unconsumed shipment when it transitions to shipped', async () => {
+    const { client, shipmentLookupFilters } = createAdminClient({
+      existingShipment: { id: 'shipment-1', stock_consumed_at: null },
+    })
+    mockGetAdminDb.mockReturnValue(client as unknown as ReturnType<typeof getAdminDb>)
+    mockFetchAllParcels.mockResolvedValue([makeParcel({ status_id: null, status_message: 'Fulfilled' })])
+
+    const response = await POST()
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.stats).toMatchObject({ updated: 1, stockConsumed: 2 })
+    expect(mockConsumeShipmentStockOnce).toHaveBeenCalledOnce()
+    expect(shipmentLookupFilters).toContainEqual(['tenant_id', 'tenant-1'])
+    expect(shipmentLookupFilters).toContainEqual(['sendcloud_id', '12345'])
   })
 
   it('marks the run partial and skips item processing when one shipment upsert fails', async () => {
