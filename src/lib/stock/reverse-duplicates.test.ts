@@ -4,7 +4,7 @@ import type { createAdminClient } from '@/lib/supabase/admin'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
-function createFallbackClient() {
+function createFallbackClient(stillConsumedIds: string[] = ['shipment-a', 'shipment-b']) {
   const rpc = vi.fn((rpcName: string) => {
     if (rpcName === 'reverse_duplicate_shipment_stock') {
       return Promise.resolve({
@@ -15,15 +15,33 @@ function createFallbackClient() {
     return Promise.resolve({ data: [], error: null })
   })
 
+  // Effet REEL du ledger (qty_before - qty_after), pas le delta demande :
+  // apply_stock_delta planche a GREATEST(0, ...), donc les deux divergent des
+  // qu'une consommation a touche zero.
   const movementsQuery = {
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
-    in: vi.fn().mockResolvedValue({
-      data: [
-        { sku_id: 'sku-a', adjustment: -2 },
-        { sku_id: 'sku-a', adjustment: -1 },
-        { sku_id: 'sku-b', adjustment: -4 },
-      ],
+    in: vi.fn(function inFilter(this: unknown, column: string) {
+      if (column === 'reference_id') {
+        return Promise.resolve({
+          data: [
+            { sku_id: 'sku-a', qty_before: 10, qty_after: 8 },
+            { sku_id: 'sku-a', qty_before: 8, qty_after: 7 },
+            { sku_id: 'sku-b', qty_before: 10, qty_after: 6 },
+          ],
+          error: null,
+        })
+      }
+      return movementsQuery
+    }),
+  }
+  // Seuls les colis encore marques consommes peuvent etre recredites.
+  const shipmentsSelect = {
+    select: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    in: vi.fn().mockReturnThis(),
+    not: vi.fn().mockResolvedValue({
+      data: stillConsumedIds.map((id) => ({ id })),
       error: null,
     }),
   }
@@ -34,7 +52,7 @@ function createFallbackClient() {
   const from = vi.fn((table: string) => {
     if (table === 'stock_movements') return movementsQuery
     if (table === 'shipments') {
-      return { delete: vi.fn(() => shipmentDelete) }
+      return { ...shipmentsSelect, delete: vi.fn(() => shipmentDelete) }
     }
     throw new Error(`Unexpected table: ${table}`)
   })
@@ -44,6 +62,7 @@ function createFallbackClient() {
     rpc,
     from,
     shipmentDelete,
+    shipmentsSelect,
   }
 }
 
@@ -132,5 +151,21 @@ describe('reverseDuplicateShipmentStock', () => {
     })
     expect(rpc).not.toHaveBeenCalled()
     expect(from).not.toHaveBeenCalled()
+  })
+  it('credits nothing for a shipment already refunded, but still deletes it', async () => {
+    // Marqueur NULL = stock deja rendu (annulation, sweeper ou recalibration).
+    // Le recrediter serait une seconde restitution : c'est le bug corrige en 00098.
+    const { client, rpc, shipmentDelete } = createFallbackClient([])
+
+    const result = await reverseDuplicateShipmentStock(
+      client,
+      'tenant-1',
+      ['shipment-a', 'shipment-b'],
+    )
+
+    expect(result).toMatchObject({ skusReversed: 0, unitsReversed: 0, usedFallback: true })
+    expect(rpc.mock.calls.filter(([name]) => name === 'apply_stock_delta')).toHaveLength(0)
+    // Le doublon doit quand meme disparaitre.
+    expect(shipmentDelete.eq).toHaveBeenCalledWith('tenant_id', 'tenant-1')
   })
 })

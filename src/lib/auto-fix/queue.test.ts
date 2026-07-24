@@ -78,6 +78,26 @@ describe('auto-fix queue model', () => {
     expect(plan.changes[0]).toMatchObject({ hs_source: 'tenant_settings.default_hs_code' })
   })
 
+  it('persists CHF amounts without retaining customer or product identity', () => {
+    const candidate = buildAutoFixCandidate('tenant-1', {
+      shipmentId: 'shipment-1',
+      shipment: parsedShipment({
+        name: 'Private Person', email: 'private@example.com', address: 'Secret street 10',
+        total_order_value_currency: 'CHF', total_order_value: '10.00',
+        parcel_items: [{ quantity: 1, value: '10.00', sku: 'SECRET-SKU', description: 'Secret product' }],
+        errors: { currency: ['Currency CHF is not supported'] },
+      }),
+    }, { defaultHsCode: null, defaultOriginCountry: null })!
+    const persisted = JSON.stringify(candidate.source_summary_json)
+
+    expect(persisted).toContain('10.00')
+    expect(persisted).not.toContain('Private Person')
+    expect(persisted).not.toContain('private@example.com')
+    expect(persisted).not.toContain('Secret street')
+    expect(persisted).not.toContain('SECRET-SKU')
+    expect(persisted).not.toContain('Secret product')
+  })
+
   it('enqueues one idempotent batch through the service RPC', async () => {
     const rpc = vi.fn().mockResolvedValue({ data: 1, error: null })
     const result = await enqueueAutoFixCandidates({ rpc }, 'tenant-1', [{
@@ -102,5 +122,43 @@ describe('auto-fix queue model', () => {
     })
     expect(plan.wouldEndState).toBe('pending_manual')
     expect(plan.warnings.length).toBeGreaterThan(0)
+  })
+
+  it('marks CHF verified only with a dated rate and coherent concrete amounts', () => {
+    const plan = buildSimulationPlanFromJob({
+      id: 'job-chf', tenant_id: 'tenant-1', shipment_id: 'shipment-1',
+      source_kind: 'parcel', source_sendcloud_id: '123', source_fingerprint: 'a'.repeat(64),
+      primary_pattern: 'currency_chf', detected_patterns: ['currency_chf'], operation_key: 'b'.repeat(64),
+      mode: 'simulated', evidence_json: {},
+      source_summary_json: {
+        currency: 'CHF',
+        monetary: {
+          total_order_value: '10.00',
+          parcel_items: [{ index: 0, quantity: 1, value: '4.00' }, { index: 1, quantity: 1, value: '6.00' }],
+        },
+      },
+    }, {
+      chfToEurRate: {
+        ok: true,
+        rate: {
+          baseCurrency: 'CHF', targetCurrency: 'EUR', rate: '1.080030240847',
+          rateDate: '2026-07-21', provider: 'ECB', providerSeries: 'EXR.D.CHF.EUR.SP00.A',
+          providerQuote: { baseCurrency: 'EUR', targetCurrency: 'CHF', rate: '0.9259' },
+          fetchedAt: '2026-07-22T08:00:00.000Z', expiresAt: '2026-07-23T08:00:00.000Z', cacheStatus: 'hit',
+        },
+      },
+    })
+
+    expect(plan.version).toBe(2)
+    expect(plan.action).toBe('put_update')
+    expect(plan.wouldEndState).toBe('verified')
+    expect(plan.warnings).toEqual([])
+    expect(plan.changes[0]).toMatchObject({
+      calculation_status: 'ready',
+      before: { currency: 'CHF', total_order_value: '10.00' },
+      after: { currency: 'EUR', total_order_value: '10.80' },
+      exchange_rate: { provider: 'ECB', rate_date: '2026-07-21' },
+      consistency: { source_total_equals_item_sum: true, allocation_delta_within_tolerance: true },
+    })
   })
 })

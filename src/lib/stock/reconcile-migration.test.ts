@@ -34,7 +34,7 @@ describe('00097 stock reconciliation and recalibration contract', () => {
   it('keeps concurrent indexes out of the transactional migration', () => {
     expect(executableMigrationSql).not.toContain('CREATE INDEX CONCURRENTLY')
     expect(sql).toContain('supabase/operations/2026-07-22_consume_at_ship_indexes.sql')
-    expect(indexSql.match(/CREATE INDEX CONCURRENTLY IF NOT EXISTS/g)).toHaveLength(2)
+    expect(indexSql.match(/CREATE INDEX CONCURRENTLY IF NOT EXISTS/g)).toHaveLength(3)
     expect(indexSql).not.toMatch(/\bBEGIN\b/)
   })
 
@@ -44,6 +44,16 @@ describe('00097 stock reconciliation and recalibration contract', () => {
     expect(indexSql).toContain('idx_shipments_tenant_unconsumed_shipped_recent')
     expect(indexSql).toContain('shipped_at DESC NULLS LAST, id')
     expect(indexSql.match(/INCLUDE \(status_id, status_message, is_return\)/g)).toHaveLength(2)
+    // Troisieme index : il MATERIALISE le predicat au lieu de le porter en
+    // INCLUDE. Mesure en prod : la boucle 2 passait de 3293 ms a 16 ms, parce
+    // que FOR UPDATE interdit l'Index Only Scan et que is_consumable_shipment,
+    // portant SET search_path, n'est pas inlinable (un appel par ligne).
+    expect(indexSql).toContain('idx_shipments_tenant_unconsumed_consumable')
+    expect(indexSql).toContain(
+      'AND public.is_consumable_shipment(status_id, status_message, is_return)',
+    )
+    // Et le piege associe doit rester documente en tete du fichier.
+    expect(indexSql).toContain('REINDEX INDEX CONCURRENTLY')
     expect(indexSql).toContain('WHERE stock_consumed_at IS NULL')
     expect(explainSql.match(/EXPLAIN \(ANALYZE, BUFFERS, VERBOSE, FORMAT TEXT\)/g)).toHaveLength(2)
     expect(explainSql).toContain('idx_shipments_tenant_non_consumable_consumed')

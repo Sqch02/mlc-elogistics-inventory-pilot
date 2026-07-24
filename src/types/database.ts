@@ -51,6 +51,10 @@ interface LocalFunctions {
     Args: { p_limit?: number }
     Returns: number
   }
+  claim_exchange_rate_refresh: {
+    Args: { p_base_currency: string; p_target_currency: string }
+    Returns: boolean
+  }
   map_shipment_items_batch: {
     Args: { p_items: Json; p_tenant_id: string }
     Returns: Array<{ item_index: number; sku_id: string | null }>
@@ -157,6 +161,39 @@ type AutoFixAuditRow = Record<string, unknown> & {
   created_at: string
 }
 
+type ExchangeRateCacheRow = Record<string, unknown> & {
+  base_currency: string
+  target_currency: string
+  rate: number | null
+  rate_date: string | null
+  provider: string | null
+  provider_quote: number | null
+  fetched_at: string | null
+  expires_at: string | null
+  refresh_not_before: string
+  updated_at: string
+}
+
+type ExchangeRateCacheInsert = {
+  base_currency: string
+  target_currency: string
+  rate?: number | null
+  rate_date?: string | null
+  provider?: string | null
+  provider_quote?: number | null
+  fetched_at?: string | null
+  expires_at?: string | null
+  refresh_not_before?: string
+  updated_at?: string
+}
+
+type ExchangeRateCacheTable = {
+  Row: ExchangeRateCacheRow
+  Insert: ExchangeRateCacheInsert
+  Update: Partial<ExchangeRateCacheInsert>
+  Relationships: []
+}
+
 type SendcloudSyncCheckpointRow = {
   tenant_id: string
   resource: 'parcels' | 'returns' | 'integration_shipments'
@@ -182,6 +219,7 @@ type GeneratedTables = GeneratedDatabase['public']['Tables']
 type TablesWithLocalMigrations = Omit<GeneratedTables, 'tenant_settings'> & {
   auto_fix_jobs: ReadOnlyLocalTable<AutoFixJobRow>
   auto_fixes: ReadOnlyLocalTable<AutoFixAuditRow>
+  exchange_rates_cache: ExchangeRateCacheTable
   sendcloud_sync_checkpoints: {
     Row: SendcloudSyncCheckpointRow
     Insert: Omit<SendcloudSyncCheckpointRow, 'updated_at'> & { updated_at?: string }

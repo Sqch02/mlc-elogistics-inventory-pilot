@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import type { Json } from '@/types/database'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type { Database, Json } from '@/types/database'
 import { resolveAutoFixGate, workerBudgetMs, type AutoFixEnvironment } from './config'
+import {
+  createSupabaseExchangeRateRepository,
+  resolveChfToEurRate,
+  type ChfRateResolution,
+} from './exchange-rate'
 import { buildSimulationPlanFromJob } from './plan'
 import { AUTO_FIX_PATTERNS, type ClaimedAutoFixJob } from './types'
 
@@ -9,6 +15,11 @@ interface RpcResult<T> { data: T | null; error: RpcError | null }
 
 export interface AutoFixWorkerClient {
   rpc(name: string, args?: Record<string, unknown>): PromiseLike<RpcResult<unknown>>
+  from?: unknown
+}
+
+export interface AutoFixWorkerDependencies {
+  resolveChfRate?: (client: AutoFixWorkerClient) => Promise<ChfRateResolution>
 }
 
 interface SimulatedTenant {
@@ -78,9 +89,16 @@ async function rpcData<T>(
   return data as T
 }
 
+async function resolveWorkerChfRate(client: AutoFixWorkerClient): Promise<ChfRateResolution> {
+  if (typeof client.from !== 'function') return { ok: false, reason: 'cache_unavailable' }
+  const repository = createSupabaseExchangeRateRepository(client as unknown as SupabaseClient<Database>)
+  return resolveChfToEurRate(repository)
+}
+
 export async function runAutoFixDryRunWorker(
   client: AutoFixWorkerClient,
   env: AutoFixEnvironment = process.env,
+  dependencies: AutoFixWorkerDependencies = {},
 ): Promise<AutoFixWorkerResult | { paused: true; reason: string }> {
   const gate = resolveAutoFixGate(env)
   if (!gate.enabled) return { paused: true, reason: gate.reason }
@@ -94,6 +112,13 @@ export async function runAutoFixDryRunWorker(
     mode: 'simulated', workerId, tenants: tenants.length, claimed: 0,
     simulated: 0, failed: 0, stoppedByBudget: false, piiRedacted: 0,
     cleanupFailed: false,
+  }
+  let chfRatePromise: Promise<ChfRateResolution> | null = null
+  const getChfRate = (): Promise<ChfRateResolution> => {
+    if (!chfRatePromise) {
+      chfRatePromise = (dependencies.resolveChfRate ?? resolveWorkerChfRate)(client)
+    }
+    return chfRatePromise
   }
 
   for (const tenant of tenants) {
@@ -114,7 +139,10 @@ export async function runAutoFixDryRunWorker(
     // future live adapter must opt in explicitly rather than inherit parallelism.
     for (const job of jobs) {
       try {
-        const plan = buildSimulationPlanFromJob(job)
+        const chfToEurRate = job.detected_patterns.includes('currency_chf')
+          ? await getChfRate()
+          : undefined
+        const plan = buildSimulationPlanFromJob(job, { chfToEurRate })
         const planned = await rpcData<boolean>(client, 'plan_auto_fix_simulation', {
           p_job_id: job.id,
           p_worker_id: workerId,

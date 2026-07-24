@@ -1,5 +1,6 @@
 import type { ParsedShipment } from '@/lib/sendcloud/types'
 import type { Json } from '@/types/database'
+import type { ChfRateResolution } from './exchange-rate'
 
 export const AUTO_FIX_PATTERNS = [
   'currency_chf',
@@ -78,13 +79,17 @@ export interface AutoFixCandidateJob {
 }
 
 export interface SimulationPlan {
-  version: 1
+  version: 2
   action: 'none' | 'put_update' | 'create_linked' | 'manual_required' | 'account_configuration'
   wouldEndState: 'verified' | 'pending_manual'
   patterns: AutoFixPattern[]
   changes: Json[]
   safeguards: string[]
   warnings: string[]
+}
+
+export interface AutoFixPlanningContext {
+  chfToEurRate?: ChfRateResolution
 }
 
 export interface CandidateSource {

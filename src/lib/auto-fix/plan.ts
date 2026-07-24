@@ -1,6 +1,8 @@
 import type { Json } from '@/types/database'
+import { buildChfToEurConversion } from './currency'
 import type {
   AutoFixDetection,
+  AutoFixPlanningContext,
   ClaimedAutoFixJob,
   SimulationPlan,
   TenantFixDefaults,
@@ -15,6 +17,7 @@ function asRecord(value: Json): Record<string, Json | undefined> {
 function buildPlan(
   detection: Pick<AutoFixDetection, 'sourceKind' | 'detectedPatterns' | 'sourceSummary'>,
   defaults: TenantFixDefaults,
+  context: AutoFixPlanningContext,
 ): SimulationPlan {
   const summary = detection.sourceSummary
   const changes: Json[] = []
@@ -24,9 +27,13 @@ function buildPlan(
 
   for (const pattern of detection.detectedPatterns) {
     if (pattern === 'currency_chf') {
-      changes.push({ pattern, currency_from: summary.currency ?? 'CHF', currency_to: 'EUR', requires_fixed_rate: true, values_redacted: true })
-      wouldEndState = 'pending_manual'
-      warnings.push('Conversion interdite sans taux date, arrondis et controle total/items')
+      const conversion = buildChfToEurConversion(summary, context.chfToEurRate)
+      changes.push(conversion.change)
+      if (!conversion.ready) {
+        wouldEndState = 'pending_manual'
+        if (action !== 'account_configuration') action = 'manual_required'
+        warnings.push(conversion.warning)
+      }
     } else if (pattern === 'address_too_long') {
       changes.push({ pattern, strategy: 'abbreviate_then_word_boundary', lengths: summary.address_lengths ?? {}, limits: summary.address_limits ?? [] })
     } else if (pattern === 'hs_code_missing') {
@@ -59,7 +66,7 @@ function buildPlan(
   }
 
   return {
-    version: 1,
+    version: 2,
     action,
     wouldEndState,
     patterns: detection.detectedPatterns,
@@ -79,11 +86,15 @@ function buildPlan(
 export function buildSimulationPlan(
   detection: AutoFixDetection,
   defaults: TenantFixDefaults,
+  context: AutoFixPlanningContext = {},
 ): SimulationPlan {
-  return buildPlan(detection, defaults)
+  return buildPlan(detection, defaults, context)
 }
 
-export function buildSimulationPlanFromJob(job: ClaimedAutoFixJob): SimulationPlan {
+export function buildSimulationPlanFromJob(
+  job: ClaimedAutoFixJob,
+  context: AutoFixPlanningContext = {},
+): SimulationPlan {
   const summary = asRecord(job.source_summary_json)
   return buildPlan({
     sourceKind: job.source_kind,
@@ -94,5 +105,5 @@ export function buildSimulationPlanFromJob(job: ClaimedAutoFixJob): SimulationPl
     // persists whether both tenant defaults existed when the source was seen.
     defaultHsCode: summary.tenant_default_hs_configured === true ? 'configured' : null,
     defaultOriginCountry: summary.tenant_default_origin_configured === true ? 'configured' : null,
-  })
+  }, context)
 }
