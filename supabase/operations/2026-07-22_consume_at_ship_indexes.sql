@@ -22,4 +22,29 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_shipments_tenant_unconsumed_shipped_
   INCLUDE (status_id, status_message, is_return)
   WHERE stock_consumed_at IS NULL;
 
+-- Sweeper direction 2 (measured fix, 2026-07-24). The index above still costs a
+-- full scan of the unconsumed cohort every tick: `INCLUDE` cannot serve the
+-- predicate because `FOR UPDATE` forces heap access, and
+-- `is_consumable_shipment` is declared `SET search_path = public`, which makes
+-- it non-inlinable, so PostgreSQL calls it once per candidate row.
+--
+-- Measured on FLORNA in production before this index: 6068 rows scanned to
+-- return 5 candidates, 3293 ms, 6201 buffers -- every 5 minutes, on the exact
+-- cron path that saturated disk I/O on 13/07. The unconsumed cohort only grows,
+-- because non-consumable shipments keep stock_consumed_at NULL forever.
+--
+-- Materializing the full predicate (same pattern as direction 1) makes the scan
+-- proportional to real candidates instead of the whole cohort.
+-- After this index: 16 ms, 67 buffers, 0 rows removed by filter (203x faster).
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_shipments_tenant_unconsumed_consumable
+  ON public.shipments (tenant_id, shipped_at DESC NULLS LAST, id)
+  WHERE stock_consumed_at IS NULL
+    AND public.is_consumable_shipment(status_id, status_message, is_return);
+
 RESET lock_timeout;
+
+-- FOLLOW-UP: once idx_shipments_tenant_unconsumed_consumable is confirmed to
+-- serve every sweeper direction-2 plan, idx_shipments_tenant_unconsumed_shipped_recent
+-- becomes redundant and only adds write amplification on the sync hot path.
+-- Check `pg_stat_user_indexes.idx_scan` stays flat for a few days, then:
+--   DROP INDEX CONCURRENTLY IF EXISTS public.idx_shipments_tenant_unconsumed_shipped_recent;

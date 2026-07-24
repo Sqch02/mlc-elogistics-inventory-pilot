@@ -49,15 +49,17 @@
 
 ### Découverte Phase 0 déjà exécutée (22/07, read-only) — impact chiffré
 
-- **Impact initial calculé depuis les deltas demandés : FLORNA ≈ 1 826 (603 colis), Anteos = 1, MOTIJET = 0, REBORN21 = 0.** Ce chiffre doit être recalculé avec `SUM(qty_before - qty_after)` avant signature : il constitue une borne haute lorsque certaines consommations ont touché le plancher zéro.
+- **Impact initial calculé depuis les deltas demandés : FLORNA ≈ 1 826 (603 colis), Anteos = 1, MOTIJET = 0, REBORN21 = 0.** Ce chiffre doit être recalculé avec `SUM(qty_before - qty_after)` avant signature : il constitue une borne haute lorsque certaines consommations ont touché le plancher zéro. → *Fait : voir le journal de déploiement en fin de document.*
 - **Découverte critique :** MOTIJET & Anteos laissent `status_id = NULL` sur des commandes expédiées (`status_message` = 'Fulfilled'/'Completed') → prédicat corrigé en message-based (cf Décision 1). Sans ça, on cassait le stock de ces 2 clients.
 - **Triggers de remap : DÉSACTIVÉS en prod** (confirmé) — rien à réactiver.
 
-### Décision restant à confirmer avec Quentin/Aurélien (vocabulaire des messages)
+### Vocabulaire CONFIRMÉ (Quentin 23/07 + vérification données 24/07) — prédicat FIGÉ
 
-- **« Ready to send » (status_id 1000)** : 11 398 colis FLORNA (label créé mais peut-être pas encore physiquement remis). Défaut = consommable (cohérent facturation). Si on veut ne consommer qu'à « en transit », exclure l'ensemble d'annonce (1000/1001/1) — changement d'une ligne dans le prédicat.
-- **« Announcement failed » (1002, ~821 consommés) et « Unknown status » (1337, ~755 consommés)** : expédiés ou non ? Défaut actuel = consommable ; à confirmer.
-- **Messages d'intégration « Completed » / « Fulfilled » / « Processing » / vide** : confirmer avec Quentin que Completed/Fulfilled = expédié et Processing/vide = pas encore. (Codé ainsi par défaut.)
+Cycle décrit par l'entrepôt : « On Hold » = prête à traiter, y compris en erreur (panneau attention) → **pas partie** ; « Étiquette créée / Imprimé » = l'équipe prépare la commande ; « Expédiée » = partie, avec suivi transporteur.
+
+- **« Ready to send » (status_id 1000) reste CONSOMMABLE.** Vérifié en données avant de trancher : **10 814 / 10 814 (100 %)** des colis FLORNA figés à ce statut depuis plus de 30 jours **ont un tracking**, dont 6 168 Mondial Relay. Ce sont donc des colis réellement partis dont le suivi n'a jamais progressé (remontée Mondial Relay défaillante, problème connu), et non des colis restés à l'entrepôt. Les exclure aurait rendu à tort le stock d'environ 11 000 colis expédiés.
+- **« Completed » / « Fulfilled »** (intégrations MOTIJET, Anteos) = expédié → consomme. **« Processing » / message vide** = pas encore parti → exclu. **« On Hold », « Unfulfilled », « Cancelled », « Cancelled - customer », status_id 2000/2001, is_return** → exclus.
+- **Point de process transmis à l'entrepôt** : une étiquette générée puis finalement non expédiée doit être **annulée dans Sendcloud**. C'est l'annulation qui déclenche le retour automatique du stock (webhook `parcel_cancelled` → `restock_shipment_stock`). Une étiquette simplement abandonnée sans annulation reste décomptée.
 
 ---
 
@@ -519,3 +521,39 @@ Périmètre STRICT : rendre le stock consommé à tort par des lignes **non-exp�
 - **Rollout par tenant + I/O + backup + kill-switch** : Phase 6. ✅
 - Résout **WM-2** (On-Hold ne consomme plus), **WM-1** (sweeper re-drive les consommables non consommés), **dérive REBORN21** (conso au bon moment), **sur-conso fantôme** (étiquettes non expédiées). ✅
 - Décisions ouvertes réelles isolées en **Phase 0** avec requêtes de découverte et gate de signature. ✅
+
+---
+
+## Journal de déploiement — 24/07/2026 (production)
+
+Déployé en une fenêtre le matin du 24/07, sync en pause, dans cet ordre.
+
+**1. Sauvegarde.** `backup_20260724_stock_snapshots` (copie de `stock_snapshots`) et `backup_20260724_shipments_markers` (`id, tenant_id, stock_consumed_at, status_id, status_message, is_return`, 136 137 lignes). Droits révoqués pour `PUBLIC`, `anon`, `authenticated`. À supprimer après quelques jours de stabilité.
+
+**2. Pause.** `SYNC_PAUSED=true` sur Render, propagation vérifiée (aucun `sync_runs` sur le tick suivant, endpoint cron répondant `paused: true`).
+
+**3. Migrations.** `00095` (checkpoints) → `00096` (prédicat, backfill, gate, reversal atomique, remap gaté) → `00097` (flag tenant, sweeper, recalibration). Le backfill de `00096` a marqué **20 454 colis** qui portaient déjà un mouvement `shipment` sans marqueur (FLORNA 20 347, REBORN21 69, Anteos 34) ; vérifié ensuite à **0 restant**. Sans ce backfill, la nouvelle porte de consommation les aurait re-consommés au premier resync.
+
+**4. Index.** Les deux `CREATE INDEX CONCURRENTLY` du script standalone, hors transaction, validés `indisvalid = true`. Un troisième index a été ajouté le jour même après mesure (voir 8).
+
+**5. Code.** PR #42 (checkpoints) puis PR #43 (consume-at-ship, reciblée sur `main`) fusionnées. Déploiement Render vérifié avant reprise : `/api/health` `db: ok`, service redémarré, cron toujours en pause.
+
+**6. Reprise.** `SYNC_PAUSED=false`. Premier cycle sain : `sync_runs` en `success`/`partial` (les `partial` correspondent au drainage normal du backlog par les checkpoints), table `sendcloud_sync_checkpoints` alimentée pour les 4 tenants actifs avec `consecutive_failures = 0`, **aucun mouvement de stock rétrospectif** (flags encore à `false`).
+
+**7. Recalibration, tenant par tenant.**
+
+| Tenant | Unités rendues | Détail |
+|---|---|---|
+| Anteos | 0 | 1 unité demandée mais effet réel nul (plancher zéro) — la garde anti-sur-restitution a évité une unité fantôme |
+| MLC PROJECT | 0 | périmètre vide |
+| MOTIJET | 0 | périmètre vide |
+| REBORN21 | 0 | 3 unités dans le périmètre mais antérieures au recomptage physique manuel du 15/07, donc **déjà absorbées** : marqueurs neutralisés à la main, sans mouvement de stock. Les rendre aurait faussé le comptage de +3 |
+| **FLORNA** | **1 882 sur 9 SKUs** | Perte de Poids +1 064, Ménopause +422, Coupe-faim +212, Sommeil +95, Anxiété +50, autres +39. Un SKU remonte de 0 à 9 |
+
+La garde `p_expected_total` a **refusé** un premier `apply` FLORNA à 3 126 : le drainage des checkpoints faisait sortir du périmètre, en temps réel, les commandes On-Hold devenues expédiées. Le périmètre s'est stabilisé à 1 882 sur trois relevés consécutifs avant application. Comportement voulu — la garde a fait exactement son travail.
+
+Puis `consume_at_ship_enabled = true` sur les 5 tenants et `refresh_all_analytics_views()`. Les 27 colis FLORNA expédiés mais jamais décomptés ont été rattrapés par le sweeper au tick suivant (consommation légitime), périmètre ramené à 0.
+
+**8. Correctif de performance découvert par le protocole EXPLAIN (le jour même).** La boucle 2 du sweeper mettait **3 293 ms par tick** pour FLORNA : 6 068 lignes scannées pour 5 candidats réels. Cause : `INCLUDE` ne peut pas servir un prédicat sous `FOR UPDATE` (accès au tuple obligatoire), et `is_consumable_shipment` porte `SET search_path`, ce qui interdit son inlining — donc un appel de fonction par ligne. Corrigé par un troisième index partiel matérialisant le prédicat complet (`idx_shipments_tenant_unconsumed_consumable`) : **16 ms, 67 buffers, 203× plus rapide**. Détails et mesures dans `docs/plans/2026-07-22-consume-at-ship-explain.sql` et `supabase/operations/2026-07-22_consume_at_ship_indexes.sql`.
+
+**Suites à traiter :** surveiller que `idx_shipments_tenant_unconsumed_shipped_recent` reste inutilisé puis le supprimer (amplification d'écriture inutile sur le chemin chaud) ; supprimer les tables `backup_20260724_*` après stabilisation ; contrôler le stock avec le client sur quelques jours.
