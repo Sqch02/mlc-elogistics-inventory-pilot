@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
-vi.mock('@/lib/supabase/auth', () => ({ requireTenant: vi.fn() }))
+vi.mock('@/lib/supabase/auth', () => ({ requireTenant: vi.fn(), requireRole: vi.fn() }))
 vi.mock('@/lib/supabase/untyped', () => ({ getAdminDb: vi.fn() }))
 vi.mock('@/lib/sendcloud/client', () => ({ cancelParcel: vi.fn(), getParcel: vi.fn() }))
 vi.mock('@/lib/stock/consume', () => ({ restockShipmentStock: vi.fn() }))
 
 import { POST } from './route'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireRole, requireTenant } from '@/lib/supabase/auth'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { cancelParcel, getParcel } from '@/lib/sendcloud/client'
 import { restockShipmentStock } from '@/lib/stock/consume'
@@ -58,11 +58,27 @@ function adminClient() {
 describe('POST /api/shipments/[id]/cancel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(requireRole).mockResolvedValue(undefined as never)
     vi.mocked(requireTenant).mockResolvedValue('tenant-1')
     vi.mocked(getAdminDb).mockReturnValue(adminClient() as unknown as ReturnType<typeof getAdminDb>)
     vi.mocked(cancelParcel).mockResolvedValue({ success: true })
     vi.mocked(getParcel).mockResolvedValue({ success: false, error: 'not found' })
     vi.mocked(restockShipmentStock).mockResolvedValue({ restocked: true, count: 1 })
+  })
+
+  it('refuses a client account: cancelling voids a real carrier label and moves stock', async () => {
+    vi.mocked(requireRole).mockRejectedValue(new Error('Forbidden'))
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const response = await POST(
+      new NextRequest('https://example.test/api/shipments/shipment-1/cancel', { method: 'POST' }),
+      { params: Promise.resolve({ id: 'shipment-1' }) },
+    )
+
+    expect(response.status).not.toBe(200)
+    // The guard must run before any irreversible or stock-mutating side effect.
+    expect(cancelParcel).not.toHaveBeenCalled()
+    expect(restockShipmentStock).not.toHaveBeenCalled()
   })
 
   it('restocks atomically after Sendcloud and local cancellation', async () => {
