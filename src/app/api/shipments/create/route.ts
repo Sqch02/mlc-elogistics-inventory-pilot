@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireRole, requireTenant } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 import { createParcel, CreateParcelData } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
@@ -45,6 +45,12 @@ interface PricingRule {
 
 export async function POST(request: NextRequest) {
   try {
+    // Cette route cree un VRAI colis sur le compte Sendcloud du 3PL et peut,
+    // avec request_label, faire generer une etiquette transporteur facturable.
+    // requireTenant ne verifie que l'authentification : sans garde de role, un
+    // compte client pouvait engager des frais de transport, alors que
+    // l'annulation, elle, est reservee aux roles internes.
+    await requireRole(['super_admin', 'admin', 'ops'])
     const tenantId = await requireTenant()
     const adminClient = getAdminDb()
     const body = await request.json()
