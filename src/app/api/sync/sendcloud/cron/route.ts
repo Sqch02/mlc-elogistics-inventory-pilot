@@ -157,9 +157,17 @@ export async function fetchCronData(
   ])
 }
 
+// Seule mv_sku_metrics est rafraichie par tick : elle porte qty_current et doit
+// suivre le stock de pres, et elle coute ~2,3 s, tres en dessous du plafond.
+//
+// v_physical_shipment_items (~35 s) et mv_dashboard_daily (~6,9 s, max mesure
+// 7 995 ms) ont ete deplacees vers pg_cron (migration 00099). Elles ne POUVAIENT
+// pas aboutir ici : le role authenticator porte statement_timeout=8s, herite par
+// tous les appels PostgREST. Mesure sur ~3 174 tentatives : 0 succes pour la vue
+// physique, et dashboard_daily frolait le plafond a chaque appel. La vue n'etait
+// a jour que si un humain la rafraichissait a la main -- 2 h 40 de retard
+// constatees. Chaque tick brulait 8 s d'I/O pour rien avant de se faire tuer.
 const ANALYTICS_REFRESH_RPCS = [
-  'refresh_physical_items_view',
-  'refresh_dashboard_daily',
   'refresh_sku_metrics',
 ] as const
 
