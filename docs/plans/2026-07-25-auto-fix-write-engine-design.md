@@ -1,180 +1,191 @@
-# Moteur d'écriture auto-fix — conception (V1)
+# Moteur d'écriture auto-fix — conception (V2)
 
-**But :** faire passer l'auto-fix de « détecte et simule » à « corrige réellement chez Sendcloud », sans jamais pouvoir corrompre une expédition ni le stock.
+**But :** faire passer l'auto-fix de « détecte et simule » à « corrige réellement chez Sendcloud », sans jamais pouvoir écrire deux fois sur un colis.
 
-**Statut :** conception à valider avant écriture de code. Rien n'est implémenté.
+**Statut :** conception corrigée après revue adversariale. Rien n'est implémenté.
 
----
-
-## 1. Ce qui existe déjà (vérifié dans la base et le code)
-
-La fondation (migration 00093) est **déjà prête pour le live**, ce n'est pas à refaire :
-
-- `auto_fix_jobs.mode` accepte `'simulated' | 'live'`.
-- Les états `applied` et `verified` existent déjà dans la contrainte d'état.
-- `original_sendcloud_id`, `result_sendcloud_id`, `error_category` (`retryable | non_retryable | configuration | internal | unknown`), `attempt_count`, `next_attempt_at`, `locked_until`, `worker_id` : présents.
-- `auto_fixes.action` accepte déjà `put_update` et `create_linked` ; `auto_fixes.status` accepte `applied` et `verified`.
-- `claim_auto_fix_jobs` fait bien le `SELECT ... FOR UPDATE SKIP LOCKED` **et** l'`UPDATE claimed` dans une seule instruction (CTE) : la réclamation est atomique.
-- `buildOperationKey` inclut le `mode` : **un job dry-run et un job live sur la même expédition ont des clés différentes**, donc une simulation ne peut jamais bloquer l'opération live ultérieure. Invariant du plan satisfait.
-- Le contrat d'écriture `PUT /api/v2/parcels` avec `{ parcel: { id, ...patch } }` a été validé sur un colis de test Anteos.
-
-**Ce qui manque** : le chemin live des RPC (elles refusent aujourd'hui tout mode ≠ `simulated`), l'appel d'écriture Sendcloud, et la boucle worker live.
+> **Historique.** La V1 de ce document a été soumise à une revue adversariale avant écriture de code. Elle a été rejetée : sa règle de sûreté centrale était inopérante et quatre chemins indépendants menaient à une double écriture. Les corrections sont intégrées ci-dessous, et le §11 conserve la trace de ce qui était faux — pour que personne ne réintroduise ces idées en croyant bien faire.
 
 ---
 
-## 2. Périmètre V1
+## 1. Ce qui existe déjà (vérifié dans le code, pas supposé)
 
-**Inclus :**
+- `auto_fix_jobs.mode` accepte `'simulated' | 'live'`, et `buildOperationKey` inclut le mode : un job dry-run et un job live sur la même expédition ont des clés différentes. Une simulation ne peut donc pas bloquer l'opération live. ✅
+- `auto_fixes.action` accepte déjà `put_update`, `auto_fixes.status` accepte `applied` et `verified`. ✅
+- `claim_auto_fix_jobs` réclame de façon atomique (`FOR UPDATE SKIP LOCKED` + `UPDATE` dans une seule instruction). ✅
 
-| Pattern | Action | Pourquoi |
+**Et voici ce qui est faux dans l'existant, et qu'il faut corriger — vérifié ligne par ligne :**
+
+| Constat | Conséquence |
+|---|---|
+| Le prédicat de réclamation (00093:289-292) couvre `queued`, `retry_wait`, `claimed`, `planned`. **`applied` en est absent.** | Un job qui atteint `applied` n'est **jamais** repris, jamais vérifié, jamais purgé. Orphelin à vie, avec une écriture réelle chez le client jamais contrôlée. |
+| La réclamation fait `UPDATE ... SET state='claimed' ... RETURNING j.*`. PostgreSQL renvoie les valeurs **post-update**. | Toute logique du type « si le job revient en état X » est **morte** : l'état vaut toujours `claimed`. |
+| `ClaimedAutoFixJob` (types.ts:100-113) **ne porte pas de champ `state`**. | Un test sur `job.state` compare `undefined`. Il passe au vert sans rien vérifier. |
+| `auto_fix_jobs_lock_consistency` (00093:95-98) ne tolère `worker_id`/`locked_until` que pour `('claimed','planned')`. | Tout nouvel état d'écriture doit être ajouté à cette contrainte, sinon l'insertion est rejetée. |
+
+---
+
+## 2. Périmètre V1 — inchangé, et confirmé par les données
+
+`address_too_long` en premier, `currency_chf` ensuite. Colis **numériques** uniquement. Pas de `cancel + recreate`. Les patterns `hs_code_missing`, `weight_too_low` restent détecteur seul ; `sender_eori_missing` reste une alerte ; `service_point_missing` reste bloqué chez Sendcloud.
+
+> **Rappel de proportion.** La mesure du 25/07 (`2026-07-25-auto-fix-volume-reel.md`) donne **2 cas `address_too_long` et 0 cas CHF sur 60 jours**. Rien ne justifie de livrer vite. Une conception fausse coûte infiniment plus cher que deux semaines d'attente.
+
+---
+
+## 3. La règle de sûreté — corrigée
+
+**La fenêtre dangereuse n'est pas celle que la V1 protégeait.**
+
+Le danger n'est pas entre l'écriture et la vérification. Il est entre **l'octet envoyé à Sendcloud** et **le commit qui en garde la trace**. Pendant cet intervalle, la base ne sait pas qu'une écriture a été tentée : le job est en `planned`, précisément l'état que le prédicat de reprise ressuscite dès l'expiration du bail.
+
+Et il n'y a même pas besoin d'un crash : si le commit échoue (5xx PostgREST, saturation I/O), le worker route vers un retry, qui replanifie, qui ré-écrit.
+
+**La règle correcte :**
+
+> On persiste **l'intention d'écrire** *avant* l'appel réseau, jamais son résultat après.
+
+```
+queued → claimed → planned → applying → applied → verified
+                                 │         │
+                                 └─────────┴──→ retry_verify → applied_unverified
+                                                              (jamais de nouvelle écriture)
+```
+
+- Un nouvel état **`applying`** et une colonne **`write_started_at`** sont commités **avant** le PUT, par une RPC dédiée.
+- **Règle absolue :** tout job dont `write_started_at IS NOT NULL` part en **vérification seule**, quel que soit son état. Jamais de replanification, jamais de seconde écriture.
+- Cette décision se prend sur des **faits durables** (`write_started_at`, `applied_at`, `result_sendcloud_id`) — **jamais sur `state`**, qui est écrasé par la réclamation.
+
+---
+
+## 4. Deux routeurs d'échec, pas un seul
+
+La V1 avait un routeur unique sur `error_category`. C'était sa deuxième faille : un échec **après** écriture y était traité comme un échec **avant** écriture, et repartait en réécriture.
+
+**`fail_auto_fix_live`** — échecs **pré-écriture uniquement**. Garde le backoff exponentiel (5, 10, 20, 40 min, plafond 60), `permanent_failed` au-delà de 3 tentatives. Précondition SQL : `state = 'claimed' AND write_started_at IS NULL`.
+
+**`fail_auto_fix_verification`** — échecs **post-écriture**, appelable uniquement depuis `applying`/`applied`. Route **exclusivement** vers `retry_verify` (relecture seule, 3 essais) puis l'état terminal `applied_unverified` **avec alerte**. Ce routeur ne peut structurellement pas produire une écriture.
+
+**Interdit côté SQL :** toute transition `applying | applied → planned | retry_wait`.
+
+### Reclassification des erreurs
+
+La V1 rangeait les `5xx` avec les `429` en « retryable ». C'est faux pour une écriture : un `502` de passerelle signifie que l'origine **a peut-être appliqué**.
+
+| Réponse | Mutation appliquée ? | Traitement |
 |---|---|---|
-| `address_too_long` | `put_update` | Le plus simple, le moins risqué : on tronque/reformate un champ texte. **Armé en premier.** |
-| `currency_chf` | `put_update` | Calcul déjà vérifié (taux figé + date + arrondis + cohérence total/items). **Armé en second, après observation.** |
-
-**Exclus, volontairement :**
-
-- **Integration shipments (UUID)** → restent `pending_manual`. La « création liée via `shipment_uuid` » et l'effet sur la boutique ne sont pas validés. **V1 n'écrit que sur des colis numériques.**
-- **Colis déjà annoncés** → un `PUT` n'a plus d'effet garanti. Refus explicite, pas de tentative.
-- `hs_code_missing`, `weight_too_low` → détecteur et planner seulement, **écriture désactivée** (aucun cas réel sur 120 jours).
-- `sender_eori_missing` → **jamais d'auto-fix** (configuration légale du compte) : alerte dédupliquée par tenant.
-- `service_point_missing` → bloqué tant que Sendcloud n'a pas activé les Service Points.
-- `unknown`, 1002 → hors lot.
-- **cancel + recreate** → hors V1, catégoriquement.
+| `4xx` de validation | Prouvablement **non** | Seul cas autorisant une nouvelle écriture |
+| `429` **refusé avant envoi** | Non | Retry d'écriture |
+| `5xx`, timeout, erreur réseau | **Incertain** | Entonnoir « relire », jamais réécrire |
+| Écart constaté à la vérification | Appliqué, mais pas comme prévu | `pending_manual`, jamais de retry |
 
 ---
 
-## 3. Machine à états et reprise après crash
+## 5. Le bail : par job, pas par lot
 
-C'est le cœur de la sûreté. L'ordre est **non négociable** :
+`claim_auto_fix_jobs` pose **un seul** `locked_until = now() + 120s` pour tout le lot (5, plafond 10). Le traitement étant séquentiel avec un PUT, un GET et trois RPC par job, le dernier job du lot peut attaquer son écriture après expiration du bail. L'écriture a alors lieu **chez le client** pendant que la RPC de traçage la refuse — écriture réelle sans aucune trace.
 
-```
-queued → claimed → planned → applied → verified
-                       ↓         ↓
-                  pending_manual / retry_wait / permanent_failed
-```
+**Correction :** vérifier et **renouveler le bail juste avant chaque écriture**, par job. Si le bail ne peut pas être renouvelé, on **n'écrit pas** — on relâche le job proprement.
 
-**La règle qui rend un crash inoffensif :** l'état `applied` est persisté **avant** la relecture de vérification, et **immédiatement après** le retour de l'écriture Sendcloud.
-
-Conséquence, et c'est le point le plus important de cette conception :
-
-> Un job repris en état `applied` **ne doit JAMAIS être ré-écrit**. Il doit reprendre à l'étape de vérification.
-
-Sans cette règle, un crash entre l'écriture et la vérification provoquerait une seconde écriture. Le worker teste donc l'état **avant** de décider quoi faire, il ne rejoue pas la séquence depuis le début.
-
-**Cas du résultat réseau incertain** (timeout après l'envoi) : on ne rejoue pas l'écriture. On passe en vérification par relecture ; c'est elle qui tranche si le patch est passé ou non.
+**Et un verrou de single-flight par colis** : deux jobs vivants sur le même `source_sendcloud_id`, ou deux runs concurrents du worker, ne doivent jamais écrire en parallèle.
 
 ---
 
-## 4. Contrats des RPC à créer (migration 00101)
+## 6. Reprise : une RPC dédiée, pas une lecture d'état
 
-Tout est `SECURITY DEFINER`, `SET search_path = public`, `REVOKE FROM PUBLIC, anon, authenticated`, `GRANT service_role`.
+La V1 testait `job.state === 'applied'` après réclamation. Triplement mort : le champ n'existe pas dans le type, l'état est écrasé par le `RETURNING` post-update, et `applied` n'est pas réclamable.
 
-**`claim_auto_fix_jobs`** — étendue, pas dupliquée :
+**Correction :** une RPC **`resume_auto_fix_writes(p_tenant_id, p_worker_id)`** qui :
 
-```
-claim_auto_fix_jobs(p_tenant_id uuid, p_limit int DEFAULT 5,
-                    p_lock_seconds int DEFAULT 120, p_worker_id text DEFAULT NULL,
-                    p_mode text DEFAULT 'simulated')
-```
-Le paramètre est ajouté **en dernier avec une valeur par défaut** : les appels existants restent valides. Le filtre devient `j.mode = p_mode AND ts.auto_fix_mode = p_mode` — un job live n'est réclamable que si le tenant est lui-même en `live`. La priorité des flags reste : `AUTO_FIX_PAUSED` global → tenant `off` → `simulated` → `live`.
+- sélectionne les jobs `applying`/`applied` **sans changer leur état** ;
+- pose un bail dessus ;
+- ne rend **que** des jobs à vérifier ;
+- n'ouvre **aucun** chemin d'écriture.
 
-**`plan_auto_fix_live(p_job_id, p_worker_id, p_plan)` → bool**
-`claimed → planned`. Refuse si `mode ≠ 'live'`, si le worker n'est pas propriétaire du verrou, ou si le plan ne porte pas une action autorisée en V1.
-
-**`mark_auto_fix_applied(p_job_id, p_worker_id, p_result_sendcloud_id, p_after)` → bool**
-`planned → applied`. Écrit la ligne `auto_fixes` avec `status='applied'`. **Appelée juste après le retour de l'écriture, avant toute vérification.**
-
-**`verify_auto_fix_live(p_job_id, p_worker_id, p_verification)` → bool**
-`applied → verified`. Passe la ligne `auto_fixes` correspondante à `status='verified'`. N'accepte que si la relecture confirme le patch.
-
-**`fail_auto_fix_live(p_job_id, p_worker_id, p_error)` → text**
-Route selon `error_category` :
-- `retryable` → `retry_wait`, `next_attempt_at = now() + backoff exponentiel` (5, 10, 20, 40 min, plafonné à 60), `permanent_failed` au-delà de 3 tentatives ;
-- `non_retryable` / `configuration` → `pending_manual` immédiatement, **sans retry** ;
-- `internal` / `unknown` → `retry_wait` une seule fois, puis `pending_manual`.
-
-**`get_auto_fix_live_tenants(p_limit int DEFAULT 20)`** — miroir de la version simulated, filtrée sur `auto_fix_mode = 'live'`.
+Le worker l'appelle **avant** la boucle d'écriture. À compléter : ajouter `applying`/`applied` au `EXISTS` de `get_auto_fix_live_tenants` (sinon le tenant n'est même pas visité) et à `cleanup_auto_fix_pii` (sinon la PII de ces jobs n'expire jamais), plus l'index partiel de reprise.
 
 ---
 
-## 5. Écriture Sendcloud
+## 7. Écriture Sendcloud
 
-⚠️ **Vérifié dans le code, et ce n'est pas ce que je supposais.** Une fonction `updateParcel` existe déjà (`client.ts:812`), mais elle utilise le chemin **legacy** `PUT /api/v2/parcels/{id}` — pas le contrat validé par le spike. Et elle a **un appelant vivant** : la route de modification depuis l'interface (`shipments/[id]/update/route.ts:125`).
+⚠️ Une fonction `updateParcel` existe déjà (`client.ts:812`) mais utilise le chemin **legacy** `/parcels/{id}`, et elle a **un appelant vivant** (la route de modification UI). **On ne la modifie pas.**
 
-Conséquence sur la conception : **on ne modifie pas `updateParcel`**. Changer le contrat d'une fonction déjà utilisée en production serait un changement de comportement sur un chemin qui n'a rien demandé. Le moteur reçoit **sa propre fonction d'écriture**, testée pour lui :
+Le moteur reçoit sa propre fonction, `patchParcelById(credentials, { id, patch })` :
 
-`patchParcelById(credentials, { id, patch })` :
+- `PUT {SENDCLOUD_API_URL}/parcels`, corps `{ parcel: { id, ...patch } }` — le contrat validé sur colis de test (`SENDCLOUD_API_URL` vaut déjà `.../api/v2`).
+- `redirect: 'error'`, timeout explicite.
+- **Jamais de bascule automatique v2 → v3.**
+- Le legacy `/parcels/{id}` reste un repli, jamais un premier choix.
 
-- `PUT {SENDCLOUD_API_URL}/parcels`, corps `{ parcel: { id, ...patch } }` — le contrat validé sur colis de test Anteos (`SENDCLOUD_API_URL` vaut déjà `https://panel.sendcloud.sc/api/v2`, donc l'URL finale est bien `/api/v2/parcels`, sans identifiant dans le chemin).
-- Le chemin legacy `/parcels/{id}` reste **un repli**, jamais un premier choix, et seulement après un échec non ambigu suivi d'un `GET` de contrôle — conformément au plan.
-- Le type `UpdateParcelData` existant couvre déjà les champs nécessaires (`address`, `address_2`, `city`, `postal_code`, `parcel_items`, `weight`) : il est réutilisé, pas dupliqué.
-- `redirect: 'error'` (cohérent avec le durcissement SSRF de tous les autres appels).
-- Timeout explicite. Un timeout est **`retryable` seulement au sens de la vérification** : on ne réécrit pas, on relit.
-- **Jamais de bascule automatique v2 → v3.** Si v2 est indisponible, le job part en `pending_manual` : un changement de contrat d'API est une décision humaine.
-- Classification des réponses : `4xx` de validation → `non_retryable` ; `401/403` → `configuration` ; `429` et `5xx` → `retryable` ; réseau/timeout → traité par la relecture.
-
-**Vérification** : `getParcel(id)` puis comparaison **champ par champ** avec le patch demandé. On ne fait jamais confiance au seul code retour.
+**Vérification :** `getParcel(id)` puis comparaison **champ par champ**, avec normalisation (espaces, casse) pour ne pas confondre une différence de formatage Sendcloud avec un échec.
 
 ---
 
-## 6. Algorithme du worker live
+## 8. Fraîcheur de la source
 
-Séquentiel, jamais parallèle sur un même tenant (le commentaire du worker actuel le prévoit déjà : « future live adapter must opt in explicitly rather than inherit parallelism »).
+Le patch est calculé au plan, appliqué ensuite. Entre les deux, le colis peut avoir été annoncé, annulé, ou modifié à la main dans Sendcloud.
+
+Le code existant inscrit **déjà** ce garde-fou dans chaque plan : `verify_source_fingerprint_before_future_live_apply`. Il faut l'honorer : **relire le colis juste avant d'écrire**, recalculer le `source_fingerprint`, et abandonner si la source a changé.
+
+---
+
+## 9. Algorithme du worker
 
 ```
 si AUTO_FIX_PAUSED ≠ 'false' → sortir
 si SYNC_PAUSED = 'true'      → sortir
-pour chaque tenant en mode 'live' (borné) :
-  jobs = claim_auto_fix_jobs(tenant, limite, mode='live')
-  pour chaque job, EN SÉRIE :
-    si job.state == 'applied' :        # reprise après crash
-        vérifier ; ne PAS ré-écrire
-        continuer
-    si pattern non armé              → pending_manual
-    si source_kind = integration     → pending_manual
-    si colis déjà annoncé            → pending_manual
-    plan  → plan_auto_fix_live
-    PUT   → mark_auto_fix_applied     # persisté AVANT la vérification
-    GET   → verify_auto_fix_live
+
+pour chaque tenant en 'live' (borné) :
+
+  # 1. D'ABORD les reprises : aucune écriture possible ici
+  pour chaque job de resume_auto_fix_writes(tenant) :
+      vérifier par relecture → verified | applied_unverified
+
+  # 2. Ensuite seulement les nouvelles écritures
+  pour chaque job de claim_auto_fix_jobs(tenant, mode='live'), EN SÉRIE :
+      si pattern non armé / integration / déjà annoncé → pending_manual
+      relire la source ; si le fingerprint a changé    → pending_manual
+      renouveler le bail ; si impossible               → relâcher
+      plan_auto_fix_live
+      begin_auto_fix_write            # ← COMMIT AVANT le réseau
+      PUT
+      mark_auto_fix_applied
+      GET → verify_auto_fix_live
 ```
 
-**Bornes :** un lot par run et par tenant (défaut 5, plafond dur 10, aligné sur `auto_fix_max_candidates`), pas de boucle non plafonnée. Chaque job est isolé : un échec n'interrompt pas les suivants.
+---
+
+## 10. Ce qu'il faut prouver, en intégration Postgres réelle
+
+Les tests 2 et 3 ne peuvent **pas** être des mocks : mocker `{ state: 'applied' }` fait passer au vert une conception cassée. C'est exactement ce qui aurait masqué les failles de la V1.
+
+1. Deux workers concurrents sur le même job → **un seul** l'obtient.
+2. **Mort du process entre le PUT et le commit de traçage** → à la reprise, **zéro seconde écriture**.
+3. Job `applied` dont la vérification échoue en `429` → **zéro second PUT**, jamais de retour en `retry_wait`.
+4. Bail expiré pendant le PUT → l'écriture est refusée en amont, pas tracée après coup.
+5. Vérification qui contredit le patch → le job ne passe **pas** `verified`.
+6. `non_retryable` → `pending_manual` immédiatement.
+7. Tenant `simulated` → **aucune** écriture possible.
+8. `AUTO_FIX_PAUSED` → sortie sans réclamation.
+9. Pattern non armé → `pending_manual`.
+10. Source modifiée entre le plan et l'écriture → abandon.
+11. Un job `applied` **n'est pas orphelin** : il est repris, vérifié, et sa PII expire.
 
 ---
 
-## 7. Armement pattern par pattern
+## 11. Ce que la V1 affirmait, et qui était faux
 
-Un drapeau par pattern, **fermé par défaut**, pour armer `address_too_long` seul, l'observer, puis `currency_chf`. Le drapeau est lu côté serveur ; un pattern non armé produit `pending_manual`, jamais une écriture.
+Conservé délibérément : ces idées paraissent raisonnables, et c'est ce qui les rend dangereuses.
 
-Ordre d'activation : un tenant en `live` + un seul pattern armé + un lot de 5 → observation → élargissement.
-
----
-
-## 8. Sécurité
-
-- `/api/auto-fix/run` et le worker : **`CRON_SECRET` uniquement**, jamais une session utilisateur.
-- `status` / `retry` / `resolve` : `requireRole(['super_admin','admin','ops'])` + filtrage `tenant_id` explicite.
-- Bascule d'un tenant en `live` : **`super_admin` uniquement**.
-- `before_json` / `after_json` contiennent de la PII → redaction et rétention (la RPC `cleanup_auto_fix_pii` existe déjà).
+1. **« Persister `applied` avant la vérification suffit. »** Non : la fenêtre dangereuse est *avant* l'écriture, pas après. « Immédiatement après le retour de l'écriture », c'est quand même après.
+2. **« Un job repris en `applied` ne sera pas ré-écrit. »** La garde était morte trois fois : champ absent du type, état écrasé par le `RETURNING`, état non réclamable.
+3. **« Un routeur d'échec unique suffit. »** Non : il renvoyait en réécriture un job déjà écrit.
+4. **« `5xx` est retryable. »** Non, pas pour une écriture : l'origine a peut-être appliqué.
+5. **« Le bail de 120 s couvre le traitement. »** Non : il est pris par lot, pas par job.
+6. **« La vérification par relecture protège de tout. »** Elle ne protège de rien si l'échec de vérification peut router vers une nouvelle écriture.
 
 ---
 
-## 9. Ce qu'il faut prouver par des tests avant tout déploiement
+## 12. Ce que cette conception ne fait délibérément pas
 
-1. Deux workers concurrents réclament le même job → **un seul** l'obtient (`FOR UPDATE SKIP LOCKED`).
-2. Crash entre l'écriture et la vérification → à la reprise, le job **vérifie**, il ne réécrit pas.
-3. Timeout après écriture → aucune seconde écriture ; la relecture tranche.
-4. Vérification qui contredit le patch → le job ne passe **pas** `verified`.
-5. Erreur `non_retryable` → `pending_manual` **immédiatement**, aucun retry.
-6. Tenant `simulated` → **aucune** écriture possible, même si un job `live` traîne.
-7. `AUTO_FIX_PAUSED` → le worker sort sans rien réclamer.
-8. Pattern non armé → `pending_manual`, jamais d'écriture.
-
----
-
-## 10. Ce que cette conception ne fait délibérément pas
-
-- Pas de `cancel + recreate` : c'est ce qui portait l'essentiel des risques de doublon, de stock et de course webhook.
-- Pas d'écriture sur les integration shipments tant que la création liée n'est pas validée.
-- Pas de correction du pattern 1002 : c'est un routeur de causes, il mérite son propre lot.
-- Aucun contact avec le stock : le moteur ne touche que Sendcloud et ses propres tables. La consommation de stock reste pilotée par le cron et les webhooks, inchangée.
+Pas de `cancel + recreate`. Pas d'écriture sur les integration shipments. Pas de pattern 1002. **Aucun contact avec le stock** : le moteur ne touche que Sendcloud et ses propres tables.
