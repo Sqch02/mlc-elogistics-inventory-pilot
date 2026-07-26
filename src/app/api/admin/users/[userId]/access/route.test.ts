@@ -93,6 +93,28 @@ describe('PATCH /api/admin/users/[userId]/access', () => {
     expect(vi.mocked(requireRole)).toHaveBeenCalledWith(['super_admin'])
   })
 
+  it('refuse de se desactiver soi-meme', async () => {
+    // Seul un super_admin peut lever un bannissement, et il n'y en a qu'une
+    // poignee : se couper l'acces serait irreversible depuis l'application.
+    const { client, updateUserById } = adminClient()
+    vi.mocked(createAdminClient).mockReturnValue(client as never)
+
+    const response = await call(false, 'admin-1')
+
+    expect(response.status).toBe(400)
+    expect(updateUserById).not.toHaveBeenCalled()
+  })
+
+  it('autorise a se REactiver soi-meme, qui ne verrouille personne', async () => {
+    const { client, updateUserById } = adminClient()
+    vi.mocked(createAdminClient).mockReturnValue(client as never)
+
+    const response = await call(true, 'admin-1')
+
+    expect(response.status).toBe(200)
+    expect(updateUserById).toHaveBeenCalled()
+  })
+
   it('refuses an unknown user', async () => {
     const { client, updateUserById } = adminClient(null)
     vi.mocked(createAdminClient).mockReturnValue(client as never)

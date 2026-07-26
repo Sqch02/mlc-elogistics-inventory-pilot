@@ -36,6 +36,16 @@ export async function PATCH(
     }
     const enabled: boolean = body.enabled
 
+    // Se desactiver soi-meme serait irreversible depuis l'application : seul un
+    // super_admin peut lever un bannissement, et il n'y en a qu'une poignee.
+    // On refuse plutot que de laisser quelqu'un se verrouiller dehors.
+    if (!enabled && admin?.id === userId) {
+      return NextResponse.json(
+        { error: 'Vous ne pouvez pas desactiver votre propre acces' },
+        { status: 400 }
+      )
+    }
+
     const supabase = createAdminClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = supabase as any
