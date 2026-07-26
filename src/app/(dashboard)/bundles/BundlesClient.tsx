@@ -14,6 +14,7 @@ import { useSkus } from '@/hooks/useSkus'
 import { generateCSV, downloadCSV } from '@/lib/utils/csv'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
+import { useTenant } from '@/components/providers/TenantProvider'
 
 interface ComponentInput {
   sku_code: string
@@ -21,6 +22,7 @@ interface ComponentInput {
 }
 
 export function BundlesClient() {
+  const { isClient } = useTenant()
   const [isExporting, setIsExporting] = useState(false)
 
   // CRUD Dialog states
@@ -238,23 +240,25 @@ export function BundlesClient() {
                     </div>
                   </TableCell>
                   <TableCell className="pr-6">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => openEdit(bundle)}>
-                          <Pencil className="mr-2 h-4 w-4" />
-                          Modifier
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-error" onClick={() => openDelete(bundle)}>
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Supprimer
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    {!isClient && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => openEdit(bundle)}>
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Modifier
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="text-error" onClick={() => openDelete(bundle)}>
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Supprimer
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
