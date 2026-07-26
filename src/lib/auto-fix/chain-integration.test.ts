@@ -45,7 +45,7 @@ describe('chaine complete : detection latente -> patch concret', () => {
     expect(detection?.sourceSummary.latent_only).toBe(true)
 
     // 3. La limite a bien ete extraite du message, avec le nom de champ Sendcloud.
-    const limits = detection?.sourceSummary.address_limits as AddressLimit[]
+    const limits = detection?.sourceSummary.address_limits as unknown as AddressLimit[]
     expect(limits).toEqual([{ field: 'address_1', max: 32 }])
 
     // 4. Le planner retrouve `address` derriere `address_1` et calcule la valeur.
@@ -59,7 +59,7 @@ describe('chaine complete : detection latente -> patch concret', () => {
   it('refuse la chaine complete quand seule une coupe destructrice est possible', () => {
     const difficile = { ...commande, address: '43 RUE LE VOSGES LES JARDINS DE LOUIS', city: 'Port de Bouc' }
     const detection = detectAutoFixCause(difficile, 'integration_shipment', { latentRules: OBSERVED_RULES })
-    const limits = detection?.sourceSummary.address_limits as AddressLimit[]
+    const limits = detection?.sourceSummary.address_limits as unknown as AddressLimit[]
     const plan = planAddressShortening(difficile, limits)
 
     expect(plan.ready).toBe(false)
@@ -78,7 +78,7 @@ describe('chaine complete : detection latente -> patch concret', () => {
     const detection = detectAutoFixCause(avecNumero, 'integration_shipment', { latentRules: OBSERVED_RULES })
     expect(detection).not.toBeNull()
 
-    const limits = detection?.sourceSummary.address_limits as AddressLimit[]
+    const limits = detection?.sourceSummary.address_limits as unknown as AddressLimit[]
     const plan = planAddressShortening(avecNumero, limits)
     expect(plan.ready).toBe(true)
 
