@@ -51,7 +51,11 @@ function integrationShipment(id: string) {
     postal_code: '75001',
     country: 'FR',
     order_status: { id: 'on_hold', message: 'On Hold' },
-    created_at: '2026-07-13T09:00:00.000Z',
+    // Date relative, et volontairement : une date fixe finit par tomber
+    // au-dela de l'horizon de fraicheur, et ces tests-la portent sur la
+    // pagination, pas sur l'horizon. Ils echoueraient alors sans rien dire du
+    // defaut reel.
+    created_at: new Date(Date.now() - 3600 * 1000).toISOString(),
   }
 }
 
@@ -325,5 +329,84 @@ describe('Sendcloud pagination completion', () => {
       .toBe('returns-page-2')
     expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({ redirect: 'error' }))
     expect(result).toMatchObject({ hasMore: false, pagesFetched: 1 })
+  })
+})
+
+describe('horizon de fraicheur du snapshot integration', () => {
+  const credentials = { apiKey: 'k', secret: 's' }
+  const page = (rows: unknown[], next: string | null) => ({
+    ok: true, status: 200, json: async () => ({ next, results: rows }),
+  })
+  const order = (date: string) => ({
+    shipment_uuid: `u-${date}`, order_number: `#${date}`, name: 'x',
+    address: 'x', city: 'x', postal_code: 'x', country: 'FR',
+    order_status: { id: 'on_hold', message: 'On Hold' },
+    created_at: date, shipment_created_at: date, parcel_items: [],
+  })
+
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('abandonne le parcours quand la page est plus vieille que l horizon', async () => {
+    // L'API renvoie les plus recentes d'abord : suivre `next` remonte le temps.
+    // Sans borne, le snapshot s'eloigne du present et les commandes du jour
+    // n'entrent plus -- c'est l'incident du 26/07.
+    const vieux = new Date(Date.now() - 200 * 24 * 3600 * 1000).toISOString()
+    vi.stubGlobal('fetch', vi.fn(async () => page([order(vieux)], 'https://panel.sendcloud.sc/api/v2/integrations/1/shipments?cursor=z')))
+
+    const result = await fetchIntegrationShipmentBatch(credentials, 1, 5)
+
+    // hasMore=false => le tick suivant repart de la page 1.
+    expect(result.hasMore).toBe(false)
+    expect(result.nextUrl).toBeUndefined()
+  })
+
+  it('poursuit normalement tant que les commandes sont recentes', async () => {
+    const recent = new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString()
+    let call = 0
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      call += 1
+      return page([order(recent)], call < 3 ? 'https://panel.sendcloud.sc/api/v2/integrations/1/shipments?cursor=z' : null)
+    }))
+
+    const result = await fetchIntegrationShipmentBatch(credentials, 1, 5)
+    expect(result.items.length).toBeGreaterThan(0)
+  })
+
+  it('coupe des 4 jours par defaut : un horizon large coute la fraicheur', async () => {
+    // Un horizon genereux ne rend pas le rattrapage plus sûr. Il fait marcher
+    // le snapshot pendant des heures dans l'historique, et pendant ce temps les
+    // commandes du jour n'entrent pas. La pire panne observee a dure 2 jours et
+    // demi : trois jours de profondeur la couvrent.
+    const quatreJours = new Date(Date.now() - 4 * 24 * 3600 * 1000).toISOString()
+    vi.stubGlobal('fetch', vi.fn(async () => page([order(quatreJours)], 'https://panel.sendcloud.sc/api/v2/integrations/1/shipments?cursor=z')))
+
+    const result = await fetchIntegrationShipmentBatch(credentials, 1, 5)
+    expect(result.hasMore).toBe(false)
+  })
+
+  it('accepte un horizon elargi par variable d environnement', async () => {
+    const dixJours = new Date(Date.now() - 10 * 24 * 3600 * 1000).toISOString()
+    let call = 0
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      call += 1
+      return page([order(dixJours)], call < 3 ? 'https://panel.sendcloud.sc/api/v2/integrations/1/shipments?cursor=z' : null)
+    }))
+    vi.stubEnv('SENDCLOUD_SNAPSHOT_MAX_AGE_DAYS', '30')
+
+    const result = await fetchIntegrationShipmentBatch(credentials, 1, 5)
+    expect(result.items.length).toBeGreaterThan(0)
+
+    vi.unstubAllEnvs()
+  })
+
+  it('ignore une valeur d environnement invalide plutot que de tout desactiver', async () => {
+    const quatreJours = new Date(Date.now() - 4 * 24 * 3600 * 1000).toISOString()
+    vi.stubGlobal('fetch', vi.fn(async () => page([order(quatreJours)], 'https://panel.sendcloud.sc/api/v2/integrations/1/shipments?cursor=z')))
+    vi.stubEnv('SENDCLOUD_SNAPSHOT_MAX_AGE_DAYS', 'beaucoup')
+
+    const result = await fetchIntegrationShipmentBatch(credentials, 1, 5)
+    expect(result.hasMore).toBe(false)
+
+    vi.unstubAllEnvs()
   })
 })
