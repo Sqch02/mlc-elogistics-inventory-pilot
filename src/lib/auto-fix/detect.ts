@@ -1,5 +1,6 @@
 import type { Json } from '@/types/database'
 import { fingerprintJson, sha256 } from './fingerprint'
+import { findLatentErrors, type ValidationRules } from './validate'
 import type {
   AutoFixDetection,
   AutoFixPattern,
@@ -168,16 +169,38 @@ function addressLengths(raw: Record<string, unknown>): Record<string, number> {
   return result
 }
 
+export interface DetectOptions {
+  /**
+   * Applique aussi les regles de validation connues pour reperer ce qui VA
+   * echouer. Desactive par defaut : sans cela, le comportement est inchange.
+   *
+   * Sendcloud ne remplit `errors` qu'au moment ou l'on tente de creer
+   * l'etiquette. Mesure sur 600 commandes reelles : une seule portait un bloc
+   * d'erreur alors que quinze violaient deja une regle connue. Sans detection
+   * latente, la file reste donc quasiment vide et le moteur ne sert a rien.
+   */
+  latentRules?: ValidationRules | null
+}
+
 export function detectAutoFixCause(
   rawValue: unknown,
   sourceKind: AutoFixSourceKind,
+  options: DetectOptions = {},
 ): AutoFixDetection | null {
   if (!isObject(rawValue)) return null
   const raw = rawValue
-  const blockingEvidence = [
+  const reportedEvidence = [
     ...flattenEvidence(raw.errors, 'errors'),
     ...flattenEvidence(raw.checkout_payload_errors, 'checkout_payload_errors'),
   ]
+  const latentEvidence: RawEvidence[] = options.latentRules
+    ? findLatentErrors(raw, options.latentRules).map((item) => ({
+        source: 'latent' as const,
+        field: item.field,
+        message: item.message,
+      }))
+    : []
+  const blockingEvidence = [...reportedEvidence, ...latentEvidence]
 
   // On Hold, 1002 and warnings are context only. Without a structured blocking
   // cause there is deliberately no job and therefore no speculative fix.
@@ -201,8 +224,12 @@ export function detectAutoFixCause(
     .map((item) => ({ field: item.field, max: extractMaxLength(item.message) }))
     .filter((item): item is { field: string; max: number } => item.max !== null)
 
+  // L'empreinte identifie UN PROBLEME SUR UN COLIS, pas qui l'a remarque. Une
+  // detection latente et sa confirmation ulterieure par Sendcloud portent le
+  // meme message : sans cette normalisation elles produiraient deux empreintes,
+  // donc deux taches, donc deux corrections pour un seul defaut.
   const canonicalEvidence = blockingEvidence.map((item) => ({
-    source: item.source,
+    source: item.source === 'latent' ? 'errors' : item.source,
     field: normalizeText(item.field),
     message: normalizeText(item.message),
   })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
@@ -234,6 +261,12 @@ export function detectAutoFixCause(
     summary: summary as never,
     patterns: detectedPatterns,
   })
+
+  // Renseigne APRES l'empreinte, et c'est deliberé : ce drapeau dit comment on
+  // a appris le defaut, pas quel il est. Le faire entrer dans l'empreinte
+  // donnerait deux identites au meme probleme sur le meme colis, donc deux
+  // taches et deux corrections.
+  summary.latent_only = reportedEvidence.length === 0 && latentEvidence.length > 0
 
   return {
     sourceKind,
