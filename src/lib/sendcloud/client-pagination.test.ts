@@ -327,3 +327,44 @@ describe('Sendcloud pagination completion', () => {
     expect(result).toMatchObject({ hasMore: false, pagesFetched: 1 })
   })
 })
+
+describe('horizon de fraicheur du snapshot integration', () => {
+  const credentials = { apiKey: 'k', secret: 's' }
+  const page = (rows: unknown[], next: string | null) => ({
+    ok: true, status: 200, json: async () => ({ next, results: rows }),
+  })
+  const order = (date: string) => ({
+    shipment_uuid: `u-${date}`, order_number: `#${date}`, name: 'x',
+    address: 'x', city: 'x', postal_code: 'x', country: 'FR',
+    order_status: { id: 'on_hold', message: 'On Hold' },
+    created_at: date, shipment_created_at: date, parcel_items: [],
+  })
+
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('abandonne le parcours quand la page est plus vieille que l horizon', async () => {
+    // L'API renvoie les plus recentes d'abord : suivre `next` remonte le temps.
+    // Sans borne, le snapshot s'eloigne du present et les commandes du jour
+    // n'entrent plus -- c'est l'incident du 26/07.
+    const vieux = new Date(Date.now() - 200 * 24 * 3600 * 1000).toISOString()
+    vi.stubGlobal('fetch', vi.fn(async () => page([order(vieux)], 'https://panel.sendcloud.sc/api/v2/integrations/1/shipments?cursor=z')))
+
+    const result = await fetchIntegrationShipmentBatch(credentials, 1, 5)
+
+    // hasMore=false => le tick suivant repart de la page 1.
+    expect(result.hasMore).toBe(false)
+    expect(result.nextUrl).toBeUndefined()
+  })
+
+  it('poursuit normalement tant que les commandes sont recentes', async () => {
+    const recent = new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString()
+    let call = 0
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      call += 1
+      return page([order(recent)], call < 3 ? 'https://panel.sendcloud.sc/api/v2/integrations/1/shipments?cursor=z' : null)
+    }))
+
+    const result = await fetchIntegrationShipmentBatch(credentials, 1, 5)
+    expect(result.items.length).toBeGreaterThan(0)
+  })
+})
