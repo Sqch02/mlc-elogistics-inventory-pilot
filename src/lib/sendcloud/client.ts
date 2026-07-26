@@ -593,10 +593,23 @@ function integrationShipmentsUrl(integrationId: number): string {
 // La fraicheur prime sur l'exhaustivite : au-dela de cette profondeur on
 // abandonne le parcours pour repartir de la page 1 au tick suivant. Le
 // rattrapage reste possible, mais borne.
-const INTEGRATION_SNAPSHOT_MAX_AGE_DAYS = 30
+//
+// POURQUOI SI COURT. Avec deux pages par cycle toutes les cinq minutes, la
+// page 1 seule couvre deja plusieurs heures de commandes au rythme du plus
+// gros client. Le parcours arriere ne sert donc qu'a rattraper une panne plus
+// longue que cela — la pire observee a dure deux jours et demi. Un horizon
+// large ne rend pas le rattrapage plus sûr : il fait marcher le snapshot
+// pendant des heures dans l'historique, et pendant tout ce temps les commandes
+// du jour n'entrent pas. C'est exactement le defaut qu'on corrige.
+const DEFAULT_SNAPSHOT_MAX_AGE_DAYS = 3
+
+function snapshotMaxAgeDays(): number {
+  const raw = Number(process.env.SENDCLOUD_SNAPSHOT_MAX_AGE_DAYS)
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_SNAPSHOT_MAX_AGE_DAYS
+}
 
 function isBeyondSnapshotHorizon(rows: SendcloudIntegrationShipment[]): boolean {
-  const horizon = Date.now() - INTEGRATION_SNAPSHOT_MAX_AGE_DAYS * 24 * 60 * 60 * 1000
+  const horizon = Date.now() - snapshotMaxAgeDays() * 24 * 60 * 60 * 1000
   // La charge utile porte created_at et shipment_created_at ; seul le premier
   // est declare, on lit donc le second de facon defensive.
   const dateOf = (row: SendcloudIntegrationShipment): string | undefined =>
@@ -666,7 +679,7 @@ export async function fetchIntegrationShipmentBatch(
       // On est parti trop loin dans le passe : on arrete le parcours pour que
       // le tick suivant reparte des commandes du jour.
       console.warn(
-        `[Sendcloud] Integration ${integrationId}: snapshot au-dela de ${INTEGRATION_SNAPSHOT_MAX_AGE_DAYS} jours, retour a la page 1 au prochain cycle`,
+        `[Sendcloud] Integration ${integrationId}: snapshot au-dela de ${snapshotMaxAgeDays()} jours, retour a la page 1 au prochain cycle`,
       )
       nextUrl = null
       page++

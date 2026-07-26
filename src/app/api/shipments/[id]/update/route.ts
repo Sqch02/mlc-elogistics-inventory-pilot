@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireRole, requireTenant } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 import { updateParcel, UpdateParcelData, getParcel } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
@@ -11,6 +11,8 @@ interface RouteParams {
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   try {
+    // Reacheminer un colis ou changer son poids impacte la facturation.
+    await requireRole(['super_admin', 'admin', 'ops'])
     const tenantId = await requireTenant()
     const { id } = await params
     const body = await request.json()

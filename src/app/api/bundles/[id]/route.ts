@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireRole, requireTenant } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 
 // DELETE /api/bundles/[id] - Delete a bundle
@@ -9,6 +9,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Modifier un bundle change retroactivement la consommation de stock.
+    await requireRole(['super_admin', 'admin', 'ops'])
     const tenantId = await requireTenant()
     const supabase = await getServerDb()
     const { id } = await params
@@ -60,6 +62,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Modifier un bundle change retroactivement la consommation de stock.
+    await requireRole(['super_admin', 'admin', 'ops'])
     const tenantId = await requireTenant()
     const supabase = await getServerDb()
     const { id } = await params
