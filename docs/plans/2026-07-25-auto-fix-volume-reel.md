@@ -1,3 +1,14 @@
+> # ⚠️ CE DOCUMENT CONCLUT A TORT — NE PAS S'Y FIER
+>
+> La mesure qui suit compte les erreurs **visibles en base**. Or l'exploitation
+> corrige les erreurs chaque soir, et Sendcloud ne remplit le champ `errors`
+> qu'au moment ou l'on tente de creer l'etiquette. Ce document mesure donc le
+> **residu**, pas le flux — et il en tire une conclusion inverse de la realite.
+>
+> Document a jour : **`2026-07-26-erreurs-latentes-mesure.md`**.
+>
+> Conserve pour l'histoire de l'erreur de methode, qui vaut d'etre lue.
+
 # Auto-fix : ce que disent les données réelles
 
 **Mesuré en production le 25/07/2026, avant d'écrire le moteur d'écriture.**
