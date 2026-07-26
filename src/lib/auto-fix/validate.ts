@@ -120,3 +120,14 @@ export function findLatentErrors(
 
   return found
 }
+
+/**
+ * Lit l'activation depuis l'environnement. Desactive tant que la variable ne
+ * vaut pas exactement 'true' : une detection qui se declenche par defaut
+ * remplirait la file de tous les tenants d'un coup.
+ */
+export function latentRulesFromEnv(
+  env: Record<string, string | undefined>,
+): ValidationRules | null {
+  return env.AUTO_FIX_LATENT_DETECTION === 'true' ? OBSERVED_RULES : null
+}

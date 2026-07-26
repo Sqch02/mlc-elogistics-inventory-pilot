@@ -1,6 +1,7 @@
 export { detectAutoFixCause } from './detect'
 export { buildAutoFixCandidate, enqueueAutoFixCandidates } from './queue'
 export { enqueueDetectedSyncBatch } from './ingest'
+export { latentRulesFromEnv, findLatentErrors, OBSERVED_RULES } from './validate'
 export { buildSimulationPlan } from './plan'
 export { fetchLatestEcbChfQuote, resolveChfToEurRate } from './exchange-rate'
 export { enqueueBatchCap, resolveAutoFixGate } from './config'

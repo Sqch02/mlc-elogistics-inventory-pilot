@@ -32,6 +32,7 @@ import {
 import {
   enqueueBatchCap,
   enqueueDetectedSyncBatch,
+  latentRulesFromEnv,
   resolveAutoFixGate,
 } from '@/lib/auto-fix'
 import {
@@ -641,6 +642,11 @@ async function runSync(correlationId: string) {
               )
             },
             enqueueBatchCap(process.env),
+            // Desactive tant que AUTO_FIX_LATENT_DETECTION ne vaut pas 'true'.
+            // Sendcloud ne signale une erreur qu'a la tentative d'etiquette :
+            // sans ces regles, la detection ne voit qu'une fraction de ce qui
+            // va reellement echouer.
+            latentRulesFromEnv(process.env),
           )
           if (autoFixDetectionStats.detected > 0 || autoFixDetectionStats.truncated) {
             logger.info(`Auto-fix dry-run queue for tenant ${tenant.id}:`, autoFixDetectionStats)
