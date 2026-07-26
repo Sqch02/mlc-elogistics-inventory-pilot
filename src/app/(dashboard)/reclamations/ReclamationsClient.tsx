@@ -488,10 +488,12 @@ export function ReclamationsClient() {
               Import
             </Button>
           )}
-          <Button onClick={openCreateDialog}>
-            <Plus className="h-4 w-4 mr-2" />
-            Nouvelle réclamation
-          </Button>
+          {!isClient && (
+            <Button onClick={openCreateDialog}>
+              <Plus className="h-4 w-4 mr-2" />
+              Nouvelle réclamation
+            </Button>
+          )}
         </div>
       </div>
 
