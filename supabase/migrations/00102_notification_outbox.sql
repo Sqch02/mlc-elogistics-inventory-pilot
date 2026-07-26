@@ -116,6 +116,7 @@ DECLARE
   v_cc text[] := ARRAY[]::text[];
   v_team text;
   v_queued boolean := false;
+  v_inserted integer := 0;
 BEGIN
   -- invoices_monthly.status est un ENUM (invoice_status), pas du texte : la
   -- comparaison comme l'affectation doivent etre castees explicitement.
@@ -172,7 +173,13 @@ BEGIN
       )
       ON CONFLICT (idempotency_key) DO NOTHING;
 
-      GET DIAGNOSTICS v_queued = ROW_COUNT;
+      -- Passer par un entier n'est pas une precaution de style : affecter
+      -- directement ROW_COUNT a un booleen fonctionne pour 0 et 1 (coercition
+      -- textuelle) mais LEVE UNE ERREUR des 2 lignes. Verifie en base. Rendre
+      -- cette insertion multi-lignes ferait donc echouer la transition de
+      -- facture elle-meme, longtemps apres l'ecriture de ce code.
+      GET DIAGNOSTICS v_inserted = ROW_COUNT;
+      v_queued := v_inserted > 0;
     END IF;
   END IF;
 
