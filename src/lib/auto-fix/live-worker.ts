@@ -33,6 +33,7 @@ interface LiveJob {
   detected_patterns: string[]
   original_sendcloud_id: string
   source_summary_json: Record<string, unknown>
+  plan_json?: { patch?: Record<string, unknown> } | null
   write_started_at?: string | null
 }
 
@@ -40,6 +41,7 @@ export interface ParcelSnapshot {
   sendcloud_id: string
   status_id: number | null
   fingerprint: string
+  date_announced?: string | null
   [field: string]: unknown
 }
 
@@ -86,13 +88,32 @@ function asJob(value: unknown): LiveJob | null {
     detected_patterns: Array.isArray(v.detected_patterns) ? v.detected_patterns.map(String) : [],
     original_sendcloud_id: String(v.original_sendcloud_id ?? v.source_sendcloud_id ?? ''),
     source_summary_json: (v.source_summary_json ?? {}) as Record<string, unknown>,
+    plan_json: (v.plan_json ?? null) as LiveJob['plan_json'],
     write_started_at: (v.write_started_at as string | null) ?? null,
   }
 }
 
-/** Un colis deja annonce ne repond plus de facon garantie a un PUT. */
-function isAnnounced(parcel: ParcelSnapshot): boolean {
-  return typeof parcel.status_id === 'number' && parcel.status_id >= 1000
+/**
+ * Statuts sur lesquels un PUT a encore un effet garanti.
+ *
+ * Liste blanche, et non un seuil. Le seuil `status_id >= 1000` que portait la
+ * premiere version etait INVERSE au regard de la taxonomie reelle du projet
+ * (ExpeditionsClient.tsx) : 1000 = Pret a envoyer et 1002 = Echec d'annonce
+ * sont exactement la population a corriger, tandis que 1 = Annonce,
+ * 3 = En transit et 11 = Livre sont ceux qu'il ne faut surtout pas toucher.
+ * Le seuil refusait donc la cible et autorisait l'ecriture sur un colis deja
+ * chez le transporteur, voire deja livre.
+ *
+ * 1001 (en cours d'annonce) est volontairement exclu : ecrire pendant
+ * l'annonce est une course.
+ */
+const EDITABLE_STATUS_IDS = new Set([1000, 1002])
+
+function isEditable(parcel: ParcelSnapshot): boolean {
+  // Fail-closed : un statut inconnu ou absent n'autorise rien.
+  if (typeof parcel.status_id !== 'number') return false
+  if (parcel.date_announced) return false
+  return EDITABLE_STATUS_IDS.has(parcel.status_id)
 }
 
 function buildPatch(job: LiveJob, parcel: ParcelSnapshot):
@@ -128,10 +149,23 @@ async function verifyOnly(
     const parcel = await deps.readParcel(credentials, job.original_sendcloud_id)
     if (!parcel) throw new Error('colis introuvable a la relecture')
 
-    const expected = (job.source_summary_json.applied_patch ?? {}) as ParcelPatch
-    const comparison = Object.keys(expected).length > 0
-      ? comparePatch(expected, parcel as Record<string, unknown>)
-      : { matches: true, mismatched: [] as string[] }
+    // Le patch reellement envoye vit dans plan_json, pose par plan_auto_fix_live.
+    // La premiere version lisait source_summary_json.applied_patch, un champ
+    // qu'AUCUN code n'ecrit : la comparaison portait sur un objet vide et
+    // declarait donc "conforme" toute ecriture, y compris incertaine.
+    const expected = (job.plan_json?.patch ?? {}) as ParcelPatch
+    if (Object.keys(expected).length === 0) {
+      // Un ensemble vide ne vaut JAMAIS "tout correspond" : sans patch attendu
+      // on ne peut rien confirmer, donc on escalade.
+      await client.rpc('fail_auto_fix_verification', {
+        p_job_id: job.id,
+        p_worker_id: workerId,
+        p_error: { category: 'verification_failed', reason: 'expected_patch_unavailable' },
+      })
+      result.failed += 1
+      return
+    }
+    const comparison = comparePatch(expected, parcel as Record<string, unknown>)
 
     if (!comparison.matches) {
       await client.rpc('fail_auto_fix_verification', {
@@ -245,7 +279,7 @@ export async function runAutoFixLiveWorker(
         // modifie a la main depuis la detection.
         const parcel = await deps.readParcel(credentials, job.original_sendcloud_id)
         if (!parcel) { await refuse('parcel_not_found'); continue }
-        if (isAnnounced(parcel)) { await refuse('parcel_already_announced'); continue }
+        if (!isEditable(parcel)) { await refuse('parcel_not_editable'); continue }
         if (parcel.fingerprint && parcel.fingerprint !== job.source_fingerprint) {
           await refuse('source_changed_since_detection'); continue
         }

@@ -62,7 +62,7 @@ function makeClient(options: {
 const deps = (overrides: Record<string, unknown> = {}) => ({
   credentials: async () => ({ apiKey: 'k', secret: 's' }),
   readParcel: vi.fn(async () => ({
-    sendcloud_id: '12345', status_id: 1, city: 'Saint-Rémy-de-Provence',
+    sendcloud_id: '12345', status_id: 1002, city: 'Saint-Rémy-de-Provence',
     fingerprint: 'f'.repeat(64),
   })),
   writeParcel: vi.fn(async () => ({ ok: true, status: 200, resultSendcloudId: '12345' })),
@@ -131,7 +131,7 @@ describe('runAutoFixLiveWorker — sequence normale', () => {
       readParcel: vi.fn(async () => {
         reads += 1
         return {
-          sendcloud_id: '12345', status_id: 1, fingerprint: 'f'.repeat(64),
+          sendcloud_id: '12345', status_id: 1002, fingerprint: 'f'.repeat(64),
           city: reads === 1 ? 'Saint-Rémy-de-Provence' : 'St-Rémy-de-Provence',
         }
       }),
@@ -161,10 +161,21 @@ describe('runAutoFixLiveWorker — jamais deux ecritures', () => {
 
   it('un job repris ne reecrit JAMAIS, il verifie', async () => {
     const { client, names } = makeClient({
-      resume: [job({ id: 'job-resume', state: 'applied', write_started_at: '2026-07-25T00:00:00Z' })],
+      resume: [job({
+        id: 'job-resume',
+        state: 'applied',
+        write_started_at: '2026-07-25T00:00:00Z',
+        // Le patch reellement envoye vit dans plan_json, pas ailleurs.
+        plan_json: { patch: { city: 'St-Rémy-de-Provence' } },
+      })],
       claim: [],
     })
-    const d = deps()
+    const d = deps({
+      readParcel: vi.fn(async () => ({
+        sendcloud_id: '12345', status_id: 1002, fingerprint: 'f'.repeat(64),
+        city: 'St-Rémy-de-Provence',
+      })),
+    })
 
     await runAutoFixLiveWorker(client, LIVE_ENV, d)
 
@@ -173,6 +184,40 @@ describe('runAutoFixLiveWorker — jamais deux ecritures', () => {
     expect(names()).not.toContain('begin_auto_fix_write')
     expect(names()).not.toContain('plan_auto_fix_live')
     expect(names()).toContain('verify_auto_fix_live')
+  })
+
+  it('une reprise sans patch attendu escalade au lieu de confirmer a l aveugle', async () => {
+    // Un ensemble vide ne vaut jamais "tout correspond" : sans patch attendu on
+    // ne peut RIEN confirmer. La premiere version lisait un champ qu'aucun code
+    // n'ecrit, et estampillait donc "verified" toute ecriture, meme incertaine.
+    const { client, names } = makeClient({
+      resume: [job({ id: 'job-resume', write_started_at: '2026-07-25T00:00:00Z' })],
+      claim: [],
+    })
+    const d = deps()
+
+    const result = await runAutoFixLiveWorker(client, LIVE_ENV, d)
+
+    expect(names()).not.toContain('verify_auto_fix_live')
+    expect(names()).toContain('fail_auto_fix_verification')
+    expect(result).toMatchObject({ verified: 0 })
+  })
+
+  it('une reprise dont la relecture contredit le patch n est pas confirmee', async () => {
+    const { client, names } = makeClient({
+      resume: [job({
+        id: 'job-resume',
+        write_started_at: '2026-07-25T00:00:00Z',
+        plan_json: { patch: { city: 'St-Rémy-de-Provence' } },
+      })],
+      claim: [],
+    })
+    const d = deps() // renvoie la ville d'origine, non raccourcie
+
+    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+
+    expect(names()).not.toContain('verify_auto_fix_live')
+    expect(names()).toContain('fail_auto_fix_verification')
   })
 
   it('un echec de verification ne repasse jamais par le routeur pre-ecriture', async () => {
@@ -240,12 +285,33 @@ describe('runAutoFixLiveWorker — refus avant ecriture', () => {
     expect(d.writeParcel).not.toHaveBeenCalled()
   })
 
-  it('refuse un colis deja annonce : un PUT n y a plus d effet garanti', async () => {
+  // Taxonomie reelle du projet : 1 = Annonce, 3 = En transit, 11 = Livre.
+  // Un seuil status_id >= 1000 laissait passer les trois.
+  const nonEditable: Array<[number | null, string]> = [
+    [1, 'annonce'],
+    [3, 'en transit'],
+    [11, 'livre'],
+    [2000, 'annule'],
+    [null, 'statut inconnu'],
+  ]
+  it.each(nonEditable)('refuse d ecrire sur un colis %s (%s)', async (statusId) => {
     const { client } = makeClient()
     const d = deps({
       readParcel: vi.fn(async () => ({
-        sendcloud_id: '12345', status_id: 1000, city: 'Saint-Rémy-de-Provence',
-        fingerprint: 'f'.repeat(64),
+        sendcloud_id: '12345', status_id: statusId,
+        city: 'Saint-Rémy-de-Provence', fingerprint: 'f'.repeat(64),
+      })),
+    })
+    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+    expect(d.writeParcel).not.toHaveBeenCalled()
+  })
+
+  it('refuse un colis dont l annonce est deja partie', async () => {
+    const { client } = makeClient()
+    const d = deps({
+      readParcel: vi.fn(async () => ({
+        sendcloud_id: '12345', status_id: 1002, date_announced: '2026-07-25T10:00:00Z',
+        city: 'Saint-Rémy-de-Provence', fingerprint: 'f'.repeat(64),
       })),
     })
     await runAutoFixLiveWorker(client, LIVE_ENV, d)
@@ -256,7 +322,7 @@ describe('runAutoFixLiveWorker — refus avant ecriture', () => {
     const { client, names } = makeClient()
     const d = deps({
       readParcel: vi.fn(async () => ({
-        sendcloud_id: '12345', status_id: 1, city: 'Autre ville',
+        sendcloud_id: '12345', status_id: 1002, city: 'Autre ville',
         fingerprint: 'b'.repeat(64),
       })),
     })
@@ -278,7 +344,7 @@ describe('runAutoFixLiveWorker — refus avant ecriture', () => {
     })
     const d = deps({
       readParcel: vi.fn(async () => ({
-        sendcloud_id: '12345', status_id: 1,
+        sendcloud_id: '12345', status_id: 1002,
         city: 'Chambretaud Les Grands Champs', fingerprint: 'f'.repeat(64),
       })),
     })

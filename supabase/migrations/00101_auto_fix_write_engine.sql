@@ -60,6 +60,22 @@ ALTER TABLE public.auto_fix_jobs
     OR state NOT IN ('queued', 'claimed', 'planned', 'retry_wait')
   );
 
+-- Le routeur post-ecriture a son propre vocabulaire, disjoint de celui du
+-- routeur pre-ecriture. Sans cette extension, CHAQUE appel a
+-- fail_auto_fix_verification violait la contrainte de 00093 et echouait -- en
+-- silence, car l'appelant ne lit pas l'erreur. Toute la gestion d'echec
+-- post-ecriture etait donc du code mort.
+ALTER TABLE public.auto_fix_jobs DROP CONSTRAINT IF EXISTS auto_fix_jobs_error_category_check;
+ALTER TABLE public.auto_fix_jobs
+  ADD CONSTRAINT auto_fix_jobs_error_category_check CHECK (
+    error_category IS NULL OR error_category IN (
+      -- pre-ecriture (00093)
+      'retryable', 'non_retryable', 'configuration', 'internal', 'unknown',
+      -- post-ecriture (00101) : le patch n'a pas pris, ou on ignore s'il a pris
+      'mismatch', 'verification_failed', 'write_rejected', 'write_uncertain'
+    )
+  );
+
 ALTER TABLE public.auto_fixes DROP CONSTRAINT IF EXISTS auto_fixes_status_check;
 ALTER TABLE public.auto_fixes
   ADD CONSTRAINT auto_fixes_status_check CHECK (status IN (
@@ -78,6 +94,11 @@ CREATE INDEX IF NOT EXISTS idx_auto_fix_jobs_resume_live
 -- ---------------------------------------------------------------------------
 -- p_mode est ajoute EN DERNIER avec un defaut : les appels existants restent
 -- valides. Un job live n'est reclamable que si le tenant est lui-meme en live.
+
+-- L'ancienne signature a 4 arguments DOIT etre supprimee : la conserver a cote
+-- de la nouvelle rendrait tout appel a 4 arguments AMBIGU, et casserait le
+-- worker dry-run deja en production des l'application de cette migration.
+DROP FUNCTION IF EXISTS public.claim_auto_fix_jobs(uuid, integer, integer, text);
 
 CREATE OR REPLACE FUNCTION public.claim_auto_fix_jobs(
   p_tenant_id uuid,
