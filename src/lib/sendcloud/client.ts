@@ -581,6 +581,36 @@ function integrationShipmentsUrl(integrationId: number): string {
   return `${SENDCLOUD_API_URL}/integrations/${integrationId}/shipments?limit=100`
 }
 
+// L'endpoint renvoie les commandes LES PLUS RECENTES D'ABORD : la page 1 est
+// toujours celle du jour, et suivre `next` remonte l'historique.
+//
+// Consequence apprise en production le 26/07 : les checkpoints faisaient
+// continuer ce parcours de tick en tick, donc le snapshot s'ELOIGNAIT du
+// present. Sur un tenant a gros historique il n'en revenait jamais, et plus
+// aucune commande du jour n'entrait dans l'application -- deux jours et demi
+// sans nouvelle commande avant de s'en apercevoir.
+//
+// La fraicheur prime sur l'exhaustivite : au-dela de cette profondeur on
+// abandonne le parcours pour repartir de la page 1 au tick suivant. Le
+// rattrapage reste possible, mais borne.
+const INTEGRATION_SNAPSHOT_MAX_AGE_DAYS = 30
+
+function isBeyondSnapshotHorizon(rows: SendcloudIntegrationShipment[]): boolean {
+  const horizon = Date.now() - INTEGRATION_SNAPSHOT_MAX_AGE_DAYS * 24 * 60 * 60 * 1000
+  // La charge utile porte created_at et shipment_created_at ; seul le premier
+  // est declare, on lit donc le second de facon defensive.
+  const dateOf = (row: SendcloudIntegrationShipment): string | undefined =>
+    (row as { shipment_created_at?: string }).shipment_created_at ?? row?.created_at
+
+  // La page est classee du plus recent au plus ancien : si la PREMIERE ligne
+  // datee est deja au-dela de l'horizon, tout le reste du parcours l'est aussi.
+  const newest = rows.find((row) => dateOf(row))
+  const raw = newest ? dateOf(newest) : undefined
+  if (!raw) return false
+  const parsed = Date.parse(raw)
+  return Number.isFinite(parsed) && parsed < horizon
+}
+
 function validateIntegrationContinuationUrl(url: string, integrationId: number): string {
   const parsed = new URL(url)
   const api = new URL(SENDCLOUD_API_URL)
@@ -631,6 +661,17 @@ export async function fetchIntegrationShipmentBatch(
     allShipments.push(...parsed)
 
     console.log(`[Sendcloud] Integration ${integrationId} page ${page + 1}: ${data.results.length} shipments`)
+
+    if (isBeyondSnapshotHorizon(data.results)) {
+      // On est parti trop loin dans le passe : on arrete le parcours pour que
+      // le tick suivant reparte des commandes du jour.
+      console.warn(
+        `[Sendcloud] Integration ${integrationId}: snapshot au-dela de ${INTEGRATION_SNAPSHOT_MAX_AGE_DAYS} jours, retour a la page 1 au prochain cycle`,
+      )
+      nextUrl = null
+      page++
+      break
+    }
 
     nextUrl = data.next ? validateIntegrationContinuationUrl(data.next, integrationId) : null
     page++
