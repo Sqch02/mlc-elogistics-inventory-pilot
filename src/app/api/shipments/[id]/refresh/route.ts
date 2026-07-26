@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireRole, requireTenant } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 import { getShipment } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
@@ -10,6 +10,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Rafraichir interroge Sendcloud et reecrit la ligne locale.
+    await requireRole(['super_admin', 'admin', 'ops'])
     const tenantId = await requireTenant()
     const { id } = await params
     const adminClient = getAdminDb()

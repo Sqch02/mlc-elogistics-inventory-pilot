@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireRole, requireTenant } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 import { fetchAllReturns } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
@@ -9,6 +9,10 @@ export async function POST() {
   let tenantId: string
 
   try {
+    // Meme classe que /api/sync/sendcloud/run : declenche un appel Sendcloud et
+    // ecrit en base. Laisser un compte client la declencher a volonte, c'est
+    // rouvrir la porte a la saturation d'I/O deja constatee.
+    await requireRole(['super_admin', 'admin', 'ops'])
     tenantId = await requireTenant()
     console.log('[Returns Sync] Starting sync for tenant:', tenantId)
 

@@ -3,6 +3,7 @@ import type { ParsedShipment } from '@/lib/sendcloud/types'
 
 vi.mock('@/lib/supabase/auth', () => ({
   requireTenant: vi.fn(),
+  requireRole: vi.fn(),
 }))
 
 vi.mock('@/lib/supabase/untyped', () => ({
@@ -24,13 +25,14 @@ vi.mock('@/lib/stock/consume', () => ({
 import { POST } from './route'
 import { fetchAllParcels } from '@/lib/sendcloud/client'
 import { consumeShipmentStockOnce } from '@/lib/stock/consume'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireTenant, requireRole } from '@/lib/supabase/auth'
 import { getAdminDb } from '@/lib/supabase/untyped'
 import { processShipmentItems } from '@/lib/utils/sku-mapping'
 
 const mockFetchAllParcels = vi.mocked(fetchAllParcels)
 const mockConsumeShipmentStockOnce = vi.mocked(consumeShipmentStockOnce)
 const mockRequireTenant = vi.mocked(requireTenant)
+const mockRequireRole = vi.mocked(requireRole)
 const mockGetAdminDb = vi.mocked(getAdminDb)
 const mockProcessShipmentItems = vi.mocked(processShipmentItems)
 
@@ -211,6 +213,7 @@ function makeParcel(overrides: Partial<ParsedShipment> = {}): ParsedShipment {
 describe('POST /api/sync/sendcloud/run', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockRequireRole.mockResolvedValue(undefined as never)
     mockRequireTenant.mockResolvedValue('tenant-1')
     mockProcessShipmentItems.mockResolvedValue({ mappedCount: 1, unmappedCount: 0 })
     mockConsumeShipmentStockOnce.mockResolvedValue({ consumed: true, count: 2 })
