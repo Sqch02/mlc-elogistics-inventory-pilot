@@ -41,7 +41,12 @@ export type AutoFixJobState = (typeof AUTO_FIX_JOB_STATES)[number]
 export type AutoFixAction = (typeof AUTO_FIX_ACTIONS)[number]
 
 export interface CauseEvidence {
-  source: 'errors' | 'checkout_payload_errors'
+  /**
+   * `latent` designe une regle que NOUS avons appliquee en amont : le refus ne
+   * s'est pas encore produit. Sendcloud ne remplit `errors` qu'a la tentative
+   * de creation d'etiquette.
+   */
+  source: 'errors' | 'checkout_payload_errors' | 'latent'
   field: string
   messageHash: string
 }
