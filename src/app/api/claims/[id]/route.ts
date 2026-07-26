@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireTenant, getCurrentUser } from '@/lib/supabase/auth'
+import { requireRole, requireTenant, getCurrentUser } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 import { auditUpdate, auditDelete } from '@/lib/audit'
 import { z } from 'zod'
@@ -71,6 +71,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Modifier ou supprimer une reclamation engage une indemnisation.
+    await requireRole(['super_admin', 'admin', 'ops', 'sav'])
     const tenantId = await requireTenant()
     const user = await getCurrentUser()
     const supabase = await createClient()
@@ -213,6 +215,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Modifier ou supprimer une reclamation engage une indemnisation.
+    await requireRole(['super_admin', 'admin', 'ops', 'sav'])
     const tenantId = await requireTenant()
     const user = await getCurrentUser()
     const supabase = await createClient()

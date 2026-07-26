@@ -14,6 +14,37 @@ function asRecord(value: Json): Record<string, Json | undefined> {
     : {}
 }
 
+// Combien de caracteres doivent disparaitre, champ par champ. Se deduit des
+// seules longueurs, donc sans jamais lire l'adresse. Sert au tableau de bord
+// et rend le refus intelligible quand le depassement est trop important.
+function addressOverflow(summary: Record<string, Json | undefined>): Json {
+  const lengths = summary.address_lengths
+  const limits = summary.address_limits
+  if (!lengths || typeof lengths !== 'object' || Array.isArray(lengths)) return []
+  if (!Array.isArray(limits)) return []
+
+  const strictest = new Map<string, number>()
+  for (const entry of limits) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const field = (entry as Record<string, Json>).field
+    const max = (entry as Record<string, Json>).max
+    if (typeof field !== 'string' || typeof max !== 'number' || !Number.isFinite(max)) continue
+    // Sendcloud nomme `address_1` ce que la commande appelle `address`.
+    const key = field === 'address_1' ? 'address' : field
+    const previous = strictest.get(key)
+    strictest.set(key, previous === undefined ? max : Math.min(previous, max))
+  }
+
+  const result: Json[] = []
+  for (const [field, max] of strictest) {
+    const current = (lengths as Record<string, Json>)[field]
+    if (typeof current !== 'number') continue
+    if (current <= max) continue
+    result.push({ field, current, max, excess: current - max })
+  }
+  return result
+}
+
 function buildPlan(
   detection: Pick<AutoFixDetection, 'sourceKind' | 'detectedPatterns' | 'sourceSummary'>,
   defaults: TenantFixDefaults,
@@ -35,7 +66,19 @@ function buildPlan(
         warnings.push(conversion.warning)
       }
     } else if (pattern === 'address_too_long') {
-      changes.push({ pattern, strategy: 'abbreviate_then_word_boundary', lengths: summary.address_lengths ?? {}, limits: summary.address_limits ?? [] })
+      changes.push({
+        pattern,
+        strategy: 'lossless_first_then_human_review',
+        // La valeur corrigee n'est deliberement PAS calculee ici : la file ne
+        // retient que des longueurs, jamais l'adresse elle-meme. Elle est
+        // resolue au moment de l'ecriture, sur l'instantane frais du colis.
+        // Deux benefices : aucune donnee personnelle n'entre en file, et l'on
+        // raccourcit l'adresse ACTUELLE, pas celle vue a la detection.
+        value_resolved_at: 'write_time_from_fresh_snapshot',
+        lengths: summary.address_lengths ?? {},
+        limits: summary.address_limits ?? [],
+        overflow: addressOverflow(summary),
+      })
     } else if (pattern === 'hs_code_missing') {
       const configured = Boolean(defaults.defaultHsCode && defaults.defaultOriginCountry)
       changes.push({

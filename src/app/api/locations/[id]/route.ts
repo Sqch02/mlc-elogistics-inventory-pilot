@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb, getAdminDb } from '@/lib/supabase/untyped'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireRole, requireTenant } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 
 const MLC_ROOT_TENANT_ID = '00000000-0000-0000-0000-000000000001'
@@ -11,6 +11,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Les emplacements et leurs affectations sont des donnees d'entrepot.
+    await requireRole(['super_admin', 'admin', 'ops'])
     const tenantId = await requireTenant()
     const isMlcRoot = tenantId === MLC_ROOT_TENANT_ID
     // On MLC root the caller can touch any tenant's location (cross-tenant ops).
@@ -133,6 +135,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Les emplacements et leurs affectations sont des donnees d'entrepot.
+    await requireRole(['super_admin', 'admin', 'ops'])
     const tenantId = await requireTenant()
     const supabase = await getServerDb()
     const { id } = await params

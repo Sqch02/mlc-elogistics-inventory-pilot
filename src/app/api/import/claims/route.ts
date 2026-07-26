@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerDb } from '@/lib/supabase/untyped'
-import { requireTenant } from '@/lib/supabase/auth'
+import { requireRole, requireTenant } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 import { parseCSV } from '@/lib/utils/csv'
 import { claimsImportRowSchema, validateRows } from '@/lib/validations/import'
 
 export async function POST(request: NextRequest) {
   try {
+    // Cet import ecrase en masse statut et indemnite, sans historique.
+    await requireRole(['super_admin', 'admin', 'ops', 'sav'])
     const tenantId = await requireTenant()
     const supabase = await getServerDb()
 
