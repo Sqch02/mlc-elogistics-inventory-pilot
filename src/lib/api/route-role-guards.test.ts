@@ -23,6 +23,7 @@ describe('gardes de role des routes mutantes', () => {
     ['src/app/api/shipments/[id]/update/route.ts', OPS, 'reachemine un colis et change le poids facture'],
     ['src/app/api/shipments/[id]/refresh/route.ts', OPS, 'interroge Sendcloud et reecrit la ligne locale'],
     ['src/app/api/sync/sendcloud/run/route.ts', OPS, 'consomme du stock et retarife tout un tenant'],
+    ['src/app/api/returns/sync/route.ts', OPS, 'declenche un appel Sendcloud et ecrit en base, comme la sync'],
     ['src/app/api/bundles/[id]/route.ts', OPS, 'modifier un bundle change retroactivement la consommation'],
     ['src/app/api/locations/[id]/route.ts', OPS, 'detruit des emplacements et leurs affectations'],
     ['src/app/api/claims/[id]/route.ts', SAV, 'engage une indemnisation'],
