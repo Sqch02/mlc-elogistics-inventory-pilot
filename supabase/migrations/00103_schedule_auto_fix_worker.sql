@@ -29,19 +29,27 @@ CREATE EXTENSION IF NOT EXISTS pg_net;
 -- CRON_SECRET definie sur Render. Changer l'un sans l'autre casse l'appel en
 -- silence — cote base on ne verra qu'un HTTP 401 dans net._http_response.
 
-DO $$
-DECLARE
-  v_existant uuid;
-BEGIN
-  SELECT id INTO v_existant FROM vault.secrets WHERE name = 'auto_fix_worker_bearer';
-  IF v_existant IS NULL THEN
-    PERFORM vault.create_secret(
-      'mlc-cron-2024',
-      'auto_fix_worker_bearer',
-      'Jeton d''appel du worker auto-fix. Doit rester egal a CRON_SECRET sur Render.'
-    );
-  END IF;
-END $$;
+-- LE SECRET N'EST PAS CREE ICI, ET C'EST DELIBERE. Ce depot est public : une
+-- valeur ecrite dans une migration est publiee, et le reste dans l'historique
+-- git meme apres correction. La premiere version de ce fichier contenait le
+-- jeton en clair ; l'erreur est corrigee ici et le jeton a ete change.
+--
+-- Le secret se pose HORS DU DEPOT, une seule fois, avec la meme valeur que
+-- CRON_SECRET sur Render :
+--
+--     SELECT vault.create_secret(
+--       '<valeur de CRON_SECRET>',
+--       'auto_fix_worker_bearer',
+--       'Jeton d''appel du worker auto-fix.'
+--     );
+--
+-- Pour le changer ensuite :
+--
+--     UPDATE vault.secrets SET secret = '<nouvelle valeur>'
+--     WHERE name = 'auto_fix_worker_bearer';
+--
+-- En son absence, la fonction ci-dessous n'appelle rien et le signale : mieux
+-- vaut un travail qui ne fait rien qu'une rafale de 401 silencieux.
 
 -- ---------------------------------------------------------------------------
 -- L'appel
