@@ -40,6 +40,25 @@ describe('detection des erreurs latentes', () => {
     expect(found[0].field).toBe('city')
   })
 
+  it('signale une deuxieme ligne d adresse trop longue', () => {
+    // Deux refus reels sur ce champ, a deux limites : Sendcloud a 32, le
+    // transporteur a 30. On retient la plus stricte.
+    const found = findLatentErrors({ ...base, address_2: 'Residence des Grands Chenes Batiment C' })
+    expect(found).toHaveLength(1)
+    expect(found[0].field).toBe('address_2')
+    expect(found[0].message).toContain('at most 30')
+  })
+
+  it('laisse passer une deuxieme ligne conforme a la limite stricte', () => {
+    expect(findLatentErrors({ ...base, address_2: 'Batiment C, appartement 12' })).toEqual([])
+  })
+
+  it('signale un numero de voie anormalement long', () => {
+    // Presque toujours du texte saisi dans la mauvaise case.
+    const found = findLatentErrors({ ...base, house_number: '12 bis rue haute' })
+    expect(found.map((f) => f.field)).toContain('house_number')
+  })
+
   it('signale une commande sans aucun article', () => {
     const found = findLatentErrors({ ...base, parcel_items: [] })
     expect(found.map((f) => f.field)).toEqual(['parcel_items'])

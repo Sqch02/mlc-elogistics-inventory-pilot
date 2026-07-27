@@ -23,6 +23,10 @@ export interface ValidationRules {
   addressCombinedMax: number | null
   /** Limite sur la ville. */
   cityMax: number | null
+  /** Limite sur la deuxieme ligne d'adresse. */
+  address2Max: number | null
+  /** Limite sur le numero de voie. */
+  houseNumberMax: number | null
   /** Sendcloud refuse une expedition sans aucune ligne d'article. */
   requireParcelItems: boolean
 }
@@ -34,6 +38,18 @@ export interface ValidationRules {
 export const OBSERVED_RULES: ValidationRules = {
   addressCombinedMax: 32,
   cityMax: 30,
+  // Deux refus REELS observes le 27/07 sur le meme champ, a deux limites
+  // differentes :
+  //   "Ensure that address 2 has at most 32 characters (it has 39)."
+  //   "La deuxieme ligne d'adresse depasse 30 caracteres"
+  // Sendcloud refuse a 32, le transporteur a 30. On retient la plus stricte :
+  // produire une valeur plus courte que necessaire n'est jamais refuse,
+  // l'inverse l'est.
+  address2Max: 30,
+  // Un numero de voie de plus de huit caracteres signale presque toujours du
+  // texte saisi dans la mauvaise case. On le SIGNALE, mais le raccourcissement
+  // partira en revue humaine : couper un numero change la destination.
+  houseNumberMax: 8,
   requireParcelItems: true,
 }
 
@@ -103,6 +119,25 @@ export function findLatentErrors(
       source: 'latent',
       basis: 'observed_refusal',
       message: `Ensure this field has no more than ${rules.cityMax} characters.`,
+    })
+  }
+
+  const address2 = text(raw.address_2)
+  if (rules.address2Max !== null && address2.length > rules.address2Max) {
+    found.push({
+      field: 'address_2',
+      source: 'latent',
+      basis: 'observed_refusal',
+      message: `Ensure that address 2 has at most ${rules.address2Max} characters (it has ${address2.length}).`,
+    })
+  }
+
+  if (rules.houseNumberMax !== null && houseNumber.length > rules.houseNumberMax) {
+    found.push({
+      field: 'house_number',
+      source: 'latent',
+      basis: 'observed_refusal',
+      message: `Ensure that house number has at most ${rules.houseNumberMax} characters (it has ${houseNumber.length}).`,
     })
   }
 
