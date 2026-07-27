@@ -52,7 +52,7 @@ Cause chiffrée via `pg_stat_statements` : la requête watermark du cron représ
 
 ## ⏳ Actions manuelles pour toi (dashboards, hors de ma portée)
 - **Définir `NEXT_PUBLIC_SENTRY_DSN`** sur Render (sinon Sentry reste no-op).
-- **Rotation `CRON_SECRET`** : la valeur `mlc-cron-2024` est devinable. Générer
+- **Rotation `CRON_SECRET`** : la valeur en place est devinable et figurait en clair dans ce depot PUBLIC. Générer
   `openssl rand -hex 32`, mettre à jour Render **et** cron-job.org.
 - **Brancher un moniteur** sur `/api/health/sync` (matching `"degraded":false`).
 - **Vérifier backups/PITR** dans le dashboard Supabase (posture non vérifiable par outil).
