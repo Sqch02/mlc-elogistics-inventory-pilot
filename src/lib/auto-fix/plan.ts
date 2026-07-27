@@ -1,5 +1,6 @@
 import type { Json } from '@/types/database'
 import { buildChfToEurConversion } from './currency'
+import { canonicalAddressField } from './address'
 import type {
   AutoFixDetection,
   AutoFixPlanningContext,
@@ -29,8 +30,10 @@ function addressOverflow(summary: Record<string, Json | undefined>): Json {
     const field = (entry as Record<string, Json>).field
     const max = (entry as Record<string, Json>).max
     if (typeof field !== 'string' || typeof max !== 'number' || !Number.isFinite(max)) continue
-    // Sendcloud nomme `address_1` ce que la commande appelle `address`.
-    const key = field === 'address_1' ? 'address' : field
+    // Meme table d'equivalences que le planner : sans elle, une limite
+    // signalee sous `address_add2` ne trouve pas la longueur enregistree sous
+    // `address_2` et le depassement sort vide.
+    const key = canonicalAddressField(field) ?? field
     const previous = strictest.get(key)
     strictest.set(key, previous === undefined ? max : Math.min(previous, max))
   }

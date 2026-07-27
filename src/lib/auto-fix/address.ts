@@ -290,14 +290,42 @@ function isAddressField(field: string): field is AddressField {
   return (ADDRESS_FIELDS as readonly string[]).includes(field)
 }
 
-// Sendcloud nomme le champ `address_1` dans ses messages d'erreur, alors que la
-// commande et la mise a jour du colis l'appellent `address`. Sans cette
-// equivalence, la limite signalee ne trouvait aucune valeur a raccourcir et le
-// plan sortait vide.
-function canonicalField(field: string): AddressField | null {
-  const normalized = field.trim().toLowerCase()
-  if (normalized === 'address_1' || normalized === 'address1' || normalized === 'street') return 'address'
+// Sendcloud emploie plusieurs noms pour un meme champ selon le message, le
+// transporteur et le niveau d'imbrication. Observe en production sur une seule
+// journee : `address_1` pour la voie que la commande appelle `address`, et
+// `address_2`, `address_add2` puis `uncategorized.address_add2` pour la
+// deuxieme ligne.
+//
+// Sans ces equivalences, la limite signalee ne trouve AUCUNE valeur a
+// raccourcir : le plan sort vide et rien ne signale l'anomalie. C'est
+// exactement ce qui s'est produit sur une commande reelle, ou un depassement
+// de sept caracteres n'a produit aucun changement.
+const FIELD_ALIASES: Record<string, AddressField> = {
+  address_1: 'address',
+  address1: 'address',
+  street: 'address',
+  address_add1: 'address',
+  address_2: 'address_2',
+  address2: 'address_2',
+  address_add2: 'address_2',
+  house_nr: 'house_number',
+  housenumber: 'house_number',
+  zip: 'postal_code',
+  zipcode: 'postal_code',
+  postcode: 'postal_code',
+}
+
+export function canonicalAddressField(field: string): AddressField | null {
+  // Les messages imbriques prefixent le champ par sa categorie
+  // ("uncategorized.address_add2") : seul le dernier segment nous interesse.
+  const normalized = field.trim().toLowerCase().split('.').pop() ?? ''
+  const alias = FIELD_ALIASES[normalized]
+  if (alias) return alias
   return isAddressField(normalized) ? normalized : null
+}
+
+function canonicalField(field: string): AddressField | null {
+  return canonicalAddressField(field)
 }
 
 export function planAddressShortening(

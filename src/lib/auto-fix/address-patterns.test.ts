@@ -141,6 +141,22 @@ describe('limite Sendcloud portant sur la voie combinee au numero', () => {
     expect((plan.patch.address ?? '').length + 1 + '27'.length).toBeLessThanOrEqual(LIMIT)
   })
 
+  it.each([
+    ['address_add2', 'la deuxieme ligne, nommee ainsi par certains transporteurs'],
+    ['uncategorized.address_add2', 'la meme, imbriquee sous sa categorie'],
+    ['address2', 'variante sans separateur'],
+  ])('reconnait %s comme deuxieme ligne d adresse (%s)', (champ) => {
+    // Observe en production : un depassement de sept caracteres n'avait produit
+    // AUCUN changement, parce que la limite signalee sous ce nom ne trouvait
+    // aucune valeur a raccourcir. Le plan sortait vide en silence.
+    const plan = planAddressShortening(
+      { address_2: 'Residence des Grands Chenes Batiment C', city: 'Poitiers', postal_code: '86000' },
+      [{ field: champ, max: 30 }],
+    )
+    expect(plan.audit.length).toBeGreaterThan(0)
+    expect(plan.audit[0].field).toBe('address_2')
+  })
+
   it('reconnait le nom de champ address_1 employe par les messages Sendcloud', () => {
     const plan = planAddressShortening(
       { address: '454 Avenue des Collines de Tamaris', postal_code: '83500', city: 'La Seyne' },
