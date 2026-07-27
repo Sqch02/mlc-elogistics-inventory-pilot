@@ -12,6 +12,14 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { planAddressShortening, type AddressLimit } from './address'
 import { patchParcelById, comparePatch, type ParcelPatch, type WriteResult } from './sendcloud-write'
+import {
+  findOrderByNumber,
+  patchOrderShippingAddress,
+  verifyOrderAddress,
+  isCorrigible,
+  type OrderV3,
+  type OrderV3ShippingAddress,
+} from '@/lib/sendcloud/orders-v3'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
 
 /**
@@ -52,6 +60,148 @@ export interface LiveWorkerDependencies {
     credentials: SendcloudCredentials,
     input: { id: string; patch: ParcelPatch },
   ) => Promise<WriteResult>
+  /**
+   * Numero de commande a partir de notre base. Le job ne porte que le
+   * `shipment_uuid`, et l'API v3 ne l'expose pas : c'est le seul pont entre
+   * les deux mondes.
+   */
+  resolveOrderRef?: (tenantId: string, sendcloudId: string) => Promise<string | null>
+  findOrder?: typeof findOrderByNumber
+  patchOrder?: typeof patchOrderShippingAddress
+  verifyOrder?: typeof verifyOrderAddress
+}
+
+// ---------------------------------------------------------------------------
+// Commandes importees
+//
+// L'API v2 ne sait pas les modifier — la ressource individuelle renvoie 404.
+// L'API v3, si : OPTIONS /api/v3/orders/{id} declare GET, PATCH, DELETE. On
+// fait donc par programme ce que l'exploitation fait avec le crayon du
+// panneau, sans creer d'etiquette ni engager de frais.
+//
+// Les noms de champs different entre les deux mondes, d'ou la traduction
+// ci-dessous. Elle est volontairement explicite : une correspondance implicite
+// aurait laisse passer une adresse ecrite dans le mauvais champ.
+// ---------------------------------------------------------------------------
+
+function ordreVersAdresse(order: OrderV3): Record<string, unknown> {
+  const a = order.shipping_address ?? {}
+  return {
+    address: a.address_line_1 ?? '',
+    address_2: a.address_line_2 ?? '',
+    house_number: a.house_number ?? '',
+    city: a.city ?? '',
+    postal_code: a.postal_code ?? '',
+  }
+}
+
+function adresseVersOrdre(patch: Partial<Record<string, string>>): OrderV3ShippingAddress {
+  const sortie: OrderV3ShippingAddress = {}
+  if (patch.address !== undefined) sortie.address_line_1 = patch.address
+  if (patch.address_2 !== undefined) sortie.address_line_2 = patch.address_2
+  if (patch.house_number !== undefined) sortie.house_number = patch.house_number
+  if (patch.city !== undefined) sortie.city = patch.city
+  if (patch.postal_code !== undefined) sortie.postal_code = patch.postal_code
+  return sortie
+}
+
+/**
+ * Corrige une commande importee de bout en bout, avec les memes invariants que
+ * le chemin des colis : intention commitee avant l'octet envoye, aucune
+ * reecriture possible ensuite, et confirmation par relecture seulement.
+ */
+async function corrigerCommandeImportee(
+  client: RpcClient,
+  workerId: string,
+  job: LiveJob,
+  deps: LiveWorkerDependencies,
+  result: LiveWorkerResult,
+  refuse: (reason: string, category?: string) => Promise<void>,
+): Promise<void> {
+  const resolveOrderRef = deps.resolveOrderRef
+  if (!resolveOrderRef) return refuse('order_ref_resolver_missing', 'configuration')
+
+  const findOrder = deps.findOrder ?? findOrderByNumber
+  const patchOrder = deps.patchOrder ?? patchOrderShippingAddress
+  const verifyOrder = deps.verifyOrder ?? verifyOrderAddress
+
+  const credentials = await deps.credentials(job.tenant_id)
+  if (!credentials) return refuse('credentials_missing', 'configuration')
+
+  const orderRef = await resolveOrderRef(job.tenant_id, job.original_sendcloud_id)
+  if (!orderRef) return refuse('order_ref_unknown')
+
+  const lookup = await findOrder(credentials, orderRef)
+  if (!lookup.ok) {
+    // `ambiguous` couvre aussi le cas ou l'API ignorerait le filtre : on ne
+    // corrige jamais une commande qu'on n'a pas identifiee avec certitude.
+    return refuse(`order_lookup_${lookup.reason}`, lookup.reason === 'http_error' ? 'retryable' : 'non_retryable')
+  }
+  const order = lookup.order
+  if (!isCorrigible(order)) return refuse('order_not_corrigible')
+
+  // Le plan est recalcule sur la lecture FRAICHE. Deux consequences voulues :
+  // la valeur corrigee porte sur l'adresse actuelle, et si quelqu'un a deja
+  // corrige a la main, il n'y a plus rien a raccourcir et on s'arrete.
+  const limits = (job.source_summary_json.address_limits ?? []) as AddressLimit[]
+  const plan = planAddressShortening(ordreVersAdresse(order), limits)
+  if (plan.reason === 'nothing_to_shorten') return refuse('already_resolved')
+  if (!plan.ready) return refuse(plan.reason)
+
+  const patch = adresseVersOrdre(plan.patch as Partial<Record<string, string>>)
+
+  const planned = await rpc<boolean>(client, 'plan_auto_fix_live', {
+    p_job_id: job.id, p_worker_id: workerId,
+    p_plan: { action: 'patch_order_v3', patch, audit: plan.audit },
+  })
+  if (!planned) { result.skipped += 1; return }
+
+  const requestHash = createHash('sha256')
+    .update(JSON.stringify({ order_id: order.id, patch }))
+    .digest('hex')
+  const begun = await rpc<boolean>(client, 'begin_auto_fix_write', {
+    p_job_id: job.id, p_worker_id: workerId, p_request_hash: requestHash,
+  })
+  if (!begun) { result.skipped += 1; return }
+
+  const written = await patchOrder(credentials, order, patch)
+  result.written += 1
+
+  if (!written.ok) {
+    // L'ecriture a ete TENTEE : on ne repasse plus par le routeur pre-ecriture.
+    await client.rpc('fail_auto_fix_verification', {
+      p_job_id: job.id, p_worker_id: workerId,
+      p_error: { category: 'write_rejected', reason: written.reason, message: written.detail?.slice(0, 300) ?? null },
+    })
+    result.failed += 1
+    return
+  }
+
+  await rpc<boolean>(client, 'mark_auto_fix_applied', {
+    p_job_id: job.id,
+    p_worker_id: workerId,
+    p_result_sendcloud_id: job.original_sendcloud_id,
+    p_before: { fields: Object.keys(patch) },
+    p_after: patch,
+  })
+
+  // On ne se fie pas au corps du PATCH : seule une relecture prouve que la
+  // valeur a ete acceptee et conservee.
+  const controle = await verifyOrder(credentials, orderRef, patch)
+  if (!controle.ok) {
+    await client.rpc('fail_auto_fix_verification', {
+      p_job_id: job.id, p_worker_id: workerId,
+      p_error: { category: 'mismatch', fields: controle.ecarts.slice(0, 6) },
+    })
+    result.failed += 1
+    return
+  }
+
+  await rpc<boolean>(client, 'verify_auto_fix_live', {
+    p_job_id: job.id, p_worker_id: workerId,
+    p_verification: { verified_fields: Object.keys(patch) },
+  })
+  result.verified += 1
 }
 
 export interface LiveWorkerResult {
@@ -266,10 +416,12 @@ export async function runAutoFixLiveWorker(
         if (!(ARMED_LIVE_PATTERNS as readonly string[]).includes(job.primary_pattern)) {
           await refuse('pattern_not_armed'); continue
         }
-        // La creation liee via shipment_uuid n'est pas validee : on n'ecrit
-        // que sur des colis numeriques.
+        // Une commande importee ne se corrige pas comme un colis : elle passe
+        // par l'API v3, qui est la seule a savoir la modifier. Ce chemin est
+        // complet, il ne retombe jamais sur celui des colis.
         if (job.source_kind !== 'parcel') {
-          await refuse('integration_shipment_not_supported'); continue
+          await corrigerCommandeImportee(client, workerId, job, deps, result, refuse)
+          continue
         }
 
         const credentials = await deps.credentials(job.tenant_id)
