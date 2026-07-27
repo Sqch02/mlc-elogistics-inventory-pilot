@@ -278,11 +278,112 @@ describe('runAutoFixLiveWorker — refus avant ecriture', () => {
     expect(result).toMatchObject({ skipped: 1 })
   })
 
-  it('refuse une commande d integration : la creation liee n est pas validee', async () => {
-    const { client } = makeClient({ claim: [job({ source_kind: 'integration_shipment' })] })
-    const d = deps()
+  // --- Commandes importees, via l'API v3 -----------------------------------
+  //
+  // L'API v2 ne sait pas les modifier (la ressource individuelle renvoie 404).
+  // La v3, si : OPTIONS /api/v3/orders/{id} declare GET, PATCH, DELETE. Ce
+  // chemin fait par programme ce que l'exploitation fait avec le crayon.
+
+  const commandeImportee = job({
+    source_kind: 'integration_shipment',
+    original_sendcloud_id: '6a6d9ac1-97fd-48b0-84b2-25762ad26f2d',
+    source_summary_json: { address_limits: [{ field: 'address_1', max: 32 }] },
+  })
+
+  const ordre = (over: Record<string, unknown> = {}) => ({
+    id: '841973149',
+    order_number: '#540787',
+    shipping_address: {
+      address_line_1: '76 grand rue hoscas Herbignac 44410',
+      address_line_2: '',
+      house_number: '',
+      city: 'Herbignac',
+      postal_code: '44410',
+    },
+    order_details: { status: { code: 'on_hold' } },
+    ...over,
+  })
+
+  const depsCommande = (over: Record<string, unknown> = {}) => ({
+    credentials: async () => ({ apiKey: 'k', secret: 's' }),
+    readParcel: vi.fn(async () => null),
+    writeParcel: vi.fn(async () => ({ ok: true as const, status: 200 })),
+    resolveOrderRef: vi.fn(async () => '#540787'),
+    findOrder: vi.fn(async () => ({ ok: true, order: ordre() })),
+    patchOrder: vi.fn(async () => ({ ok: true, order: ordre() })),
+    verifyOrder: vi.fn(async () => ({ ok: true, ecarts: [] as string[] })),
+    ...over,
+  } as unknown as Parameters<typeof runAutoFixLiveWorker>[2] & {
+    patchOrder: ReturnType<typeof vi.fn>
+    findOrder: ReturnType<typeof vi.fn>
+  })
+
+  it('corrige une commande importee de bout en bout', async () => {
+    const { client, calls, names } = makeClient({ claim: [commandeImportee] })
+    const d = depsCommande()
+    const result = await runAutoFixLiveWorker(client, LIVE_ENV, d)
+
+    // La ville et le code postal etaient recopies dans la ligne d'adresse :
+    // les retirer ne perd rien, ils ont deja leur propre champ.
+    expect(d.patchOrder).toHaveBeenCalledOnce()
+    const envoye = d.patchOrder.mock.calls[0][2]
+    expect(envoye).toEqual({ address_line_1: '76 grand rue hoscas' })
+
+    // L'intention est commitee AVANT l'octet envoye.
+    const ordreAppels = names()
+    expect(ordreAppels.indexOf('begin_auto_fix_write')).toBeGreaterThan(-1)
+    expect(ordreAppels).toContain('mark_auto_fix_applied')
+    expect(ordreAppels).toContain('verify_auto_fix_live')
+    expect(result).toMatchObject({ written: 1, verified: 1 })
+
+    const plan = calls.find((c) => c.name === 'plan_auto_fix_live')
+    expect((plan?.args.p_plan as { action: string }).action).toBe('patch_order_v3')
+  })
+
+  it('n ecrit RIEN quand la commande ne peut pas etre identifiee avec certitude', async () => {
+    // Sur cette API, trois filtres sur quatre sont ignores en silence et
+    // renvoient toute la collection. Corriger le premier resultat venu
+    // corrigerait une commande au hasard.
+    const { client } = makeClient({ claim: [commandeImportee] })
+    const d = depsCommande({ findOrder: vi.fn(async () => ({ ok: false, reason: 'ambiguous' })) })
     await runAutoFixLiveWorker(client, LIVE_ENV, d)
-    expect(d.writeParcel).not.toHaveBeenCalled()
+    expect(d.patchOrder).not.toHaveBeenCalled()
+  })
+
+  it('s arrete si quelqu un a deja corrige a la main', async () => {
+    const dejaCorrigee = ordre({
+      shipping_address: { address_line_1: '76 grand rue hoscas', city: 'Herbignac', postal_code: '44410' },
+    })
+    const { client } = makeClient({ claim: [commandeImportee] })
+    const d = depsCommande({ findOrder: vi.fn(async () => ({ ok: true, order: dejaCorrigee })) })
+    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+    expect(d.patchOrder).not.toHaveBeenCalled()
+  })
+
+  it('refuse une commande deja expediee', async () => {
+    const expediee = ordre({ order_details: { status: { code: 'shipped' } } })
+    const { client } = makeClient({ claim: [commandeImportee] })
+    const d = depsCommande({ findOrder: vi.fn(async () => ({ ok: true, order: expediee })) })
+    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+    expect(d.patchOrder).not.toHaveBeenCalled()
+  })
+
+  it('ne confirme JAMAIS sur la reponse du PATCH, seulement sur une relecture', async () => {
+    const { client, names } = makeClient({ claim: [commandeImportee] })
+    const d = depsCommande({
+      verifyOrder: vi.fn(async () => ({ ok: false, ecarts: ['address_line_1: non conserve'] })),
+    })
+    const result = await runAutoFixLiveWorker(client, LIVE_ENV, d)
+    expect(names()).toContain('fail_auto_fix_verification')
+    expect(names()).not.toContain('verify_auto_fix_live')
+    expect(result).toMatchObject({ failed: 1 })
+  })
+
+  it('n ecrit pas sans moyen de retrouver le numero de commande', async () => {
+    const { client } = makeClient({ claim: [commandeImportee] })
+    const d = depsCommande({ resolveOrderRef: undefined })
+    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+    expect(d.patchOrder).not.toHaveBeenCalled()
   })
 
   // Taxonomie reelle du projet : 1 = Annonce, 3 = En transit, 11 = Livre.
