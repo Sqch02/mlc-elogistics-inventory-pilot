@@ -22,20 +22,31 @@ export async function PATCH(
       )
     }
 
-    // Update invoice status
+    // La transition et la mise en file de la notification se font dans la MEME
+    // transaction. Si la facture ne passe pas a "envoyee", aucune notification
+    // n'existe ; si la notification ne peut pas etre inseree, la transition
+    // n'a pas lieu. L'envoi, lui, est asynchrone et son echec n'annule rien.
+    //
+    // La RPC ne met en file que sur la TRANSITION draft -> sent : repasser une
+    // facture deja envoyee en "envoyee" ne la renvoie pas.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = supabase as any
-    const { error } = await db
-      .from('invoices_monthly')
-      .update({ status })
-      .eq('id', id)
-      .eq('tenant_id', tenantId)
+    const { data, error } = await db.rpc('set_invoice_status_notifying', {
+      p_tenant_id: tenantId,
+      p_invoice_id: id,
+      p_status: status,
+    })
 
     if (error) {
       throw error
     }
 
-    return NextResponse.json({ success: true, status })
+    const resultat = Array.isArray(data) ? data[0] : data
+    return NextResponse.json({
+      success: true,
+      status,
+      notification_queued: resultat?.notification_queued ?? false,
+    })
   } catch (error) {
     const authResponse = handleAuthError(error)
     if (authResponse) return authResponse
