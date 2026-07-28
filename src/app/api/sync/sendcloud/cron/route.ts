@@ -620,7 +620,10 @@ async function runSync(correlationId: string) {
       // lookup is capped and uses (tenant_id, sendcloud_id); no shipments scan
       // and no Sendcloud call are introduced here. Worker execution is separate.
       let autoFixDetectionStats: Awaited<ReturnType<typeof enqueueDetectedSyncBatch>> | null = null
-      if (tenantAutoFix.mode === 'simulated') {
+      // La detection vaut pour les DEUX modes. Ne la faire qu'en simulation
+      // rendait l'armement absurde : passer un client en ecriture aurait
+      // arrete sa detection, donc plus rien n'aurait ete corrige.
+      if (tenantAutoFix.mode === 'simulated' || tenantAutoFix.mode === 'live') {
         try {
           autoFixDetectionStats = await enqueueDetectedSyncBatch(
             adminClient,
@@ -647,6 +650,9 @@ async function runSync(correlationId: string) {
             // sans ces regles, la detection ne voit qu'une fraction de ce qui
             // va reellement echouer.
             latentRulesFromEnv(process.env),
+            // Le mode de la tache doit suivre celui du client : la
+            // reclamation exige que les deux coincident.
+            tenantAutoFix.mode,
           )
           if (autoFixDetectionStats.detected > 0 || autoFixDetectionStats.truncated) {
             logger.info(`Auto-fix dry-run queue for tenant ${tenant.id}:`, autoFixDetectionStats)
@@ -656,8 +662,6 @@ async function runSync(correlationId: string) {
           // shipment sync or alter stock processing.
           logger.error(`Auto-fix dry-run enqueue failed for tenant ${tenant.id}:`, autoFixError)
         }
-      } else if (tenantAutoFix.mode === 'live') {
-        logger.warn(`Auto-fix live ignored for tenant ${tenant.id}: this release is dry-run only`)
       }
 
       // ============================================
