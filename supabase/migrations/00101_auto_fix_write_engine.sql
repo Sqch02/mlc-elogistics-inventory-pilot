@@ -76,6 +76,17 @@ ALTER TABLE public.auto_fix_jobs
     )
   );
 
+-- L'action doit pouvoir dire la verite. Une commande importee n'est pas
+-- corrigee par le meme chemin qu'un colis : elle passe par PATCH
+-- /api/v3/orders. Sans cette valeur, l'insertion de trace echouerait — et elle
+-- echouerait APRES l'ecriture chez Sendcloud, c'est-a-dire au pire moment.
+ALTER TABLE public.auto_fixes DROP CONSTRAINT IF EXISTS auto_fixes_action_check;
+ALTER TABLE public.auto_fixes
+  ADD CONSTRAINT auto_fixes_action_check CHECK (action IN (
+    'none', 'put_update', 'create_linked', 'manual_required',
+    'account_configuration', 'patch_order_v3'
+  ));
+
 ALTER TABLE public.auto_fixes DROP CONSTRAINT IF EXISTS auto_fixes_status_check;
 ALTER TABLE public.auto_fixes
   ADD CONSTRAINT auto_fixes_status_check CHECK (status IN (
@@ -335,7 +346,11 @@ BEGIN
     v_job.primary_pattern, v_job.detected_patterns, v_job.source_kind,
     v_job.source_sendcloud_id, v_job.original_sendcloud_id,
     COALESCE(p_result_sendcloud_id, v_job.original_sendcloud_id),
-    'put_update', 'applied', v_job.source_fingerprint, p_before, p_after
+    -- Deduite du type de source plutot que figee : un colis se corrige par PUT,
+    -- une commande importee par PATCH v3. Une trace qui ment sur le moyen
+    -- employe ne vaut rien le jour ou l'on enquete.
+    CASE WHEN v_job.source_kind = 'parcel' THEN 'put_update' ELSE 'patch_order_v3' END,
+    'applied', v_job.source_fingerprint, p_before, p_after
   )
   ON CONFLICT (event_key) DO NOTHING;
 
