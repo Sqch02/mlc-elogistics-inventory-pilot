@@ -106,6 +106,19 @@ describe('corps du message', () => {
     expect(texte).not.toContain('EUR')
   })
 
+  it('distingue "stock bas" de "stock faux"', () => {
+    // L'action attendue n'est pas la meme : reapprovisionner d'un cote,
+    // recompter et declarer les entrees de l'autre.
+    const derive = buildEmailBody(message({
+      event_type: 'stock_negative_drift',
+      payload: { sku_code: 'ABC-1', units_missing: 12 },
+    }))
+    expect(derive).toContain('ABC-1')
+    expect(derive).toContain('12')
+    expect(derive).toContain('recomptage')
+    expect(derive).not.toContain('seuil')
+  })
+
   it('adapte le texte au type d evenement', () => {
     const stock = buildEmailBody(message({
       event_type: 'stock_threshold_reached',
