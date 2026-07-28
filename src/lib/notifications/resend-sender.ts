@@ -62,6 +62,25 @@ export function buildEmailBody(message: OutboxMessage): string {
     ].join('\n')
   }
 
+  if (message.event_type === 'stock_negative_drift') {
+    // Le message ne dit pas "stock bas" mais "stock faux". La nuance compte :
+    // l'action attendue n'est pas de reapprovisionner, c'est de recompter et
+    // de declarer les entrees manquantes.
+    return [
+      'Bonjour,',
+      '',
+      `Une expedition de ${String(p.sku_code ?? 'un produit')} a ete decomptee alors que l'application`,
+      "n'enregistrait plus aucun stock pour ce produit.",
+      '',
+      `Unites concernees : ${String(p.units_missing ?? '?')}`,
+      '',
+      "Cela signifie que le stock enregistre ne correspond plus au stock reel, en general",
+      "parce qu'un arrivage n'a pas ete declare. Un recomptage est a prevoir.",
+      '',
+      "L'equipe HOMEMADE eLogistics",
+    ].join('\n')
+  }
+
   if (message.event_type === 'inbound_received') {
     return [
       'Bonjour,',
