@@ -67,6 +67,28 @@ describe('coherence entre le filtre et la construction', () => {
     expect(rpc).toHaveBeenCalledOnce()
   })
 
+  it('cree une tache au mode du CLIENT, pas toujours en simulation', async () => {
+    // Le defaut que ce test previent : le mode etait fige a 'simulated'. La
+    // reclamation exige que le mode de la tache ET celui du client
+    // coincident — un client passe en ecriture n'aurait donc trouve AUCUNE
+    // tache, et l'armement aurait silencieusement tout arrete.
+    const { client: c, rpc } = client()
+    await enqueueDetectedSyncBatch(
+      c as never, 'tenant-1', [tropLongue], defaults, resolveIds, 10, OBSERVED_RULES, 'live',
+    )
+    const jobs = (rpc.mock.calls[0][1] as { p_jobs: Array<{ mode: string }> }).p_jobs
+    expect(jobs[0].mode).toBe('live')
+  })
+
+  it('reste en simulation par defaut', async () => {
+    const { client: c, rpc } = client()
+    await enqueueDetectedSyncBatch(
+      c as never, 'tenant-1', [tropLongue], defaults, resolveIds, 10, OBSERVED_RULES,
+    )
+    const jobs = (rpc.mock.calls[0][1] as { p_jobs: Array<{ mode: string }> }).p_jobs
+    expect(jobs[0].mode).toBe('simulated')
+  })
+
   it('laisse passer une commande conforme, meme activee', async () => {
     const { client: c, rpc } = client()
     const result = await enqueueDetectedSyncBatch(

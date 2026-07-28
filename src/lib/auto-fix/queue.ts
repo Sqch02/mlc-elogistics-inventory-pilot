@@ -2,6 +2,7 @@ import type { Json } from '@/types/database'
 import { buildOperationKey, sha256 } from './fingerprint'
 import { detectAutoFixCause } from './detect'
 import type { ValidationRules } from './validate'
+import type { AutoFixMode } from './types'
 import type {
   AutoFixCandidateJob,
   CandidateSource,
@@ -43,6 +44,7 @@ export function buildAutoFixCandidate(
   source: CandidateSource,
   defaults: TenantFixDefaults,
   latentRules: ValidationRules | null = null,
+  mode: AutoFixMode = 'simulated',
 ): AutoFixCandidateJob | null {
   const kind = sourceKind(source.shipment.sendcloud_id)
   const detection = detectAutoFixCause(source.shipment.raw_json, kind, { latentRules })
@@ -53,7 +55,7 @@ export function buildAutoFixCandidate(
     sourceSendcloudId: source.shipment.sendcloud_id,
     sourceFingerprint: detection.sourceFingerprint,
     patterns: detection.detectedPatterns,
-    mode: 'simulated',
+    mode,
   })
 
   return {
@@ -65,7 +67,7 @@ export function buildAutoFixCandidate(
     source_fingerprint: detection.sourceFingerprint,
     primary_pattern: detection.primaryPattern,
     detected_patterns: detection.detectedPatterns,
-    mode: 'simulated',
+    mode,
     operation_key: operationKey,
     priority: priorityFor(detection.primaryPattern),
     evidence_json: { evidence: detection.evidence } as unknown as Json,
@@ -85,9 +87,10 @@ export async function enqueueAutoFixCandidates(
   sources: CandidateSource[],
   defaults: TenantFixDefaults,
   latentRules: ValidationRules | null = null,
+  mode: AutoFixMode = 'simulated',
 ): Promise<{ detected: number; enqueuedOrSeen: number }> {
   const jobs = sources
-    .map((source) => buildAutoFixCandidate(tenantId, source, defaults, latentRules))
+    .map((source) => buildAutoFixCandidate(tenantId, source, defaults, latentRules, mode))
     .filter((job): job is AutoFixCandidateJob => job !== null)
   if (jobs.length === 0) return { detected: 0, enqueuedOrSeen: 0 }
 

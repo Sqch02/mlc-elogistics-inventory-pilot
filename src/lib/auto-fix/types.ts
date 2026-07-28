@@ -14,7 +14,6 @@ export const AUTO_FIX_PATTERNS = [
 
 export type AutoFixPattern = (typeof AUTO_FIX_PATTERNS)[number]
 export type AutoFixSourceKind = 'parcel' | 'integration_shipment'
-export type AutoFixMode = 'simulated' | 'live'
 
 export const AUTO_FIX_JOB_STATES = [
   'queued',
@@ -74,7 +73,7 @@ export interface AutoFixCandidateJob {
   source_fingerprint: string
   primary_pattern: AutoFixPattern
   detected_patterns: AutoFixPattern[]
-  mode: 'simulated'
+  mode: AutoFixMode
   operation_key: string
   priority: number
   evidence_json: Json
@@ -97,6 +96,14 @@ export interface AutoFixPlanningContext {
   chfToEurRate?: ChfRateResolution
 }
 
+/**
+ * Le mode d'une tache doit suivre celui du client. Le figer a 'simulated'
+ * rendait tout armement inoperant : la reclamation exige que le mode de la
+ * tache ET celui du client coincident, donc un client passe en 'live'
+ * n'aurait trouve aucune tache a traiter.
+ */
+export type AutoFixMode = 'simulated' | 'live'
+
 export interface CandidateSource {
   shipmentId: string
   shipment: ParsedShipment
@@ -112,7 +119,7 @@ export interface ClaimedAutoFixJob {
   primary_pattern: AutoFixPattern
   detected_patterns: AutoFixPattern[]
   operation_key: string
-  mode: 'simulated'
+  mode: AutoFixMode
   evidence_json: Json
   source_summary_json: Json
 }
