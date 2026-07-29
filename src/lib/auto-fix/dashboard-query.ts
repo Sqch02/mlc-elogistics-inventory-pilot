@@ -26,7 +26,7 @@ const JOB_SAMPLE_COLUMNS = 'id,primary_pattern,detected_patterns,source_kind,sou
 // Le numero de commande vient de la table shipments : l'audit ne stocke qu'un
 // identifiant technique, et un exploitant ne reconnait pas un UUID. Sans lui,
 // impossible de relier une correction a la commande qu'on a sous les yeux.
-const AUDIT_COLUMNS = 'id,job_id,primary_pattern,detected_patterns,source_kind,source_sendcloud_id,action,status,before_json,after_json,pii_redacted_at,created_at,shipments(order_ref)'
+const AUDIT_COLUMNS = 'id,job_id,primary_pattern,detected_patterns,source_kind,source_sendcloud_id,action,status,before_json,after_json,pii_redacted_at,created_at,source_order_ref,shipments(order_ref)'
 
 // Etats reellement affiches. La version d'origine ne montrait QUE 'simulated' :
 // une correction reellement appliquee n'apparaissait donc nulle part, et
@@ -39,6 +39,8 @@ function orderRefOf(row: unknown): string | null {
     Boolean(v) && typeof v === 'object' && !Array.isArray(v)
 
   if (!objet(row)) return null
+  // La colonne d'abord : elle survit au remplacement de la ligne d'expedition.
+  if (typeof row.source_order_ref === 'string' && row.source_order_ref) return row.source_order_ref
   const lien = row.shipments
   // PostgREST renvoie un objet ou un tableau selon la cardinalite declaree :
   // on accepte les deux plutot que de dependre de la forme.
