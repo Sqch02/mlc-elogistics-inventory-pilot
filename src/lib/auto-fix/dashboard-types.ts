@@ -50,8 +50,10 @@ export interface AutoFixAuditItem {
   detectedPatterns: AutoFixPattern[]
   sourceKind: AutoFixSourceKind
   sourceSendcloudId: string
+  /** Numero de commande tel que l'exploitant le connait. Null si non resolu. */
+  orderRef: string | null
   action: AutoFixAction
-  status: 'simulated'
+  status: 'simulated' | 'applied' | 'verified' | 'applied_unverified'
   before: Json | null
   after: Json | null
   piiRedactedAt: string | null

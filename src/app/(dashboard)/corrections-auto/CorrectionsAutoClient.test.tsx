@@ -59,6 +59,7 @@ const fixture: AutoFixDashboardResponse = {
     primaryPattern: 'address_too_long',
     detectedPatterns: ['address_too_long'],
     sourceKind: 'parcel',
+    orderRef: '#541493',
     sourceSendcloudId: '67890',
     action: 'put_update',
     status: 'simulated',

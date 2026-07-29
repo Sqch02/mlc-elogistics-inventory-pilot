@@ -309,7 +309,19 @@ function AuditRow({ audit }: { audit: AutoFixAuditItem }) {
           <summary className="grid cursor-pointer list-none grid-cols-[minmax(180px,1.3fr)_minmax(150px,1fr)_minmax(170px,1fr)_150px_32px] items-center gap-4 px-6 py-3 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 [&::-webkit-details-marker]:hidden">
             <div>
               <div className="font-medium">{AUTO_FIX_PATTERN_LABELS[audit.primaryPattern]}</div>
-              <div className="mt-1 font-mono text-xs text-muted-foreground">#{audit.sourceSendcloudId}</div>
+              {/* Le numero de commande d'abord : c'est ce que l'exploitant a sous
+                  les yeux dans Sendcloud. L'identifiant technique reste en
+                  second, pour le support. */}
+              <div className="mt-1 font-mono text-xs text-muted-foreground">
+                {audit.orderRef ? (
+                  <>
+                    <span className="text-foreground">{audit.orderRef}</span>
+                    <span className="ml-2 opacity-60">{audit.sourceSendcloudId}</span>
+                  </>
+                ) : (
+                  <>#{audit.sourceSendcloudId}</>
+                )}
+              </div>
             </div>
             <div><Badge variant={actionVariant(audit.action)}>{AUTO_FIX_ACTION_LABELS[audit.action]}</Badge></div>
             <div className="flex flex-wrap gap-1">
