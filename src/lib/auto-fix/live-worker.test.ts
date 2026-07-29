@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { runAutoFixLiveWorker, ARMED_LIVE_PATTERNS } from './live-worker'
+import { runAutoFixLiveWorker, ARMED_LIVE_PATTERNS, servicePointAutoApply } from './live-worker'
 
 const LIVE_ENV = {
   AUTO_FIX_PAUSED: 'false',
@@ -93,8 +93,17 @@ describe('runAutoFixLiveWorker — garde-fous', () => {
     expect(rpc).not.toHaveBeenCalled()
   })
 
-  it('n arme que les patterns valides', () => {
-    expect(ARMED_LIVE_PATTERNS).toEqual(['address_too_long'])
+  it('n arme que les patterns reellement traitables', () => {
+    expect(ARMED_LIVE_PATTERNS).toEqual(['address_too_long', 'service_point_missing'])
+  })
+
+  it('le point relais ne s applique pas sans son propre interrupteur', () => {
+    // Raccourcir une adresse conserve la destination ; changer de point relais
+    // la DEPLACE. Les deux ne peuvent pas partager le meme niveau de confiance.
+    expect(servicePointAutoApply({})).toBe(false)
+    expect(servicePointAutoApply({ AUTO_FIX_SERVICE_POINT_AUTO: '1' })).toBe(false)
+    expect(servicePointAutoApply({ AUTO_FIX_SERVICE_POINT_AUTO: 'TRUE' })).toBe(false)
+    expect(servicePointAutoApply({ AUTO_FIX_SERVICE_POINT_AUTO: 'true' })).toBe(true)
   })
 })
 
@@ -374,6 +383,99 @@ describe('runAutoFixLiveWorker — refus avant ecriture', () => {
       verifyOrder: vi.fn(async () => ({ ok: false, ecarts: ['address_line_1: non conserve'] })),
     })
     const result = await runAutoFixLiveWorker(client, LIVE_ENV, d)
+    expect(names()).toContain('fail_auto_fix_verification')
+    expect(names()).not.toContain('verify_auto_fix_live')
+    expect(result).toMatchObject({ failed: 1 })
+  })
+
+  // --- Remplacement de point relais ---------------------------------------
+
+  const jobRelais = job({
+    source_kind: 'integration_shipment',
+    primary_pattern: 'service_point_missing',
+    detected_patterns: ['service_point_missing'],
+    original_sendcloud_id: '6a6d9ac1-97fd-48b0-84b2-25762ad26f2d',
+    source_summary_json: {},
+  })
+
+  const commandeRelais = (over: Record<string, unknown> = {}) => ({
+    ...ordre(),
+    service_point_details: { id: '11627787' },
+    ...over,
+  })
+
+  const pointFerme = {
+    id: 11627787, name: 'ANCIEN TABAC', carrier: 'mondial_relay', is_active: false,
+    postal_code: '11000', city: 'CARCASSONNE', country: 'FR', latitude: '43.21', longitude: '2.34',
+  }
+  const pointOuvert = {
+    id: 99999, name: 'LOCKER LIDL', carrier: 'mondial_relay', is_active: true,
+    postal_code: '11000', city: 'CARCASSONNE', country: 'FR', latitude: '43.22', longitude: '2.35',
+  }
+
+  const depsRelais = (over: Record<string, unknown> = {}) => depsCommande({
+    findOrder: vi.fn(async () => ({ ok: true, order: commandeRelais() })),
+    getServicePoint: vi.fn(async () => ({ ok: true, point: pointFerme })),
+    findServicePoint: vi.fn(async () => ({ ok: true, point: pointOuvert, radius: 5000, distanceKm: 1.4, alternatives: 12 })),
+    patchServicePoint: vi.fn(async () => ({ ok: true, order: commandeRelais() })),
+    verifyServicePoint: vi.fn(async () => ({ ok: true, ecarts: [] })),
+    ...over,
+  })
+
+  it('enregistre la proposition MAIS n ecrit pas tant que l interrupteur est ferme', async () => {
+    // Un refus qui ne dit pas ce qu'il aurait fait n'apprend rien a celui qui
+    // doit trancher. La proposition complete doit etre visible.
+    const { client, calls, names } = makeClient({ claim: [jobRelais] })
+    const d = depsRelais()
+    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+
+    expect(names()).toContain('plan_auto_fix_live')
+    expect(names()).not.toContain('begin_auto_fix_write')
+    expect((d as unknown as { patchServicePoint: ReturnType<typeof vi.fn> }).patchServicePoint).not.toHaveBeenCalled()
+
+    const plan = calls.find((c) => c.name === 'plan_auto_fix_live')?.args.p_plan as Record<string, unknown>
+    expect(plan.action).toBe('patch_service_point_v3')
+    expect((plan.to as { id: number }).id).toBe(99999)
+    expect(plan.alternatives).toBe(12)
+  })
+
+  it('applique quand l interrupteur est ouvert', async () => {
+    const { client, names } = makeClient({ claim: [jobRelais] })
+    const d = depsRelais()
+    const result = await runAutoFixLiveWorker(client, { ...LIVE_ENV, AUTO_FIX_SERVICE_POINT_AUTO: 'true' }, d)
+
+    expect((d as unknown as { patchServicePoint: ReturnType<typeof vi.fn> }).patchServicePoint).toHaveBeenCalledOnce()
+    expect(names()).toContain('begin_auto_fix_write')
+    expect(result).toMatchObject({ written: 1, verified: 1 })
+  })
+
+  it('ne deplace RIEN si le point relais fonctionne encore', async () => {
+    // L'erreur venait d'ailleurs. Deplacer le colis sans raison serait pire
+    // que de ne rien faire.
+    const { client } = makeClient({ claim: [jobRelais] })
+    const d = depsRelais({ getServicePoint: vi.fn(async () => ({ ok: true, point: { ...pointFerme, is_active: true } })) })
+    await runAutoFixLiveWorker(client, { ...LIVE_ENV, AUTO_FIX_SERVICE_POINT_AUTO: 'true' }, d)
+    expect((d as unknown as { patchServicePoint: ReturnType<typeof vi.fn> }).patchServicePoint).not.toHaveBeenCalled()
+  })
+
+  it('renonce plutot que de changer de transporteur quand aucun candidat n existe', async () => {
+    const { client } = makeClient({ claim: [jobRelais] })
+    const d = depsRelais({ findServicePoint: vi.fn(async () => ({ ok: false, reason: 'no_candidate' })) })
+    await runAutoFixLiveWorker(client, { ...LIVE_ENV, AUTO_FIX_SERVICE_POINT_AUTO: 'true' }, d)
+    expect((d as unknown as { patchServicePoint: ReturnType<typeof vi.fn> }).patchServicePoint).not.toHaveBeenCalled()
+  })
+
+  it('renonce quand le point a disparu : on ne connait plus son transporteur', async () => {
+    const { client } = makeClient({ claim: [jobRelais] })
+    const d = depsRelais({ getServicePoint: vi.fn(async () => ({ ok: false, reason: 'not_found' })) })
+    await runAutoFixLiveWorker(client, { ...LIVE_ENV, AUTO_FIX_SERVICE_POINT_AUTO: 'true' }, d)
+    expect((d as unknown as { findServicePoint: ReturnType<typeof vi.fn> }).findServicePoint).not.toHaveBeenCalled()
+  })
+
+  it('ne confirme pas sans relecture reussie', async () => {
+    const { client, names } = makeClient({ claim: [jobRelais] })
+    const d = depsRelais({ verifyServicePoint: vi.fn(async () => ({ ok: false, ecarts: ['service_point: attendu 99999'] })) })
+    const result = await runAutoFixLiveWorker(client, { ...LIVE_ENV, AUTO_FIX_SERVICE_POINT_AUTO: 'true' }, d)
     expect(names()).toContain('fail_auto_fix_verification')
     expect(names()).not.toContain('verify_auto_fix_live')
     expect(result).toMatchObject({ failed: 1 })

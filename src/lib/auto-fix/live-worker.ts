@@ -15,11 +15,17 @@ import { patchParcelById, comparePatch, type ParcelPatch, type WriteResult } fro
 import {
   findOrderByNumber,
   patchOrderShippingAddress,
+  patchOrderServicePoint,
   verifyOrderAddress,
+  verifyOrderServicePoint,
   isCorrigible,
   type OrderV3,
   type OrderV3ShippingAddress,
 } from '@/lib/sendcloud/orders-v3'
+import {
+  getServicePoint,
+  findReplacementServicePoint,
+} from '@/lib/sendcloud/service-points'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
 
 /**
@@ -29,7 +35,22 @@ import type { SendcloudCredentials } from '@/lib/sendcloud/types'
  * bloque chez Sendcloud, et reellement observe (2 cas sur 60 jours ; le CHF
  * n'en a produit aucun — cf 2026-07-25-auto-fix-volume-reel.md).
  */
-export const ARMED_LIVE_PATTERNS = ['address_too_long'] as const
+export const ARMED_LIVE_PATTERNS = ['address_too_long', 'service_point_missing'] as const
+
+/**
+ * Le remplacement de point relais est CALCULE mais pas applique, tant que
+ * AUTO_FIX_SERVICE_POINT_AUTO ne vaut pas exactement 'true'.
+ *
+ * La distinction n'est pas de la prudence de facade. Raccourcir une adresse
+ * conserve la destination ; changer de point relais la DEPLACE — le
+ * destinataire ira retirer son colis ailleurs que la ou il pensait aller. On
+ * veut donc que quelqu'un relise les premieres propositions, et pour cela il
+ * faut qu'elles soient visibles : la proposition complete est enregistree dans
+ * le plan, meme quand on refuse de l'appliquer.
+ */
+export function servicePointAutoApply(env: Record<string, string | undefined>): boolean {
+  return env.AUTO_FIX_SERVICE_POINT_AUTO === 'true'
+}
 
 interface LiveJob {
   id: string
@@ -69,6 +90,10 @@ export interface LiveWorkerDependencies {
   findOrder?: typeof findOrderByNumber
   patchOrder?: typeof patchOrderShippingAddress
   verifyOrder?: typeof verifyOrderAddress
+  getServicePoint?: typeof getServicePoint
+  findServicePoint?: typeof findReplacementServicePoint
+  patchServicePoint?: typeof patchOrderServicePoint
+  verifyServicePoint?: typeof verifyOrderServicePoint
 }
 
 // ---------------------------------------------------------------------------
@@ -106,6 +131,140 @@ function adresseVersOrdre(patch: Partial<Record<string, string>>): OrderV3Shippi
 }
 
 /**
+ * Remplace un point relais devenu inexploitable.
+ *
+ * Ce chemin s'arrete AVANT d'ecrire tant que l'application automatique n'est
+ * pas armee — mais il calcule quand meme la proposition complete et
+ * l'enregistre. Un refus qui ne dit pas ce qu'il aurait fait n'apprend rien a
+ * celui qui doit trancher.
+ */
+async function remplacerPointRelais(
+  client: RpcClient,
+  workerId: string,
+  job: LiveJob,
+  credentials: SendcloudCredentials,
+  orderRef: string,
+  env: Record<string, string | undefined>,
+  deps: LiveWorkerDependencies,
+  result: LiveWorkerResult,
+  refuse: (reason: string, category?: string) => Promise<void>,
+): Promise<void> {
+  const findOrder = deps.findOrder ?? findOrderByNumber
+  const lirePoint = deps.getServicePoint ?? getServicePoint
+  const chercherRemplacant = deps.findServicePoint ?? findReplacementServicePoint
+
+  const lookup = await findOrder(credentials, orderRef)
+  if (!lookup.ok) {
+    return refuse(`order_lookup_${lookup.reason}`, lookup.reason === 'http_error' ? 'retryable' : 'non_retryable')
+  }
+  const order = lookup.order
+  if (!isCorrigible(order)) return refuse('order_not_corrigible')
+
+  const actuelId = order.service_point_details?.id
+  if (!actuelId) return refuse('service_point_absent')
+
+  const actuel = await lirePoint(credentials, actuelId)
+  if (!actuel.ok) {
+    // Un acces non active ne se resout pas en reessayant.
+    if (actuel.reason === 'unavailable') return refuse('service_points_not_activated', 'configuration')
+    if (actuel.reason === 'http_error') return refuse('service_point_read_failed', 'retryable')
+    // Point introuvable : il a disparu du reseau, on ne connait plus son
+    // transporteur et on ne peut donc pas garantir de rester dessus.
+    return refuse('service_point_unknown_carrier')
+  }
+
+  // Le point fonctionne encore : il n'y a rien a corriger, et l'erreur venait
+  // d'ailleurs. Mieux vaut le dire que de deplacer un colis sans raison.
+  if (actuel.point.is_active) return refuse('service_point_still_active')
+
+  const remplacant = await chercherRemplacant(credentials, {
+    carrier: actuel.point.carrier,
+    country: actuel.point.country ?? order.shipping_address?.country_code ?? 'FR',
+    postalCode: actuel.point.postal_code ?? order.shipping_address?.postal_code ?? '',
+    origin: actuel.point,
+    excludeId: actuel.point.id,
+  })
+
+  if (!remplacant.ok) {
+    if (remplacant.reason === 'unavailable') return refuse('service_points_not_activated', 'configuration')
+    if (remplacant.reason === 'http_error') return refuse('service_point_search_failed', 'retryable')
+    return refuse('no_replacement_service_point')
+  }
+
+  // La proposition est enregistree AVANT toute decision d'appliquer : c'est
+  // elle qui rend le refus relisible.
+  const proposition = {
+    action: 'patch_service_point_v3',
+    from: { id: actuel.point.id, name: actuel.point.name, carrier: actuel.point.carrier, is_active: false },
+    to: {
+      id: remplacant.point.id,
+      name: remplacant.point.name,
+      carrier: remplacant.point.carrier,
+      city: remplacant.point.city,
+      postal_code: remplacant.point.postal_code,
+    },
+    distance_km: remplacant.distanceKm,
+    radius_m: remplacant.radius,
+    alternatives: remplacant.alternatives,
+    patch: { service_point_id: String(remplacant.point.id) },
+  }
+
+  const planned = await rpc<boolean>(client, 'plan_auto_fix_live', {
+    p_job_id: job.id, p_worker_id: workerId, p_plan: proposition,
+  })
+  if (!planned) { result.skipped += 1; return }
+
+  if (!servicePointAutoApply(env)) {
+    return refuse('service_point_proposal_awaiting_review')
+  }
+
+  const requestHash = createHash('sha256')
+    .update(JSON.stringify({ order_id: order.id, service_point: remplacant.point.id }))
+    .digest('hex')
+  const begun = await rpc<boolean>(client, 'begin_auto_fix_write', {
+    p_job_id: job.id, p_worker_id: workerId, p_request_hash: requestHash,
+  })
+  if (!begun) { result.skipped += 1; return }
+
+  const ecrire = deps.patchServicePoint ?? patchOrderServicePoint
+  const written = await ecrire(credentials, order, remplacant.point.id)
+  result.written += 1
+
+  if (!written.ok) {
+    await client.rpc('fail_auto_fix_verification', {
+      p_job_id: job.id, p_worker_id: workerId,
+      p_error: { category: 'write_rejected', reason: written.reason, message: written.detail?.slice(0, 300) ?? null },
+    })
+    result.failed += 1
+    return
+  }
+
+  await rpc<boolean>(client, 'mark_auto_fix_applied', {
+    p_job_id: job.id, p_worker_id: workerId,
+    p_result_sendcloud_id: job.original_sendcloud_id,
+    p_before: { service_point_id: String(actuel.point.id) },
+    p_after: { service_point_id: String(remplacant.point.id) },
+  })
+
+  const verifier = deps.verifyServicePoint ?? verifyOrderServicePoint
+  const controle = await verifier(credentials, orderRef, remplacant.point.id)
+  if (!controle.ok) {
+    await client.rpc('fail_auto_fix_verification', {
+      p_job_id: job.id, p_worker_id: workerId,
+      p_error: { category: 'mismatch', fields: controle.ecarts.slice(0, 6) },
+    })
+    result.failed += 1
+    return
+  }
+
+  await rpc<boolean>(client, 'verify_auto_fix_live', {
+    p_job_id: job.id, p_worker_id: workerId,
+    p_verification: { verified_fields: ['service_point_id'] },
+  })
+  result.verified += 1
+}
+
+/**
  * Corrige une commande importee de bout en bout, avec les memes invariants que
  * le chemin des colis : intention commitee avant l'octet envoye, aucune
  * reecriture possible ensuite, et confirmation par relecture seulement.
@@ -114,6 +273,7 @@ async function corrigerCommandeImportee(
   client: RpcClient,
   workerId: string,
   job: LiveJob,
+  env: Record<string, string | undefined>,
   deps: LiveWorkerDependencies,
   result: LiveWorkerResult,
   refuse: (reason: string, category?: string) => Promise<void>,
@@ -130,6 +290,10 @@ async function corrigerCommandeImportee(
 
   const orderRef = await resolveOrderRef(job.tenant_id, job.original_sendcloud_id)
   if (!orderRef) return refuse('order_ref_unknown')
+
+  if (job.primary_pattern === 'service_point_missing') {
+    return remplacerPointRelais(client, workerId, job, credentials, orderRef, env, deps, result, refuse)
+  }
 
   const lookup = await findOrder(credentials, orderRef)
   if (!lookup.ok) {
@@ -420,7 +584,7 @@ export async function runAutoFixLiveWorker(
         // par l'API v3, qui est la seule a savoir la modifier. Ce chemin est
         // complet, il ne retombe jamais sur celui des colis.
         if (job.source_kind !== 'parcel') {
-          await corrigerCommandeImportee(client, workerId, job, deps, result, refuse)
+          await corrigerCommandeImportee(client, workerId, job, env, deps, result, refuse)
           continue
         }
 
