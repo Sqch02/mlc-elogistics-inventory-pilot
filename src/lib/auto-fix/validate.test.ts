@@ -59,6 +59,19 @@ describe('detection des erreurs latentes', () => {
     expect(found.map((f) => f.field)).toContain('house_number')
   })
 
+  it('signale une devise non prise en charge', () => {
+    // Refus reel : "La devise fournie n'est pas prise en charge par Colissimo".
+    // Quatre commandes suisses en attente le 29/07 n'etaient detectees par
+    // aucune regle.
+    const found = findLatentErrors({ ...base, currency: 'CHF' })
+    expect(found.map((f) => f.field)).toContain('currency')
+    expect(found[0].message).toContain('CHF')
+  })
+
+  it('laisse passer l euro', () => {
+    expect(findLatentErrors({ ...base, currency: 'EUR' })).toEqual([])
+  })
+
   it('signale une commande sans aucun article', () => {
     const found = findLatentErrors({ ...base, parcel_items: [] })
     expect(found.map((f) => f.field)).toEqual(['parcel_items'])

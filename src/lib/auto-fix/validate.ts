@@ -29,6 +29,11 @@ export interface ValidationRules {
   houseNumberMax: number | null
   /** Sendcloud refuse une expedition sans aucune ligne d'article. */
   requireParcelItems: boolean
+  /**
+   * Devises que les transporteurs acceptent. Une commande libellee ailleurs
+   * sera refusee a la creation d'etiquette.
+   */
+  acceptedCurrencies: string[] | null
 }
 
 /**
@@ -51,6 +56,11 @@ export const OBSERVED_RULES: ValidationRules = {
   // partira en revue humaine : couper un numero change la destination.
   houseNumberMax: 8,
   requireParcelItems: true,
+  // Refus reel observe : "La devise fournie n'est pas prise en charge par
+  // Colissimo ; convertissez le montant en EUR". Le meme refus se produit chez
+  // d'autres transporteurs — c'est la devise qui pose probleme, pas le
+  // transporteur.
+  acceptedCurrencies: ['EUR'],
 }
 
 export interface LatentEvidence {
@@ -149,6 +159,18 @@ export function findLatentErrors(
         source: 'latent',
         basis: 'observed_refusal',
         message: 'At least one parcel item is required.',
+      })
+    }
+  }
+
+  if (rules.acceptedCurrencies && rules.acceptedCurrencies.length > 0) {
+    const devise = text(raw.total_order_value_currency) || text(raw.currency)
+    if (devise && !rules.acceptedCurrencies.includes(devise.toUpperCase())) {
+      found.push({
+        field: 'currency',
+        source: 'latent',
+        basis: 'observed_refusal',
+        message: `La devise fournie (${devise.toUpperCase()}) n'est pas prise en charge ; convertissez le montant en EUR et ajustez la devise de la commande.`,
       })
     }
   }
