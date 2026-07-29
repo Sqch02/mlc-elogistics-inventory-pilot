@@ -244,6 +244,7 @@ async function remplacerPointRelais(
     p_result_sendcloud_id: job.original_sendcloud_id,
     p_before: { service_point_id: String(actuel.point.id) },
     p_after: { service_point_id: String(remplacant.point.id) },
+    p_order_ref: orderRef,
   })
 
   const verifier = deps.verifyServicePoint ?? verifyOrderServicePoint
@@ -347,6 +348,9 @@ async function corrigerCommandeImportee(
     p_result_sendcloud_id: job.original_sendcloud_id,
     p_before: { fields: Object.keys(patch) },
     p_after: patch,
+    // Inscrit dans la trace : la ligne d'expedition est remplacee quand la
+    // commande devient un colis, et la jointure ne retrouverait plus rien.
+    p_order_ref: orderRef,
   })
 
   // On ne se fie pas au corps du PATCH : seule une relecture prouve que la
