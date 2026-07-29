@@ -8,7 +8,7 @@ type FixtureTables = Record<string, FixtureRow[]>
 
 interface QueryLog {
   table: string
-  filters: Array<{ operator: 'eq' | 'lt'; column: string; value: unknown }>
+  filters: Array<{ operator: 'eq' | 'lt' | 'in'; column: string; value: unknown }>
 }
 
 class FixtureQuery implements PromiseLike<unknown> {
@@ -34,6 +34,11 @@ class FixtureQuery implements PromiseLike<unknown> {
 
   eq(column: string, value: unknown) {
     this.filters.push({ operator: 'eq', column, value })
+    return this
+  }
+
+  in(column: string, values: unknown[]) {
+    this.filters.push({ operator: 'in', column, value: values })
     return this
   }
 
@@ -65,6 +70,7 @@ class FixtureQuery implements PromiseLike<unknown> {
     this.logs.push({ table: this.table, filters: [...this.filters] })
     let filtered = this.rows.filter((row) => this.filters.every((filter) => {
       if (filter.operator === 'eq') return row[filter.column] === filter.value
+      if (filter.operator === 'in') return (filter.value as unknown[]).includes(row[filter.column])
       return String(row[filter.column]) < String(filter.value)
     }))
     const count = this.countRequested ? filtered.length : null

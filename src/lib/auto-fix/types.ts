@@ -34,6 +34,11 @@ export const AUTO_FIX_ACTIONS = [
   'create_linked',
   'manual_required',
   'account_configuration',
+  // Ajoutees avec l'ecriture sur les commandes importees. Sans elles, le
+  // tableau de bord affichait "Aucune action" pour une correction reellement
+  // appliquee — le pire des affichages : il dit l'inverse de la verite.
+  'patch_order_v3',
+  'patch_service_point_v3',
 ] as const
 
 export type AutoFixJobState = (typeof AUTO_FIX_JOB_STATES)[number]

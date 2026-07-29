@@ -23,7 +23,37 @@ const MANUAL_LIST_LIMIT = 25
 
 const JOB_SAMPLE_COLUMNS = 'id,primary_pattern,detected_patterns,source_kind,source_sendcloud_id,plan_json,created_at'
 
-const AUDIT_COLUMNS = 'id,job_id,primary_pattern,detected_patterns,source_kind,source_sendcloud_id,action,status,before_json,after_json,pii_redacted_at,created_at'
+// Le numero de commande vient de la table shipments : l'audit ne stocke qu'un
+// identifiant technique, et un exploitant ne reconnait pas un UUID. Sans lui,
+// impossible de relier une correction a la commande qu'on a sous les yeux.
+const AUDIT_COLUMNS = 'id,job_id,primary_pattern,detected_patterns,source_kind,source_sendcloud_id,action,status,before_json,after_json,pii_redacted_at,created_at,shipments(order_ref)'
+
+// Etats reellement affiches. La version d'origine ne montrait QUE 'simulated' :
+// une correction reellement appliquee n'apparaissait donc nulle part, et
+// l'exploitant n'avait aucun moyen de savoir ce que l'outil avait fait.
+const AUDIT_STATUSES = ['simulated', 'applied', 'verified', 'applied_unverified'] as const
+
+/** Le numero de commande, quand la jointure a pu le fournir. */
+function orderRefOf(row: unknown): string | null {
+  const objet = (v: unknown): v is Record<string, unknown> =>
+    Boolean(v) && typeof v === 'object' && !Array.isArray(v)
+
+  if (!objet(row)) return null
+  const lien = row.shipments
+  // PostgREST renvoie un objet ou un tableau selon la cardinalite declaree :
+  // on accepte les deux plutot que de dependre de la forme.
+  if (objet(lien) && typeof lien.order_ref === 'string') return lien.order_ref
+  if (Array.isArray(lien) && objet(lien[0]) && typeof lien[0].order_ref === 'string') {
+    return lien[0].order_ref
+  }
+  return null
+}
+
+function auditStatus(value: unknown): AutoFixAuditItem['status'] {
+  return (AUDIT_STATUSES as readonly string[]).includes(String(value))
+    ? (value as AutoFixAuditItem['status'])
+    : 'simulated'
+}
 
 interface DashboardOptions {
   auditLimit: number
@@ -41,7 +71,7 @@ export async function readAutoFixAuditPage(
     .from('auto_fixes')
     .select(AUDIT_COLUMNS)
     .eq('tenant_id', tenantId)
-    .eq('status', 'simulated')
+    .in('status', AUDIT_STATUSES as unknown as string[])
   if (options.auditCursor) query = query.lt('created_at', options.auditCursor)
 
   const result = await query
@@ -59,10 +89,11 @@ export async function readAutoFixAuditPage(
     detectedPatterns: patterns(row.detected_patterns),
     sourceKind: sourceKind(row.source_kind),
     sourceSendcloudId: row.source_sendcloud_id,
+    orderRef: orderRefOf(row),
     action: AUTO_FIX_ACTIONS.includes(row.action as AutoFixAction)
       ? row.action as AutoFixAction
       : 'none',
-    status: 'simulated',
+    status: auditStatus(row.status),
     before: row.before_json,
     after: row.after_json,
     piiRedactedAt: row.pii_redacted_at,

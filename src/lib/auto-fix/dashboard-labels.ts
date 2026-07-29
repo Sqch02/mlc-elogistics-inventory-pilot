@@ -16,6 +16,8 @@ export const AUTO_FIX_ACTION_LABELS: Record<AutoFixAction, string> = {
   create_linked: 'Création liée à la commande',
   manual_required: 'Intervention manuelle',
   account_configuration: 'Configuration du compte',
+  patch_order_v3: 'Adresse corrigée',
+  patch_service_point_v3: 'Point relais remplacé',
 }
 
 export const AUTO_FIX_STATE_LABELS: Record<AutoFixJobState, string> = {
