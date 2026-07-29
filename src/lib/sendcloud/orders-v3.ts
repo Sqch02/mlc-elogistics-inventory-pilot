@@ -41,6 +41,8 @@ export interface OrderV3 {
   order_number: string
   shipping_address?: OrderV3ShippingAddress
   order_details?: { status?: { code?: string } }
+  /** Point relais choisi par le client, quand la methode en comporte un. */
+  service_point_details?: { id?: string | null } | null
 }
 
 export type OrderLookup =
@@ -157,4 +159,67 @@ export async function verifyOrderAddress(
     if (obtenu !== valeur) ecarts.push(`${champ}: attendu "${valeur}", obtenu "${String(obtenu)}"`)
   }
   return { ok: ecarts.length === 0, ecarts }
+}
+
+
+/**
+ * Remplace le point relais d'une commande.
+ *
+ * Separee de la correction d'adresse, et pas par gout de la symetrie : les
+ * deux n'engagent pas la meme chose. Raccourcir une adresse conserve la
+ * destination ; changer de point relais la DEPLACE. Le destinataire ira
+ * ailleurs que la ou il pensait aller. On garde donc ce chemin distinct, avec
+ * sa propre verification.
+ */
+export async function patchOrderServicePoint(
+  credentials: SendcloudCredentials,
+  order: OrderV3,
+  servicePointId: string | number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<OrderPatchResult> {
+  if (!isCorrigible(order)) {
+    return { ok: false, reason: 'not_corrigible', detail: statusCode(order) || 'statut inconnu' }
+  }
+
+  const cible = String(servicePointId)
+  if (!cible || cible === String(order.service_point_details?.id ?? '')) {
+    // Reecrire la meme valeur serait une ecriture reelle sans effet attendu.
+    return { ok: false, reason: 'unchanged', detail: 'point relais identique' }
+  }
+
+  const response = await fetchImpl(`${ORDERS_V3_URL}/${encodeURIComponent(order.id)}`, {
+    method: 'PATCH',
+    redirect: 'error',
+    headers: { Authorization: authHeader(credentials), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ service_point_details: { id: cible } }),
+  })
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    return { ok: false, reason: 'http_error', detail: `HTTP ${response.status} ${detail.slice(0, 200)}` }
+  }
+
+  const body = (await response.json().catch(() => ({}))) as { data?: OrderV3 }
+  return { ok: true, order: body.data ?? order }
+}
+
+/**
+ * Confirme par RELECTURE que le point relais est bien celui attendu. Le corps
+ * de la reponse au PATCH ne renvoie que l'identifiant de commande : il ne
+ * prouve rien sur la valeur conservee.
+ */
+export async function verifyOrderServicePoint(
+  credentials: SendcloudCredentials,
+  orderNumber: string,
+  attendu: string | number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ ok: boolean; ecarts: string[] }> {
+  const lookup = await findOrderByNumber(credentials, orderNumber, fetchImpl)
+  if (!lookup.ok) return { ok: false, ecarts: [`relecture impossible (${lookup.reason})`] }
+
+  const obtenu = String(lookup.order.service_point_details?.id ?? '')
+  if (obtenu !== String(attendu)) {
+    return { ok: false, ecarts: [`service_point: attendu "${attendu}", obtenu "${obtenu}"`] }
+  }
+  return { ok: true, ecarts: [] }
 }
