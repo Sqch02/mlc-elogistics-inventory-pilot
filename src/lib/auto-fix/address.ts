@@ -49,6 +49,13 @@ const ABBREVIATIONS: Array<[RegExp, string]> = [
   [/\bBâtiment\b/gi, 'Bât'],
   [/\bImmeuble\b/gi, 'Imm'],
   [/\bLotissement\b/gi, 'Lot'],
+  [/\bLots\b/gi, 'Lot'],
+  // Sans frontiere de mot a gauche : les saisies collent souvent le numero au
+  // type de voie ("70chemins des vignes"), et \b ne coupe pas entre un
+  // chiffre et une lettre.
+  [/(\d)chemins?\b/gi, '$1 Ch'],
+  [/(\d)rue\b/gi, '$1 rue'],
+  [/(\d)avenue\b/gi, '$1 Av'],
   [/\bChemin\b/gi, 'Ch'],
   [/\bImpasse\b/gi, 'Imp'],
   [/\bPlace\b/gi, 'Pl'],
@@ -245,6 +252,28 @@ export function extractComplement(value: string): { address: string; complement:
   const leading = new RegExp(`^(${COMPLEMENT_KEYWORDS}\\b[^0-9]{0,25}?)\\s+(\\d.*)$`, 'i')
   const head = trimmed.match(leading)
   if (head && tokenize(head[2]).length >= 2) return { address: head[2].trim(), complement: head[1].trim() }
+
+  // "245 bd de la Litorne .n°3 les Terres Marines" : un numero introduit par un
+  // point ou un diese marque le debut d'un complement.
+  const marqueur = trimmed.match(/^(.*\S)\s*[.,]\s*(n[°o]\s*\d.*)$/i)
+  if (marqueur && tokenize(marqueur[1]).length >= 2) {
+    return { address: marqueur[1].trim(), complement: marqueur[2].trim() }
+  }
+
+  // "Le grand monarque 23 rue jean giono" : un libelle sans chiffre suivi d'un
+  // numero de voie. Le nom d'residence precede, la voie suit. On exige au
+  // moins deux mots de chaque cote pour ne pas couper une voie ordinaire.
+  const avantNumero = trimmed.match(/^([^\d]{6,}?)\s+(\d+\s+\S.*)$/)
+  if (avantNumero) {
+    const tete = avantNumero[1].trim()
+    const voie = avantNumero[2].trim()
+    // "rue", "avenue" etc. en tete signifient que le nombre appartient a la
+    // voie elle-meme ("rue du 8 mai") : on ne coupe pas.
+    if (!/\b(rue|avenue|av|bd|boulevard|chemin|ch|route|rte|all[ée]e|impasse|place)\b/i.test(tete)
+        && tokenize(tete).length >= 2 && tokenize(voie).length >= 3) {
+      return { address: voie, complement: tete }
+    }
+  }
 
   return null
 }
