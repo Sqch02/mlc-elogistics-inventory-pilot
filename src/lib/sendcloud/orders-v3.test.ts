@@ -5,6 +5,7 @@ import {
   verifyOrderAddress,
   isCorrigible,
   type OrderV3,
+  convertPaymentDetails,
 } from './orders-v3'
 
 const credentials = { apiKey: 'k', secret: 's' }
@@ -125,5 +126,42 @@ describe('verification par relecture', () => {
     const f = vi.fn(async () => reponse({}, false, 500))
     const result = await verifyOrderAddress(credentials, '#540787', { address_line_1: 'x' }, f as never)
     expect(result.ok).toBe(false)
+  })
+})
+
+describe('conversion de devise', () => {
+  const paiement = {
+    subtotal_price: { value: 48, currency: 'CHF' },
+    estimated_shipping_price: { value: 8, currency: 'CHF' },
+    estimated_tax_price: { value: 0.6, currency: 'CHF' },
+    total_price: { value: 56, currency: 'CHF' },
+  }
+
+  it('convertit chaque montant au taux de la BCE', () => {
+    // 1 EUR = 0,9324 CHF, donc convertir divise.
+    const { patch, converted } = convertPaymentDetails(paiement, 0.9324)
+    expect(converted).toBe(4)
+    expect(patch.total_price).toEqual({ value: 60.06, currency: 'EUR' })
+    expect(patch.subtotal_price).toEqual({ value: 51.48, currency: 'EUR' })
+  })
+
+  it('laisse tranquille ce qui est deja en euros', () => {
+    const { converted } = convertPaymentDetails(
+      { total_price: { value: 56, currency: 'EUR' } }, 0.9324)
+    expect(converted).toBe(0)
+  })
+
+  it('ne convertit RIEN avec un taux absurde', () => {
+    // Un montant errone sur une declaration douaniere est pire qu'un colis en
+    // attente : sans taux valable, on ne touche a rien.
+    expect(convertPaymentDetails(paiement, 0).converted).toBe(0)
+    expect(convertPaymentDetails(paiement, Number.NaN).converted).toBe(0)
+    expect(convertPaymentDetails(paiement, -1).converted).toBe(0)
+  })
+
+  it('ignore un champ mal forme plutot que de produire un montant faux', () => {
+    const { converted } = convertPaymentDetails(
+      { total_price: { value: 'beaucoup', currency: 'CHF' } } as never, 0.9324)
+    expect(converted).toBe(0)
   })
 })

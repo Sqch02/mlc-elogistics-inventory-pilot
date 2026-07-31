@@ -18,8 +18,11 @@ import {
   findOrderByNumber,
   patchOrderShippingAddress,
   patchOrderServicePoint,
+  patchOrderCurrency,
+  verifyOrderCurrency,
   verifyOrderAddress,
   verifyOrderServicePoint,
+  convertPaymentDetails,
   isCorrigible,
   type OrderV3,
   type OrderV3ShippingAddress,
@@ -37,7 +40,7 @@ import type { SendcloudCredentials } from '@/lib/sendcloud/types'
  * bloque chez Sendcloud, et reellement observe (2 cas sur 60 jours ; le CHF
  * n'en a produit aucun — cf 2026-07-25-auto-fix-volume-reel.md).
  */
-export const ARMED_LIVE_PATTERNS = ['address_too_long', 'service_point_missing'] as const
+export const ARMED_LIVE_PATTERNS = ['address_too_long', 'service_point_missing', 'currency_chf'] as const
 
 /**
  * Le remplacement de point relais est CALCULE mais pas applique, tant que
@@ -98,6 +101,8 @@ export interface LiveWorkerDependencies {
   findServicePoint?: typeof findReplacementServicePoint
   patchServicePoint?: typeof patchOrderServicePoint
   verifyServicePoint?: typeof verifyOrderServicePoint
+  patchCurrency?: typeof patchOrderCurrency
+  verifyCurrency?: typeof verifyOrderCurrency
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +275,106 @@ async function remplacerPointRelais(
 }
 
 /**
+ * Convertit les montants d'une commande vers l'euro.
+ *
+ * Le transporteur refuse une devise qu'il ne traite pas : "Currency CHF is not
+ * allowed for this carrier. Please choose one of EUR." Le montant sert aussi a
+ * la declaration douaniere, ce qui explique la prudence du chemin — taux
+ * trace, relecture obligatoire, refus au moindre doute.
+ */
+async function convertirDevise(
+  client: RpcClient,
+  workerId: string,
+  job: LiveJob,
+  credentials: SendcloudCredentials,
+  orderRef: string,
+  deps: LiveWorkerDependencies,
+  result: LiveWorkerResult,
+  refuse: (reason: string, category?: string) => Promise<void>,
+): Promise<void> {
+  if (!deps.chfRate) return refuse('exchange_rate_unavailable', 'configuration')
+
+  const findOrder = deps.findOrder ?? findOrderByNumber
+  const lookup = await findOrder(credentials, orderRef)
+  if (!lookup.ok) {
+    return refuse(`order_lookup_${lookup.reason}`, lookup.reason === 'http_error' ? 'retryable' : 'non_retryable')
+  }
+  const order = lookup.order
+  if (!isCorrigible(order)) return refuse('order_not_corrigible')
+
+  const resolution = await deps.chfRate().catch(() => null) as
+    { ok?: boolean; rate?: { chfPerEur?: string; rateDate?: string } } | null
+  const brut = resolution?.ok ? Number(resolution.rate?.chfPerEur) : NaN
+  if (!Number.isFinite(brut) || brut <= 0) {
+    // Sans taux fiable on ne convertit RIEN : un montant errone sur une
+    // declaration douaniere est pire qu'un colis en attente.
+    return refuse('exchange_rate_unavailable', 'retryable')
+  }
+
+  const { patch, converted } = convertPaymentDetails(order.payment_details, brut)
+  if (converted === 0) return refuse('already_resolved')
+
+  const planned = await rpc<boolean>(client, 'plan_auto_fix_live', {
+    p_job_id: job.id, p_worker_id: workerId,
+    p_plan: {
+      action: 'convert_currency',
+      rate_source: 'ECB',
+      rate_date: resolution?.rate?.rateDate ?? null,
+      chf_per_eur: String(brut),
+      fields_converted: converted,
+      patch,
+    },
+  })
+  if (!planned) { result.skipped += 1; return }
+
+  const requestHash = createHash('sha256')
+    .update(JSON.stringify({ order_id: order.id, patch }))
+    .digest('hex')
+  const begun = await rpc<boolean>(client, 'begin_auto_fix_write', {
+    p_job_id: job.id, p_worker_id: workerId, p_request_hash: requestHash,
+  })
+  if (!begun) { result.skipped += 1; return }
+
+  const ecrire = deps.patchCurrency ?? patchOrderCurrency
+  const written = await ecrire(credentials, order, brut)
+  result.written += 1
+
+  if (!written.ok) {
+    await client.rpc('fail_auto_fix_verification', {
+      p_job_id: job.id, p_worker_id: workerId,
+      p_error: { category: 'write_rejected', reason: written.reason, message: written.detail?.slice(0, 300) ?? null },
+    })
+    result.failed += 1
+    return
+  }
+
+  await rpc<boolean>(client, 'mark_auto_fix_applied', {
+    p_job_id: job.id, p_worker_id: workerId,
+    p_result_sendcloud_id: job.original_sendcloud_id,
+    p_before: { currency: 'CHF', fields: Object.keys(patch) },
+    p_after: { currency: 'EUR', rate: String(brut), patch },
+    p_order_ref: orderRef,
+  })
+
+  const verifier = deps.verifyCurrency ?? verifyOrderCurrency
+  const controle = await verifier(credentials, orderRef)
+  if (!controle.ok) {
+    await client.rpc('fail_auto_fix_verification', {
+      p_job_id: job.id, p_worker_id: workerId,
+      p_error: { category: 'mismatch', fields: controle.ecarts.slice(0, 6) },
+    })
+    result.failed += 1
+    return
+  }
+
+  await rpc<boolean>(client, 'verify_auto_fix_live', {
+    p_job_id: job.id, p_worker_id: workerId,
+    p_verification: { verified_fields: Object.keys(patch) },
+  })
+  result.verified += 1
+}
+
+/**
  * Corrige une commande importee de bout en bout, avec les memes invariants que
  * le chemin des colis : intention commitee avant l'octet envoye, aucune
  * reecriture possible ensuite, et confirmation par relecture seulement.
@@ -298,6 +403,10 @@ async function corrigerCommandeImportee(
 
   if (job.primary_pattern === 'service_point_missing') {
     return remplacerPointRelais(client, workerId, job, credentials, orderRef, env, deps, result, refuse)
+  }
+
+  if (job.primary_pattern === 'currency_chf') {
+    return convertirDevise(client, workerId, job, credentials, orderRef, deps, result, refuse)
   }
 
   const lookup = await findOrder(credentials, orderRef)
