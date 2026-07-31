@@ -302,9 +302,12 @@ async function convertirDevise(
   const order = lookup.order
   if (!isCorrigible(order)) return refuse('order_not_corrigible')
 
+  // `providerQuote.rate` est le taux publie par la BCE : combien de francs
+  // vaut un euro. C'est celui-la qu'il faut, et non `rate` qui exprime
+  // l'inverse — les confondre donnerait un montant errone d'environ 15 %.
   const resolution = await deps.chfRate().catch(() => null) as
-    { ok?: boolean; rate?: { chfPerEur?: string; rateDate?: string } } | null
-  const brut = resolution?.ok ? Number(resolution.rate?.chfPerEur) : NaN
+    { ok?: boolean; rate?: { rateDate?: string; providerQuote?: { rate?: string } } } | null
+  const brut = resolution?.ok ? Number(resolution.rate?.providerQuote?.rate) : NaN
   if (!Number.isFinite(brut) || brut <= 0) {
     // Sans taux fiable on ne convertit RIEN : un montant errone sur une
     // declaration douaniere est pire qu'un colis en attente.

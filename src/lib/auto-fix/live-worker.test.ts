@@ -490,7 +490,7 @@ describe('runAutoFixLiveWorker — refus avant ecriture', () => {
     })
     const { client, calls, names } = makeClient({ claim: [jobChf] })
     const d = depsCommande({
-      chfRate: vi.fn(async () => ({ ok: true, rate: { chfPerEur: '0.9324', rateDate: '2026-07-30' } })),
+      chfRate: vi.fn(async () => ({ ok: true, rate: { rateDate: '2026-07-30', providerQuote: { rate: '0.9324' } } })),
       findOrder: vi.fn(async () => ({
         ok: true,
         order: { ...ordre(), payment_details: { total_price: { value: 56, currency: 'CHF' } } },
