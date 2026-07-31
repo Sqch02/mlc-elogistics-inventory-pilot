@@ -94,7 +94,24 @@ export async function POST(request: NextRequest) {
         // temps. Ici un seul worker tourne : on accorde toujours.
         async claimRefresh() { return true },
         async save(rate: unknown) {
-          await untyped.from('exchange_rates_cache').upsert(rate)
+          // La table est en snake_case, le type en camelCase : sans cette
+          // traduction l'insertion echoue et le cache reste vide — ce qui
+          // s'est produit, et se voyait uniquement par un taux jamais
+          // disponible.
+          const r = rate as {
+            baseCurrency: string; targetCurrency: string; rate: string; rateDate: string
+            provider: string; providerQuote: { rate: string }
+            fetchedAt?: string; expiresAt?: string
+          }
+          await untyped.from('exchange_rates_cache').upsert({
+            base_currency: r.baseCurrency,
+            target_currency: r.targetCurrency,
+            rate: r.rate,
+            rate_date: r.rateDate,
+            provider: r.provider,
+            provider_quote: r.providerQuote?.rate ?? null,
+            fetched_at: new Date().toISOString(),
+          })
         },
       })
     },
