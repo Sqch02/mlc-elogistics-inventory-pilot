@@ -164,4 +164,58 @@ describe('limite Sendcloud portant sur la voie combinee au numero', () => {
     )
     expect(plan.patch.address).toBe('454 Av des Collines de Tamaris')
   })
+
+})
+
+describe('numero de voie contenant du texte d adresse', () => {
+  const planNumero = (raw: Record<string, unknown>) =>
+    planAddressShortening(raw, [{ field: 'house_number', max: 20 }])
+
+  it('rend a chaque champ ce qui lui revient', () => {
+    // Cas reel, le plus frequent releve sur une soiree : le client a reparti
+    // son adresse entre le nom de rue et le numero de voie.
+    const plan = planNumero({
+      address: 'Villa',
+      house_number: '3 au college Pierre Gassendi',
+      address_2: '',
+      city: 'Rocbaron',
+      postal_code: '83136',
+    })
+
+    expect(plan.ready).toBe(true)
+    expect(plan.patch.house_number).toBe('3')
+    expect(plan.patch.address_2).toBe('au college Pierre Gassendi')
+    expect(plan.audit[0].lossy).toBe(false)
+  })
+
+  it('reconnait un indice de voie', () => {
+    const plan = planNumero({ address: 'rue Haute', house_number: '12 bis allee des Peupliers', address_2: '' })
+    expect(plan.patch.house_number).toBe('12 bis')
+    expect(plan.patch.address_2).toBe('allee des Peupliers')
+  })
+
+  it('n ecrase JAMAIS un complement deja renseigne', () => {
+    // Le destinataire a saisi une precision : la remplacer serait detruire son
+    // information pour en placer une autre.
+    const plan = planNumero({
+      address: 'Villa',
+      house_number: '3 au college Pierre Gassendi',
+      address_2: 'Batiment C',
+    })
+    expect(plan.ready).toBe(false)
+    expect(plan.patch.address_2).toBeUndefined()
+  })
+
+  it('ne tronque PAS un numero qu on ne sait pas separer', () => {
+    // Couper "au college Pierre Gassendi" a vingt caracteres ne produirait
+    // rien d'utilisable, et perdrait une localisation reelle.
+    const plan = planNumero({ address: 'Villa', house_number: 'au college Pierre Gassendi', address_2: '' })
+    expect(plan.ready).toBe(false)
+    expect(plan.patch.house_number).toBeUndefined()
+  })
+
+  it('laisse tranquille un numero normal', () => {
+    const plan = planNumero({ address: 'rue des Lilas', house_number: '956', address_2: '' })
+    expect(plan.reason).toBe('nothing_to_shorten')
+  })
 })

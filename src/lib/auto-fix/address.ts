@@ -218,6 +218,41 @@ export function extractComplement(value: string): { address: string; complement:
   return null
 }
 
+/**
+ * Separe un numero de voie qui contient en realite du texte d'adresse.
+ *
+ * CAS REEL, le plus frequent releve par l'exploitation sur une soiree :
+ *
+ *     nom de la rue    "Villa"
+ *     numero de voie   "3 au college Pierre Gassendi"   -> refuse, max 20
+ *
+ * Le client a reparti son adresse entre les deux champs. Raccourcir le numero
+ * perdrait "au college Pierre Gassendi", qui est une information de
+ * localisation reelle. La bonne correction est de RENDRE A CHAQUE CHAMP CE QUI
+ * LUI REVIENT : le numero garde "3", le reste devient un complement d'adresse.
+ *
+ * Renvoie null quand la separation n'est pas evidente — mieux vaut une revue
+ * humaine qu'un decoupage arbitraire dans une adresse postale.
+ */
+export function splitHouseNumber(value: string): { houseNumber: string; complement: string } | null {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+
+  // Le numero de voie francais : un nombre, eventuellement suivi d'un indice
+  // (bis, ter, quater) ou d'une lettre isolee.
+  const match = trimmed.match(/^(\d+\s*(?:bis|ter|quater|[A-Za-z])?)\s+(\S.*)$/i)
+  if (!match) return null
+
+  const numero = match[1].replace(/\s+/g, ' ').trim()
+  const reste = match[2].trim()
+
+  // Un reste d'un seul caractere n'est pas un complement d'adresse : c'est
+  // probablement une coquille, et la deviner serait presomptueux.
+  if (reste.length < 2) return null
+
+  return { houseNumber: numero, complement: reste }
+}
+
 export interface AddressContextResult extends ShortenResult {
   /** Renseigne quand un complement a ete deplace vers un `address_2` vide. */
   address2?: string
@@ -349,6 +384,43 @@ export function planAddressShortening(
 
   const asText = (key: string): string | undefined =>
     typeof raw[key] === 'string' ? (raw[key] as string) : undefined
+
+  // Le numero de voie se traite AVANT le reste : quand il contient du texte
+  // d'adresse, le rendre a sa place peut suffire a resoudre le depassement de
+  // la voie elle-meme, et il n'y a alors plus rien a raccourcir.
+  const limiteNumero = strictest.get('house_number')
+  const numeroBrut = asText('house_number')
+  if (limiteNumero !== undefined && numeroBrut && numeroBrut.length > limiteNumero) {
+    const separe = splitHouseNumber(numeroBrut)
+    const complementLibre = !asText('address_2') || asText('address_2')!.trim() === ''
+
+    if (separe && complementLibre && separe.houseNumber.length <= limiteNumero) {
+      patch.house_number = separe.houseNumber
+      patch.address_2 = separe.complement
+      audit.push({
+        field: 'house_number',
+        before_length: numeroBrut.length,
+        after_length: separe.houseNumber.length,
+        limit: limiteNumero,
+        applied: ['split_house_number_to_address_2'],
+        lossy: false,
+      })
+    } else {
+      // Pas de separation evidente, ou complement deja occupe : on ne tronque
+      // PAS un numero de voie. Couper "3 au college" en "3 au colleg" ne
+      // produirait rien d'utilisable, et perdrait une localisation reelle.
+      audit.push({
+        field: 'house_number',
+        before_length: numeroBrut.length,
+        after_length: numeroBrut.length,
+        limit: limiteNumero,
+        applied: [],
+        lossy: true,
+      })
+      lossyFields.push('house_number')
+    }
+    strictest.delete('house_number')
+  }
 
   for (const [field, max] of strictest) {
     const value = raw[field]
