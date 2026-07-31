@@ -258,3 +258,34 @@ describe('queue administrative recopiee par la boutique', () => {
     expect(r.applied).toEqual([])
   })
 })
+
+describe('adresses composites saisies dans un seul champ', () => {
+  it('separe un complement introduit par un numero pointe', () => {
+    const r = extractComplement('245 bd de la Litorne .n°3 les Terres Marines')
+    expect(r).toEqual({ address: '245 bd de la Litorne', complement: 'n°3 les Terres Marines' })
+  })
+
+  it('separe un nom de residence place avant la voie', () => {
+    const r = extractComplement('Le grand monarque 23 rue jean giono')
+    expect(r).toEqual({ address: '23 rue jean giono', complement: 'Le grand monarque' })
+  })
+
+  it('NE COUPE PAS une voie dont le nom contient un nombre', () => {
+    // "rue du 8 mai 1945" est une voie entiere : la couper avant le nombre
+    // produirait "rue du" et enverrait le colis nulle part.
+    expect(extractComplement('rue du 8 mai 1945')).toBeNull()
+    expect(extractComplement('avenue des 4 chemins')).toBeNull()
+  })
+
+  it('abrege un type de voie colle au numero', () => {
+    // "70chemins des vignes" : sans frontiere de mot entre le chiffre et la
+    // lettre, l'abreviation classique ne s'appliquait pas.
+    const plan = planAddressShortening(
+      { address: '70chemins des vignes bouvard dessus', address_2: '', city: 'X' },
+      [{ field: 'address_1', max: 32 }],
+    )
+    expect(plan.ready).toBe(true)
+    expect(plan.patch.address).toContain('Ch')
+    expect((plan.patch.address ?? '').length).toBeLessThanOrEqual(32)
+  })
+})
