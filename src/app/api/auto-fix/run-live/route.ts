@@ -69,6 +69,37 @@ export async function POST(request: NextRequest) {
     },
 
     /**
+     * Le taux CHF vers EUR, lu chez la Banque centrale europeenne et mis en
+     * cache. Il ne sert qu'a CALCULER une proposition : la conversion n'est
+     * pas armee, et changer un montant sur un document commercial demandera
+     * une decision explicite.
+     */
+    async chfRate() {
+      const { resolveChfToEurRate } = await import('@/lib/auto-fix/exchange-rate')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const untyped = db as any
+      return resolveChfToEurRate({
+        async read(base: string, cible: string) {
+          const { data } = await untyped
+            .from('exchange_rates_cache')
+            .select('*')
+            .eq('base_currency', base)
+            .eq('target_currency', cible)
+            .order('rate_date', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          return data ?? null
+        },
+        // La reservation evite que deux workers appellent la BCE en meme
+        // temps. Ici un seul worker tourne : on accorde toujours.
+        async claimRefresh() { return true },
+        async save(rate: unknown) {
+          await untyped.from('exchange_rates_cache').upsert(rate)
+        },
+      })
+    },
+
+    /**
      * Le pont entre les deux mondes. La tache ne porte que le shipment_uuid, et
      * l'API v3 ne l'expose pas : le numero de commande vient de notre base.
      */
