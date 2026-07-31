@@ -206,6 +206,18 @@ export function detectAutoFixCause(
   // cause there is deliberately no job and therefore no speculative fix.
   if (blockingEvidence.length === 0) return null
 
+  // Un colis deja annonce au transporteur ne se corrige plus : l'etiquette est
+  // partie. Mesure sur une journee : treize taches creees puis refusees pour
+  // ce seul motif. Ce n'est pas qu'un gaspillage — c'est du bruit dans le
+  // tableau que l'exploitation doit lire, et un tableau bruyant finit ignore.
+  //
+  // Le statut 1002 (echec d'annonce) fait exception : l'annonce a ete tentee
+  // mais elle a echoue, donc le colis reste modifiable.
+  if (sourceKind === 'parcel' && raw.date_announced) {
+    const statut = statusId(raw)
+    if (statut !== 1000 && statut !== 1002) return null
+  }
+
   const detected = new Set<AutoFixPattern>()
   for (const evidence of blockingEvidence) {
     for (const pattern of classifyEvidence(evidence, raw)) detected.add(pattern)

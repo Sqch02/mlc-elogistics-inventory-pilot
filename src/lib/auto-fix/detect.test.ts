@@ -106,4 +106,32 @@ describe('detectAutoFixCause', () => {
 
     expect(first.sourceFingerprint).not.toBe(second.sourceFingerprint)
   })
+
+  it('ignore un colis deja annonce : son etiquette est partie', () => {
+    // Mesure sur une journee : treize taches creees puis refusees pour ce seul
+    // motif. Le bruit dans le tableau coute plus que le calcul economise.
+    const parti = {
+      errors: { city: ['Ensure this field has no more than 30 characters.'] },
+      date_announced: '2026-07-30T10:00:00Z',
+      status: { id: 91 },
+    }
+    expect(detectAutoFixCause(parti, 'parcel')).toBeNull()
+  })
+
+  it('garde un colis en echec d annonce : il reste modifiable', () => {
+    const echec = {
+      errors: { city: ['Ensure this field has no more than 30 characters.'] },
+      date_announced: '2026-07-30T10:00:00Z',
+      status: { id: 1002 },
+    }
+    expect(detectAutoFixCause(echec, 'parcel')).not.toBeNull()
+  })
+
+  it('ne filtre pas les commandes importees, qui n ont pas d annonce', () => {
+    const commande = {
+      errors: { city: ['Ensure this field has no more than 30 characters.'] },
+      date_announced: '2026-07-30T10:00:00Z',
+    }
+    expect(detectAutoFixCause(commande, 'integration_shipment')).not.toBeNull()
+  })
 })
