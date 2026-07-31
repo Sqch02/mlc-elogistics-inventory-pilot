@@ -94,7 +94,7 @@ describe('runAutoFixLiveWorker — garde-fous', () => {
   })
 
   it('n arme que les patterns reellement traitables', () => {
-    expect(ARMED_LIVE_PATTERNS).toEqual(['address_too_long', 'service_point_missing'])
+    expect(ARMED_LIVE_PATTERNS).toEqual(['address_too_long', 'service_point_missing', 'currency_chf'])
   })
 
   it('le point relais ne s applique pas sans son propre interrupteur', () => {
@@ -481,33 +481,50 @@ describe('runAutoFixLiveWorker — refus avant ecriture', () => {
     expect(result).toMatchObject({ failed: 1 })
   })
 
-  it('enregistre la conversion CHF proposee AVANT de refuser', async () => {
-    // Refuser en silence rendrait la decision d'armer impossible : on ne
-    // saurait jamais ce que l'outil proposerait. On calcule donc, on montre,
-    // et on refuse quand meme.
+  it('convertit une commande en devise etrangere', async () => {
     const jobChf = job({
+      source_kind: 'integration_shipment',
       primary_pattern: 'currency_chf',
       detected_patterns: ['currency_chf'],
       source_summary_json: { currency: 'CHF' },
     })
     const { client, calls, names } = makeClient({ claim: [jobChf] })
-    const d = deps({ chfRate: vi.fn(async () => ({ ok: false })) })
+    const d = depsCommande({
+      chfRate: vi.fn(async () => ({ ok: true, rate: { chfPerEur: '0.9324', rateDate: '2026-07-30' } })),
+      findOrder: vi.fn(async () => ({
+        ok: true,
+        order: { ...ordre(), payment_details: { total_price: { value: 56, currency: 'CHF' } } },
+      })),
+      patchCurrency: vi.fn(async () => ({ ok: true, order: ordre(), converted: 1 })),
+      verifyCurrency: vi.fn(async () => ({ ok: true, ecarts: [] })),
+    })
 
-    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+    const result = await runAutoFixLiveWorker(client, LIVE_ENV, d)
 
+    expect(result).toMatchObject({ written: 1, verified: 1 })
+    // Le taux employe est trace : une conversion doit pouvoir se rejouer.
     const plan = calls.find((c) => c.name === 'plan_auto_fix_live')?.args.p_plan as Record<string, unknown>
-    expect(plan?.action).toBe('convert_currency')
-    expect(plan?.proposal_only).toBe(true)
-    expect(names()).toContain('fail_auto_fix_live')
-    expect(names()).not.toContain('begin_auto_fix_write')
+    expect(plan.rate_source).toBe('ECB')
+    expect(plan.chf_per_eur).toBe('0.9324')
+    expect(names()).toContain('verify_auto_fix_live')
   })
 
-  it('refuse sans rien enregistrer quand aucun taux n est disponible', async () => {
-    const jobChf = job({ primary_pattern: 'currency_chf', detected_patterns: ['currency_chf'] })
+  it('ne convertit RIEN sans taux fiable', async () => {
+    // Un montant errone sur une declaration douaniere est pire qu'un colis en
+    // attente.
+    const jobChf = job({
+      source_kind: 'integration_shipment',
+      primary_pattern: 'currency_chf',
+      detected_patterns: ['currency_chf'],
+    })
     const { client, names } = makeClient({ claim: [jobChf] })
-    await runAutoFixLiveWorker(client, LIVE_ENV, deps())
-    expect(names()).toContain('fail_auto_fix_live')
-    expect(names()).not.toContain('plan_auto_fix_live')
+    const d = depsCommande({
+      chfRate: vi.fn(async () => ({ ok: false })),
+      patchCurrency: vi.fn(),
+    })
+    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+    expect((d as unknown as { patchCurrency: ReturnType<typeof vi.fn> }).patchCurrency).not.toHaveBeenCalled()
+    expect(names()).not.toContain('begin_auto_fix_write')
   })
 
   it('n ecrit pas sans moyen de retrouver le numero de commande', async () => {

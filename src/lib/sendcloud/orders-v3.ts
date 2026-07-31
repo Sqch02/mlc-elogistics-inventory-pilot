@@ -43,6 +43,60 @@ export interface OrderV3 {
   order_details?: { status?: { code?: string } }
   /** Point relais choisi par le client, quand la methode en comporte un. */
   service_point_details?: { id?: string | null } | null
+  payment_details?: Record<string, unknown> | null
+}
+
+/** Un montant tel que l'API v3 le represente. */
+export interface MoneyV3 { value: number; currency: string }
+
+/** Les champs monetaires d'une commande, tous convertibles ensemble. */
+const MONEY_FIELDS = [
+  'subtotal_price',
+  'estimated_shipping_price',
+  'estimated_tax_price',
+  'total_price',
+  'discount_granted',
+  'freight_costs',
+] as const
+
+function isMoney(value: unknown): value is MoneyV3 {
+  return Boolean(value) && typeof value === 'object'
+    && typeof (value as MoneyV3).value === 'number'
+    && typeof (value as MoneyV3).currency === 'string'
+}
+
+/**
+ * Convertit les montants d'une commande vers l'euro.
+ *
+ * LE TAUX EST APPLIQUE A CHAQUE MONTANT SEPAREMENT, et c'est un choix. On
+ * pourrait convertir le total puis repartir, ce qui garantirait que la somme
+ * tombe juste — mais les montants d'origine ne sont deja pas coherents entre
+ * eux (48 + 8 + 0,60 donne 56,60 pour un total annonce a 56). Repartir un
+ * total impliquerait donc de decider quel montant est faux, ce qui n'est pas
+ * a nous. On convertit fidelement ce qui est declare.
+ *
+ * `chfPerEur` est le taux publie par la Banque centrale europeenne : combien
+ * de francs vaut un euro. Convertir va donc dans le sens de la DIVISION.
+ */
+export function convertPaymentDetails(
+  paymentDetails: Record<string, unknown> | null | undefined,
+  chfPerEur: number,
+): { patch: Record<string, MoneyV3>; converted: number } {
+  const patch: Record<string, MoneyV3> = {}
+  if (!paymentDetails || !Number.isFinite(chfPerEur) || chfPerEur <= 0) {
+    return { patch, converted: 0 }
+  }
+
+  for (const champ of MONEY_FIELDS) {
+    const montant = paymentDetails[champ]
+    if (!isMoney(montant) || montant.currency.toUpperCase() !== 'CHF') continue
+    patch[champ] = {
+      value: Math.round((montant.value / chfPerEur) * 100) / 100,
+      currency: 'EUR',
+    }
+  }
+
+  return { patch, converted: Object.keys(patch).length }
 }
 
 export type OrderLookup =
@@ -222,4 +276,60 @@ export async function verifyOrderServicePoint(
     return { ok: false, ecarts: [`service_point: attendu "${attendu}", obtenu "${obtenu}"`] }
   }
   return { ok: true, ecarts: [] }
+}
+
+
+/**
+ * Applique la conversion de devise. Separee des autres ecritures, car elle
+ * touche un montant declare — a la douane comme au client — la ou une adresse
+ * ne change que l'acheminement.
+ */
+export async function patchOrderCurrency(
+  credentials: SendcloudCredentials,
+  order: OrderV3,
+  chfPerEur: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<OrderPatchResult & { converted?: number }> {
+  if (!isCorrigible(order)) {
+    return { ok: false, reason: 'not_corrigible', detail: statusCode(order) || 'statut inconnu' }
+  }
+
+  const { patch, converted } = convertPaymentDetails(order.payment_details, chfPerEur)
+  if (converted === 0) {
+    return { ok: false, reason: 'unchanged', detail: 'aucun montant en CHF a convertir' }
+  }
+
+  const response = await fetchImpl(`${ORDERS_V3_URL}/${encodeURIComponent(order.id)}`, {
+    method: 'PATCH',
+    redirect: 'error',
+    headers: { Authorization: authHeader(credentials), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ payment_details: patch }),
+  })
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    return { ok: false, reason: 'http_error', detail: `HTTP ${response.status} ${detail.slice(0, 200)}` }
+  }
+
+  const body = (await response.json().catch(() => ({}))) as { data?: OrderV3 }
+  return { ok: true, order: body.data ?? order, converted }
+}
+
+/** Confirme par relecture que la commande est bien passee en euros. */
+export async function verifyOrderCurrency(
+  credentials: SendcloudCredentials,
+  orderNumber: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ ok: boolean; ecarts: string[] }> {
+  const lookup = await findOrderByNumber(credentials, orderNumber, fetchImpl)
+  if (!lookup.ok) return { ok: false, ecarts: [`relecture impossible (${lookup.reason})`] }
+
+  const restants = MONEY_FIELDS.filter((champ) => {
+    const montant = lookup.order.payment_details?.[champ]
+    return isMoney(montant) && montant.currency.toUpperCase() !== 'EUR'
+  })
+
+  return restants.length === 0
+    ? { ok: true, ecarts: [] }
+    : { ok: false, ecarts: restants.map((c) => `${c}: encore en devise etrangere`) }
 }
