@@ -481,6 +481,35 @@ describe('runAutoFixLiveWorker — refus avant ecriture', () => {
     expect(result).toMatchObject({ failed: 1 })
   })
 
+  it('enregistre la conversion CHF proposee AVANT de refuser', async () => {
+    // Refuser en silence rendrait la decision d'armer impossible : on ne
+    // saurait jamais ce que l'outil proposerait. On calcule donc, on montre,
+    // et on refuse quand meme.
+    const jobChf = job({
+      primary_pattern: 'currency_chf',
+      detected_patterns: ['currency_chf'],
+      source_summary_json: { currency: 'CHF' },
+    })
+    const { client, calls, names } = makeClient({ claim: [jobChf] })
+    const d = deps({ chfRate: vi.fn(async () => ({ ok: false })) })
+
+    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+
+    const plan = calls.find((c) => c.name === 'plan_auto_fix_live')?.args.p_plan as Record<string, unknown>
+    expect(plan?.action).toBe('convert_currency')
+    expect(plan?.proposal_only).toBe(true)
+    expect(names()).toContain('fail_auto_fix_live')
+    expect(names()).not.toContain('begin_auto_fix_write')
+  })
+
+  it('refuse sans rien enregistrer quand aucun taux n est disponible', async () => {
+    const jobChf = job({ primary_pattern: 'currency_chf', detected_patterns: ['currency_chf'] })
+    const { client, names } = makeClient({ claim: [jobChf] })
+    await runAutoFixLiveWorker(client, LIVE_ENV, deps())
+    expect(names()).toContain('fail_auto_fix_live')
+    expect(names()).not.toContain('plan_auto_fix_live')
+  })
+
   it('n ecrit pas sans moyen de retrouver le numero de commande', async () => {
     const { client } = makeClient({ claim: [commandeImportee] })
     const d = depsCommande({ resolveOrderRef: undefined })

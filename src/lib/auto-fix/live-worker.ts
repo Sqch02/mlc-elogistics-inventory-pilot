@@ -11,6 +11,8 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { planAddressShortening, type AddressLimit } from './address'
+import { buildChfToEurConversion } from './currency'
+import type { Json } from '@/types/database'
 import { patchParcelById, comparePatch, type ParcelPatch, type WriteResult } from './sendcloud-write'
 import {
   findOrderByNumber,
@@ -90,6 +92,8 @@ export interface LiveWorkerDependencies {
   findOrder?: typeof findOrderByNumber
   patchOrder?: typeof patchOrderShippingAddress
   verifyOrder?: typeof verifyOrderAddress
+  /** Resout le taux CHF->EUR. Absent, la conversion n'est pas calculee. */
+  chfRate?: () => Promise<unknown>
   getServicePoint?: typeof getServicePoint
   findServicePoint?: typeof findReplacementServicePoint
   patchServicePoint?: typeof patchOrderServicePoint
@@ -582,6 +586,26 @@ export async function runAutoFixLiveWorker(
 
       try {
         if (!(ARMED_LIVE_PATTERNS as readonly string[]).includes(job.primary_pattern)) {
+          // Un motif non arme est refuse, mais PAS en silence : quand on sait
+          // calculer la correction, on l'enregistre avant de refuser. Sinon la
+          // decision d'armer se prendrait a l'aveugle, sans jamais avoir vu ce
+          // que l'outil proposerait. C'est le meme principe que pour le point
+          // relais.
+          if (job.primary_pattern === 'currency_chf' && deps.chfRate) {
+            const taux = await deps.chfRate().catch(() => undefined)
+            const conversion = buildChfToEurConversion(
+              job.source_summary_json as Record<string, Json | undefined>,
+              taux as never,
+            )
+            await rpc<boolean>(client, 'plan_auto_fix_live', {
+              p_job_id: job.id, p_worker_id: workerId,
+              p_plan: {
+                action: 'convert_currency',
+                proposal_only: true,
+                ...(conversion.change as Record<string, unknown>),
+              },
+            })
+          }
           await refuse('pattern_not_armed'); continue
         }
         // Une commande importee ne se corrige pas comme un colis : elle passe
