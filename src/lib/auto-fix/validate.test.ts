@@ -53,10 +53,23 @@ describe('detection des erreurs latentes', () => {
     expect(findLatentErrors({ ...base, address_2: 'Batiment C, appartement 12' })).toEqual([])
   })
 
-  it('signale un numero de voie anormalement long', () => {
-    // Presque toujours du texte saisi dans la mauvaise case.
-    const found = findLatentErrors({ ...base, house_number: '12 bis rue haute' })
+  it('signale un numero de voie au-dela de 20 caracteres', () => {
+    // Cas reel : rue="Villa", numero="3 au college Pierre Gassendi". Le client
+    // a reparti son adresse entre les deux champs. Limite observee : 20.
+    const found = findLatentErrors({ ...base, house_number: '3 au college Pierre Gassendi' })
     expect(found.map((f) => f.field)).toContain('house_number')
+  })
+
+  it('laisse passer un numero de voie plausible', () => {
+    expect(findLatentErrors({ ...base, house_number: '956' })).toEqual([])
+    expect(findLatentErrors({ ...base, house_number: '12 bis' })).toEqual([])
+  })
+
+  it('signale une adresse vide, qui ne se raccourcit pas', () => {
+    // Observe : "Nom de la rue — Ce champ est obligatoire."
+    const found = findLatentErrors({ ...base, address: '' })
+    expect(found.map((f) => f.field)).toContain('address_1')
+    expect(found[0].message).toContain('obligatoire')
   })
 
   it('signale une devise non prise en charge', () => {
