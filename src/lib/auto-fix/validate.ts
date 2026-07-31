@@ -27,6 +27,8 @@ export interface ValidationRules {
   address2Max: number | null
   /** Limite sur le numero de voie. */
   houseNumberMax: number | null
+  /** Le libelle de voie est obligatoire : vide, l'expedition est refusee. */
+  requireAddress: boolean
   /** Sendcloud refuse une expedition sans aucune ligne d'article. */
   requireParcelItems: boolean
   /**
@@ -51,10 +53,12 @@ export const OBSERVED_RULES: ValidationRules = {
   // produire une valeur plus courte que necessaire n'est jamais refuse,
   // l'inverse l'est.
   address2Max: 30,
-  // Un numero de voie de plus de huit caracteres signale presque toujours du
-  // texte saisi dans la mauvaise case. On le SIGNALE, mais le raccourcissement
-  // partira en revue humaine : couper un numero change la destination.
-  houseNumberMax: 8,
+  // Limite REELLE, lue sur un refus : "Ensure this field has no more than 20
+  // characters." J'avais devine 8 — c'etait faux, et c'est le motif le plus
+  // frequent releve par l'exploitation sur une soiree. Ne jamais deviner une
+  // limite qu'on peut observer.
+  houseNumberMax: 20,
+  requireAddress: true,
   requireParcelItems: true,
   // Refus reel observe : "La devise fournie n'est pas prise en charge par
   // Colissimo ; convertissez le montant en EUR". Le meme refus se produit chez
@@ -120,6 +124,18 @@ export function findLatentErrors(
           `${rules.addressCombinedMax} characters (it has ${combined.length}).`,
       })
     }
+  }
+
+  if (rules.requireAddress && address.trim() === '') {
+    // Observe : "Nom de la rue — Ce champ est obligatoire." Rien a raccourcir
+    // ici, il n'y a pas d'adresse du tout. La detection sert a le signaler
+    // avant la tentative d'etiquette, pas a inventer une valeur.
+    found.push({
+      field: 'address_1',
+      source: 'latent',
+      basis: 'observed_refusal',
+      message: 'Ce champ est obligatoire.',
+    })
   }
 
   const city = text(raw.city)
