@@ -34,6 +34,12 @@ const ABBREVIATIONS: Array<[RegExp, string]> = [
   [/\bMar[ée]chal\b/gi, 'Mal'],
   [/\bG[ée]n[ée]ral\b/gi, 'Gal'],
   [/\bDocteur\b/gi, 'Dr'],
+  [/\bPr[ée]sident\b/gi, 'Pdt'],
+  [/\bChemins\b/gi, 'Ch'],
+  [/\bMonsieur\b/gi, 'M'],
+  [/\bCommandant\b/gi, 'Cdt'],
+  [/\bColonel\b/gi, 'Col'],
+  [/\bProfesseur\b/gi, 'Pr'],
   [/\bRoute\b/gi, 'Rte'],
   [/\bAll[ée]e\b/gi, 'All'],
   [/\bResidence\b/gi, 'Res'],
@@ -139,6 +145,31 @@ function normalizeLocality(value: string): string {
 
 function tokenize(value: string): string[] {
   return value.split(/\s+/).filter(Boolean)
+}
+
+/**
+ * Retire d'un champ les mentions administratives que la commande porte deja
+ * ailleurs : pays, region, departement.
+ *
+ * Observe en production : "Marseille, Bouches-du-Rhone, France" dans le champ
+ * VILLE, ou "60 Rue de Bien Assis, Clermont-Ferrand, France" dans le champ
+ * voie. La boutique recopie l'adresse complete formatee ; tout ce qui suit la
+ * premiere virgule est administratif, et le pays comme le code postal ont
+ * leurs propres champs.
+ *
+ * Strictement sans perte : on ne coupe qu'a une VIRGULE, jamais au milieu d'un
+ * segment, et seulement si ce qui reste est plausible.
+ */
+export function stripAdministrativeTail(value: string, minLength = 3): { value: string; applied: string[] } {
+  const segments = value.split(',').map((part) => part.trim()).filter(Boolean)
+  if (segments.length < 2) return { value, applied: [] }
+
+  const tete = segments[0]
+  // Un premier segment trop court n'est pas une adresse : mieux vaut ne rien
+  // faire que de produire une ligne vide de sens.
+  if (tete.length < minLength) return { value, applied: [] }
+
+  return { value: tete, applied: ['drop_administrative_tail'] }
 }
 
 /**
@@ -275,6 +306,15 @@ export function shortenAddressWithContext(
 
   const applied: string[] = []
   let current = value
+
+  // La queue administrative d'abord : elle enleve souvent assez pour que rien
+  // d'autre ne soit necessaire.
+  const sansQueue = stripAdministrativeTail(current)
+  if (sansQueue.value !== current) {
+    current = sansQueue.value
+    applied.push(...sansQueue.applied)
+    if (current.length <= limit) return { value: current, lossy: false, applied }
+  }
 
   const stripped = stripRedundantLocality(current, context)
   if (stripped.value !== current) {
@@ -433,6 +473,13 @@ export function planAddressShortening(
     const budget = houseNumber ? max - (houseNumber.length + 1) : max
     if (budget < 1 || value.length <= budget) continue
 
+    // La ville subit le meme traitement que la voie : "Marseille,
+    // Bouches-du-Rhone, France" doit devenir "Marseille", pas etre tronque a
+    // trente caracteres au milieu d'un mot.
+    const queue = field === 'city' || field === 'address_2'
+      ? stripAdministrativeTail(value)
+      : { value, applied: [] as string[] }
+
     const result =
       field === 'address'
         ? shortenAddressWithContext(value, budget, {
@@ -440,7 +487,9 @@ export function planAddressShortening(
             postalCode: asText('postal_code'),
             address2: asText('address_2'),
           })
-        : shortenAddressField(value, budget)
+        : queue.value !== value && queue.value.length <= budget
+          ? { value: queue.value, lossy: false, applied: queue.applied }
+          : shortenAddressField(queue.value, budget)
     if (result.value === value) continue
 
     patch[field] = result.value
