@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { planAddressShortening, stripRedundantLocality, extractComplement } from './address'
+import { planAddressShortening, stripRedundantLocality, extractComplement, stripAdministrativeTail } from './address'
 
 // Motifs releves sur les commandes reellement refusees par Sendcloud (limite de
 // 32 caracteres sur la voie combinee au numero). Les libelles sont reecrits :
@@ -217,5 +217,44 @@ describe('numero de voie contenant du texte d adresse', () => {
   it('laisse tranquille un numero normal', () => {
     const plan = planNumero({ address: 'rue des Lilas', house_number: '956', address_2: '' })
     expect(plan.reason).toBe('nothing_to_shorten')
+  })
+})
+
+describe('queue administrative recopiee par la boutique', () => {
+  it('retire departement et pays d une ville', () => {
+    // Cas reel : la boutique recopie l'adresse formatee complete alors que
+    // chaque element a deja son champ.
+    const plan = planAddressShortening(
+      { city: 'Marseille, Bouches-du-Rhône, France', postal_code: '13001' },
+      [{ field: 'city', max: 30 }],
+    )
+    expect(plan.ready).toBe(true)
+    expect(plan.patch.city).toBe('Marseille')
+    expect(plan.audit[0].lossy).toBe(false)
+  })
+
+  it('retire ville et pays d un libelle de voie', () => {
+    const plan = planAddressShortening(
+      { address: '60 Rue de Bien Assis, Clermont-Ferrand, France', city: 'Clermont-Ferrand', address_2: '' },
+      [{ field: 'address_1', max: 32 }],
+    )
+    expect(plan.ready).toBe(true)
+    expect(plan.patch.address).toBe('60 Rue de Bien Assis')
+  })
+
+  it('ne coupe qu a une virgule, jamais au milieu d un segment', () => {
+    const plan = planAddressShortening(
+      { city: 'Saint-Remy-de-Provence-les-Alpilles' },
+      [{ field: 'city', max: 30 }],
+    )
+    // Aucune virgule : on retombe sur les strategies classiques, et la coupe
+    // exige une revue humaine.
+    expect(plan.ready).toBe(false)
+  })
+
+  it('refuse un premier segment trop court pour etre une adresse', () => {
+    const r = stripAdministrativeTail('A, Bouches-du-Rhone, France')
+    expect(r.value).toBe('A, Bouches-du-Rhone, France')
+    expect(r.applied).toEqual([])
   })
 })

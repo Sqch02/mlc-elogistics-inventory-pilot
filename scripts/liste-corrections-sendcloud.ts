@@ -113,29 +113,50 @@ async function main(): Promise<void> {
     }
 
     const limites = detection.sourceSummary.address_limits as unknown as AddressLimit[]
-    const plan = planAddressShortening(commande, limites)
-    const avant = String(commande.address ?? '')
-    const apres = plan.patch.address ?? avant
-    const complement = plan.patch.address_2
+  const plan = planAddressShortening(commande, limites)
 
-    if (plan.ready) {
-      sures.push(
-        `${ref}\n` +
-          `   remplacer   ${avant}\n` +
-          `   par         ${apres}` +
-          (complement ? `\n   et mettre dans le complement d'adresse (vide aujourd'hui)   ${complement}` : ''),
-      )
-    } else {
-      aTrancher.push(
-        `${ref}\n` +
-          `   actuel        ${avant}   (${avant.length} caracteres, maximum 32)\n` +
-          `   proposition   ${apres}\n` +
-          `   a verifier : une information disparait, la destination peut changer.`,
-      )
-    }
+  // Rien a raccourcir : la cause est ailleurs (adresse vide, devise, article
+  // manquant). L'annoncer comme un probleme de longueur serait faux.
+  if (plan.reason === 'nothing_to_shorten') {
+    const causes = detection.detectedPatterns.join(', ')
+    autres.push(`${ref}   cause : ${causes}`)
+    continue
   }
 
-  const rapport = [
+  // On decrit le champ REELLEMENT concerne, pas systematiquement la voie :
+  // une limite sur le numero de voie affichee comme un probleme d'adresse
+  // envoie l'exploitant corriger le mauvais champ.
+  const entree = plan.audit[0]
+  const champ = entree?.field ?? 'address'
+  const libelle: Record<string, string> = {
+    address: 'nom de la rue',
+    address_2: "complement d'adresse",
+    house_number: 'numero de voie',
+    city: 'ville',
+    postal_code: 'code postal',
+  }
+  const avant = String((commande as Record<string, unknown>)[champ] ?? '')
+  const apres = (plan.patch as Record<string, string | undefined>)[champ] ?? avant
+  const complement = champ !== 'address_2' ? plan.patch.address_2 : undefined
+
+  if (plan.ready) {
+    sures.push(
+      `${ref}   (${libelle[champ] ?? champ})\n` +
+        `   remplacer   ${avant}\n` +
+        `   par         ${apres}` +
+        (complement ? `\n   et mettre dans le complement d'adresse   ${complement}` : ''),
+    )
+  } else {
+    aTrancher.push(
+      `${ref}   (${libelle[champ] ?? champ})\n` +
+        `   actuel        ${avant}   (${avant.length} caracteres, maximum ${entree?.limit ?? '?'})\n` +
+        (apres !== avant ? `   proposition   ${apres}\n` : '') +
+        `   a verifier : ${entree?.applied.length ? 'une information disparait' : 'aucune correction sûre trouvee'}.`,
+    )
+  }
+}
+
+const rapport = [
     `${tenant.name} — commandes qui vont etre refusees par Sendcloud`,
     '',
     `${aTraiter.length} commandes en attente examinees.`,
