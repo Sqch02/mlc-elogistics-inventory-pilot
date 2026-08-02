@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { planAddressShortening, stripRedundantLocality, extractComplement, stripAdministrativeTail } from './address'
+import { planAddressShortening, stripRedundantLocality, extractComplement, stripAdministrativeTail, recoverHouseNumber } from './address'
 
 // Motifs releves sur les commandes reellement refusees par Sendcloud (limite de
 // 32 caracteres sur la voie combinee au numero). Les libelles sont reecrits :
@@ -287,5 +287,39 @@ describe('adresses composites saisies dans un seul champ', () => {
     expect(plan.ready).toBe(true)
     expect(plan.patch.address).toContain('Ch')
     expect((plan.patch.address ?? '').length).toBeLessThanOrEqual(32)
+  })
+})
+
+describe('numero de voie manquant', () => {
+  it('recupere le numero endormi dans le complement', () => {
+    // Cas reel : le client remplit les champs a l'envers.
+    //   nom de la rue        "Rez De Chaussé"
+    //   numero de voie       vide -> refuse
+    //   complement           "22 Rue Des Carrieres"
+    expect(recoverHouseNumber('', '22 Rue Des Carrieres')).toEqual({ houseNumber: '22', source: 'address_2' })
+    expect(recoverHouseNumber(undefined, '12 bis allee des Peupliers')).toMatchObject({ houseNumber: '12 bis' })
+  })
+
+  it('ne touche a rien quand un numero existe deja', () => {
+    expect(recoverHouseNumber('7', '22 Rue Des Carrieres')).toBeNull()
+  })
+
+  it('n invente pas un numero a partir d un complement ordinaire', () => {
+    // Un etage, un batiment ou un code postal ne sont pas des numeros de voie.
+    expect(recoverHouseNumber('', 'Batiment C')).toBeNull()
+    expect(recoverHouseNumber('', '3eme etage')).toBeNull()
+    expect(recoverHouseNumber('', '75014')).toBeNull()
+    expect(recoverHouseNumber('', '')).toBeNull()
+  })
+
+  it('laisse le complement intact', () => {
+    // "22 Rue Des Carrieres" reste imprime sur l'etiquette : c'est lui qui
+    // permet au facteur de trouver.
+    const plan = planAddressShortening(
+      { address: 'Rez De Chaussé', house_number: '', address_2: '22 Rue Des Carrieres', city: 'Luxembourg' },
+      [{ field: 'address_1', max: 32 }],
+    )
+    expect(plan.patch.house_number).toBe('22')
+    expect(plan.patch.address_2).toBeUndefined()
   })
 })

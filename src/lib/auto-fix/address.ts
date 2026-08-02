@@ -313,6 +313,42 @@ export function splitHouseNumber(value: string): { houseNumber: string; compleme
   return { houseNumber: numero, complement: reste }
 }
 
+/**
+ * Recupere un numero de voie manquant depuis le complement d'adresse.
+ *
+ * CAS REEL. Le client remplit les champs a l'envers :
+ *
+ *     nom de la rue         "Rez De Chaussé"
+ *     numero de voie        vide          -> refuse, champ obligatoire
+ *     complement d'adresse  "22 Rue Des Carrieres"
+ *
+ * Le numero existe, il est simplement dans la mauvaise case. L'exploitation
+ * contourne en saisissant "0", ce qui debloque mais fabrique une donnee
+ * fausse. Extraire le vrai numero vaut mieux : il est la, il suffit de le
+ * lire.
+ *
+ * On ne TOUCHE PAS au complement : "22 Rue Des Carrieres" reste imprime sur
+ * l'etiquette, et c'est ce qui permet au facteur de trouver. On ne fait
+ * qu'ajouter l'information manquante dans son champ.
+ */
+export function recoverHouseNumber(
+  houseNumber: string | undefined,
+  address2: string | undefined,
+): { houseNumber: string; source: 'address_2' } | null {
+  if (houseNumber && houseNumber.trim() !== '') return null
+
+  const complement = (address2 ?? '').trim()
+  if (!complement) return null
+
+  // Un numero de voie en tete, suivi d'un vrai libelle : sans le libelle on
+  // ne saurait pas si le nombre est un numero ou autre chose (un etage, un
+  // code, une quantite).
+  const match = complement.match(/^(\d{1,5}\s*(?:bis|ter|quater|[A-Za-z])?)\s+\S/i)
+  if (!match) return null
+
+  return { houseNumber: match[1].replace(/\s+/g, ' ').trim(), source: 'address_2' }
+}
+
 export interface AddressContextResult extends ShortenResult {
   /** Renseigne quand un complement a ete deplace vers un `address_2` vide. */
   address2?: string
@@ -453,6 +489,23 @@ export function planAddressShortening(
 
   const asText = (key: string): string | undefined =>
     typeof raw[key] === 'string' ? (raw[key] as string) : undefined
+
+  // Opportunite : si le numero manque et qu'il dort dans le complement, on le
+  // remet a sa place. On ne cree PAS d'alerte pour ce seul motif — trois mille
+  // commandes ont un numero vide sans que cela pose probleme — mais quand on
+  // traite deja la commande, autant supprimer un refus a venir.
+  const recupere = recoverHouseNumber(asText('house_number'), asText('address_2'))
+  if (recupere) {
+    patch.house_number = recupere.houseNumber
+    audit.push({
+      field: 'house_number',
+      before_length: 0,
+      after_length: recupere.houseNumber.length,
+      limit: 0,
+      applied: ['recover_house_number_from_address_2'],
+      lossy: false,
+    })
+  }
 
   // Le numero de voie se traite AVANT le reste : quand il contient du texte
   // d'adresse, le rendre a sa place peut suffire a resoudre le depassement de
