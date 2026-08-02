@@ -27,6 +27,8 @@ export interface ValidationRules {
   address2Max: number | null
   /** Limite sur le numero de voie. */
   houseNumberMax: number | null
+  /** Limite sur le nom d'entreprise. */
+  companyNameMax: number | null
   /** Le libelle de voie est obligatoire : vide, l'expedition est refusee. */
   requireAddress: boolean
   /** Sendcloud refuse une expedition sans aucune ligne d'article. */
@@ -58,6 +60,9 @@ export const OBSERVED_RULES: ValidationRules = {
   // frequent releve par l'exploitation sur une soiree. Ne jamais deviner une
   // limite qu'on peut observer.
   houseNumberMax: 20,
+  // Refus reel : "Ensure this field has no more than 50 characters." sur
+  // "Entreprise individuelle L'Atelier du Phenix par Chris".
+  companyNameMax: 50,
   requireAddress: true,
   requireParcelItems: true,
   // Refus reel observe : "La devise fournie n'est pas prise en charge par
@@ -164,6 +169,16 @@ export function findLatentErrors(
       source: 'latent',
       basis: 'observed_refusal',
       message: `Ensure that house number has at most ${rules.houseNumberMax} characters (it has ${houseNumber.length}).`,
+    })
+  }
+
+  const entreprise = text(raw.company_name)
+  if (rules.companyNameMax !== null && entreprise.length > rules.companyNameMax) {
+    found.push({
+      field: 'company_name',
+      source: 'latent',
+      basis: 'observed_refusal',
+      message: `Ensure this field has no more than ${rules.companyNameMax} characters.`,
     })
   }
 

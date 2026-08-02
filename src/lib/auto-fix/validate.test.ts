@@ -85,6 +85,16 @@ describe('detection des erreurs latentes', () => {
     expect(findLatentErrors({ ...base, currency: 'EUR' })).toEqual([])
   })
 
+  it('signale un nom d entreprise trop long', () => {
+    // Refus reel sur "Entreprise individuelle L'Atelier du Phenix par Chris".
+    const found = findLatentErrors({ ...base, company_name: "Entreprise individuelle L'Atelier du Phenix par Chris" })
+    expect(found.map((f) => f.field)).toContain('company_name')
+  })
+
+  it('laisse passer un nom d entreprise normal', () => {
+    expect(findLatentErrors({ ...base, company_name: 'Atelier du Phenix' })).toEqual([])
+  })
+
   it('signale une commande sans aucun article', () => {
     const found = findLatentErrors({ ...base, parcel_items: [] })
     expect(found.map((f) => f.field)).toEqual(['parcel_items'])
