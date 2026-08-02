@@ -81,6 +81,23 @@ export function buildEmailBody(message: OutboxMessage): string {
     ].join('\n')
   }
 
+  if (message.event_type === 'auto_fix_manual_backlog') {
+    // Alerte interne, pas client : elle s'adresse a l'equipe qui exploite.
+    return [
+      'Bonjour,',
+      '',
+      `${String(p.orders ?? '?')} commandes attendent une correction manuelle sur les `
+        + `${String(p.window_hours ?? 6)} dernieres heures (seuil : ${String(p.threshold ?? 5)}).`,
+      '',
+      `Motifs concernes : ${String(p.patterns ?? 'non precises')}`,
+      '',
+      "Une hausse soudaine signale souvent un changement de regle chez le transporteur",
+      "ou dans le flux de la boutique. Le detail est dans Corrections automatiques.",
+      '',
+      "L'equipe HOMEMADE eLogistics",
+    ].join('\n')
+  }
+
   if (message.event_type === 'inbound_received') {
     return [
       'Bonjour,',
