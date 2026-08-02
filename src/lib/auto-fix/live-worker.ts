@@ -427,7 +427,29 @@ async function corrigerCommandeImportee(
   const limits = (job.source_summary_json.address_limits ?? []) as AddressLimit[]
   const plan = planAddressShortening(ordreVersAdresse(order), limits)
   if (plan.reason === 'nothing_to_shorten') return refuse('already_resolved')
-  if (!plan.ready) return refuse(plan.reason)
+
+  if (!plan.ready) {
+    // On refuse d'appliquer, mais on enregistre CE QU'ON AURAIT FAIT. Sans
+    // cela, l'exploitant qui ouvre le tableau voit "revue humaine" et rien
+    // d'autre : il doit rouvrir la commande, relire l'adresse et chercher
+    // lui-meme quoi couper. Avec la proposition, il valide ou corrige en un
+    // coup d'oeil.
+    //
+    // Le patch est calcule meme quand il est lossy — c'est justement le cas
+    // ou un humain doit trancher, donc celui ou il a le plus besoin de voir.
+    await rpc<boolean>(client, 'plan_auto_fix_live', {
+      p_job_id: job.id, p_worker_id: workerId,
+      p_plan: {
+        action: 'patch_order_v3',
+        proposal_only: true,
+        reason: plan.reason,
+        lossy_fields: plan.lossyFields,
+        audit: plan.audit,
+        patch: adresseVersOrdre(plan.patch as Partial<Record<string, string>>),
+      },
+    })
+    return refuse(plan.reason)
+  }
 
   const patch = adresseVersOrdre(plan.patch as Partial<Record<string, string>>)
 
