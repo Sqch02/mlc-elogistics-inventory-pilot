@@ -215,3 +215,28 @@ describe('readAutoFixDashboard', () => {
     expect(read.logs.map((log) => log.table)).toEqual(['auto_fixes'])
   })
 })
+
+describe('lisibilite du motif manuel', () => {
+  it('affiche la proposition plutot qu un message generique', async () => {
+    // Un motif generique n'apprend rien : l'exploitant doit rouvrir la
+    // commande et chercher lui-meme quoi couper.
+    const { client } = fixtureClient({
+      auto_fix_jobs: [job({
+        id: 'j1', state: 'pending_manual', primary_pattern: 'address_too_long',
+        detected_patterns: ['address_too_long'],
+        plan_json: {
+          action: 'patch_order_v3', proposal_only: true,
+          lossy_fields: ['address'],
+          patch: { address_line_1: '30 lots les hauts de falanchere' },
+        },
+      })],
+      auto_fixes: [],
+    })
+
+    const { client: settings } = fixtureClient({ tenant_settings: [] })
+    const board = await readAutoFixDashboard(client, settings, 'tenant-a', { auditLimit: 5 }, {})
+    const item = board.manualItems.find((m) => m.id === 'j1')
+    expect(item?.reason).toContain('30 lots les hauts de falanchere')
+    expect(item?.reason).toContain('information')
+  })
+})

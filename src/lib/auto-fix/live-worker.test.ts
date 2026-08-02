@@ -527,6 +527,38 @@ describe('runAutoFixLiveWorker — refus avant ecriture', () => {
     expect(names()).not.toContain('begin_auto_fix_write')
   })
 
+  it('enregistre la proposition MEME quand elle perd de l information', async () => {
+    // Sans cela l'exploitant voit "revue humaine" et rien d'autre : il doit
+    // rouvrir la commande et chercher lui-meme quoi couper. C'est justement
+    // le cas ou un humain tranche, donc celui ou il a le plus besoin de voir.
+    const commandeDure = {
+      ...ordre(),
+      shipping_address: {
+        address_line_1: 'lot les jardins du chateau d eau et des sources',
+        address_line_2: 'Batiment C',
+        house_number: '12',
+        city: 'X',
+        postal_code: '1',
+        country_code: 'FR',
+      },
+    }
+    const jobDur = job({
+      source_kind: 'integration_shipment',
+      source_summary_json: { address_limits: [{ field: 'address_1', max: 32 }] },
+    })
+    const { client, calls, names } = makeClient({ claim: [jobDur] })
+    const d = depsCommande({ findOrder: vi.fn(async () => ({ ok: true, order: commandeDure })) })
+
+    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+
+    const plan = calls.find((c) => c.name === 'plan_auto_fix_live')?.args.p_plan as Record<string, unknown>
+    expect(plan?.proposal_only).toBe(true)
+    expect(plan?.patch).toBeDefined()
+    // Refuse quand meme : la proposition ne vaut pas application.
+    expect(names()).toContain('fail_auto_fix_live')
+    expect(names()).not.toContain('begin_auto_fix_write')
+  })
+
   it('n ecrit pas sans moyen de retrouver le numero de commande', async () => {
     const { client } = makeClient({ claim: [commandeImportee] })
     const d = depsCommande({ resolveOrderRef: undefined })

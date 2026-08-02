@@ -142,7 +142,41 @@ function isManualForecast(plan: Json | null): boolean {
   return isRecord(plan) && plan.wouldEndState === 'pending_manual'
 }
 
+/**
+ * Traduit une proposition en une phrase lisible.
+ *
+ * Un motif generique — "adresse a raccourcir" — n'apprend rien : l'exploitant
+ * doit rouvrir la commande et chercher lui-meme quoi couper. En affichant la
+ * valeur proposee, il valide ou corrige sans quitter le tableau.
+ */
+function propositionLisible(plan: Json | null): string | null {
+  if (!isRecord(plan)) return null
+  const patch = plan.patch
+  if (!isRecord(patch)) return null
+
+  const libelles: Record<string, string> = {
+    address_line_1: 'nom de la rue',
+    address_line_2: "complement d'adresse",
+    house_number: 'numero de voie',
+    city: 'ville',
+    postal_code: 'code postal',
+  }
+
+  const parties = Object.entries(patch)
+    .filter(([, valeur]) => typeof valeur === 'string' && valeur.length > 0)
+    .map(([champ, valeur]) => `${libelles[champ] ?? champ} → « ${String(valeur)} »`)
+
+  if (parties.length === 0) return null
+
+  const perte = Array.isArray(plan.lossy_fields) && plan.lossy_fields.length > 0
+  return `Proposition : ${parties.join(', ')}${perte ? ' — une information disparaît, à vérifier.' : ''}`
+}
+
 function manualReason(plan: Json | null, pattern: AutoFixPattern): string {
+  // La proposition concrete passe avant tout message generique.
+  const proposition = propositionLisible(plan)
+  if (proposition) return proposition
+
   if (isRecord(plan) && Array.isArray(plan.warnings)) {
     const warning = plan.warnings.find((item): item is string => typeof item === 'string' && item.length > 0)
     if (warning) return warning
