@@ -119,6 +119,17 @@ describe('corps du message', () => {
     expect(derive).not.toContain('seuil')
   })
 
+  it('formule l alerte d accumulation pour l equipe, pas pour le client', () => {
+    const texte = buildEmailBody(message({
+      event_type: 'auto_fix_manual_backlog',
+      payload: { orders: 29, threshold: 5, window_hours: 6, patterns: 'address_too_long' },
+    }))
+    expect(texte).toContain('29 commandes')
+    expect(texte).toContain('address_too_long')
+    // Elle oriente vers une cause, pas vers une action client.
+    expect(texte).toContain('transporteur')
+  })
+
   it('adapte le texte au type d evenement', () => {
     const stock = buildEmailBody(message({
       event_type: 'stock_threshold_reached',
