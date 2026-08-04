@@ -36,7 +36,10 @@ export function useSkus(options: UseSkusOptions = {}) {
   return useQuery({
     queryKey: ['skus', options],
     queryFn: () => fetchSkus(options),
-    staleTime: 2 * 60 * 1000,
+    // Trente secondes : le stock change a chaque expedition et a chaque
+    // reassort. Deux minutes suffisaient a montrer une valeur perimee juste
+    // apres une saisie.
+    staleTime: 30 * 1000,
   })
 }
 
