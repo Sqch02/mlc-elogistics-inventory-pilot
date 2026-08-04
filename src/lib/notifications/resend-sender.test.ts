@@ -111,12 +111,15 @@ describe('corps du message', () => {
     // recompter et declarer les entrees de l'autre.
     const derive = buildEmailBody(message({
       event_type: 'stock_negative_drift',
-      payload: { sku_code: 'ABC-1', units_missing: 12 },
+      payload: { sku_code: 'ABC-1', units_missing: 12, tenant_name: 'Anteos' },
     }))
     expect(derive).toContain('ABC-1')
     expect(derive).toContain('12')
     expect(derive).toContain('recomptage')
     expect(derive).not.toContain('seuil')
+    // Message interne : il nomme le client, ce qu'un message au client ne
+    // ferait pas.
+    expect(derive).toContain('Anteos')
   })
 
   it('formule l alerte d accumulation pour l equipe, pas pour le client', () => {
