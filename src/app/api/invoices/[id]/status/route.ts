@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { getAdminDb } from '@/lib/supabase/untyped'
 import { requireTenant, requireRole } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 
@@ -8,9 +8,11 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // L'autorisation vient EN PREMIER, et le tenant est celui de la session :
+    // il n'est jamais lu depuis la requete. Le service technique n'est
+    // instancie qu'apres, une fois le perimetre etabli.
     await requireRole(['super_admin', 'admin', 'ops'])
     const tenantId = await requireTenant()
-    const supabase = await createClient()
     const { id } = await params
     const { status } = await request.json()
 
@@ -29,8 +31,13 @@ export async function PATCH(
     //
     // La RPC ne met en file que sur la TRANSITION draft -> sent : repasser une
     // facture deja envoyee en "envoyee" ne la renvoie pas.
+    // La transition passe par une fonction reservee au service technique :
+    // elle prend un tenant en parametre, donc l'ouvrir aux comptes connectes
+    // permettrait a l'un d'eux d'agir sur les factures d'un autre client.
+    // C'est la raison du service role ici — et pourquoi il n'arrive qu'apres
+    // requireRole et requireTenant.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const db = supabase as any
+    const db = getAdminDb() as any
     const { data, error } = await db.rpc('set_invoice_status_notifying', {
       p_tenant_id: tenantId,
       p_invoice_id: id,
