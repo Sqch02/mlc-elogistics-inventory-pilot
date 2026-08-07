@@ -57,6 +57,33 @@ export function servicePointAutoApply(env: Record<string, string | undefined>): 
   return env.AUTO_FIX_SERVICE_POINT_AUTO === 'true'
 }
 
+/**
+ * Raccourcir avec perte, MAIS seulement quand la livraison se fait en point
+ * relais.
+ *
+ * OBSERVATION DE L'EXPLOITATION (07/08) : « Mondial Relay c'est un point de
+ * retrait, donc au final on n'a pas forcement besoin que l'adresse soit
+ * entierement bonne, c'est un point de retrait selectionne. »
+ *
+ * Le raisonnement tient, et il porte plus loin que Mondial Relay : quand un
+ * point relais est designe, le colis est achemine vers CE point, identifie par
+ * son identifiant. L'adresse du destinataire est imprimee sur l'etiquette mais
+ * ne sert pas au routage, et un colis non retire repart chez l'expediteur, pas
+ * chez le destinataire. Couper la fin d'une rue n'y change donc rien.
+ *
+ * Mesure : 24 des 39 arbitrages en attente concernent une livraison en point
+ * relais.
+ *
+ * DESARME PAR DEFAUT. Le raisonnement ci-dessus est solide mais il reste un
+ * raisonnement : personne n'a encore vu une etiquette produite ainsi. On
+ * calcule donc la proposition, on la rend visible, et on attend que
+ * l'exploitation en valide quelques-unes avant d'ouvrir le robinet — la meme
+ * progression que pour les adresses et le CHF.
+ */
+export function lossyAutoApplyOnServicePoint(env: Record<string, string | undefined>): boolean {
+  return env.AUTO_FIX_LOSSY_ON_SERVICE_POINT === 'true'
+}
+
 interface LiveJob {
   id: string
   tenant_id: string
@@ -428,7 +455,15 @@ async function corrigerCommandeImportee(
   const plan = planAddressShortening(ordreVersAdresse(order), limits)
   if (plan.reason === 'nothing_to_shorten') return refuse('already_resolved')
 
-  if (!plan.ready) {
+  // Une coupe avec perte devient acceptable si le colis part en point relais :
+  // l'adresse coupee ne sert alors pas a l'acheminement. Restreint a la SEULE
+  // raison "perte d'information" — tout autre motif de refus reste un refus.
+  const versPointRelais = Boolean(order.service_point_details?.id)
+  const perteAcceptable = plan.reason === 'lossy_shortening_requires_review'
+    && versPointRelais
+    && lossyAutoApplyOnServicePoint(env)
+
+  if (!plan.ready && !perteAcceptable) {
     // On refuse d'appliquer, mais on enregistre CE QU'ON AURAIT FAIT. Sans
     // cela, l'exploitant qui ouvre le tableau voit "revue humaine" et rien
     // d'autre : il doit rouvrir la commande, relire l'adresse et chercher
@@ -455,7 +490,18 @@ async function corrigerCommandeImportee(
 
   const planned = await rpc<boolean>(client, 'plan_auto_fix_live', {
     p_job_id: job.id, p_worker_id: workerId,
-    p_plan: { action: 'patch_order_v3', patch, audit: plan.audit },
+    p_plan: {
+      action: 'patch_order_v3',
+      patch,
+      audit: plan.audit,
+      // Tracer la tolerance, pas seulement le resultat. Sans cette mention on
+      // ne saurait plus distinguer une correction sans perte d'une correction
+      // avec perte qu'on a acceptee — et c'est exactement ce qu'il faudra
+      // relire si une etiquette pose probleme.
+      ...(perteAcceptable
+        ? { lossy_accepted_reason: 'service_point_delivery', lossy_fields: plan.lossyFields }
+        : {}),
+    },
   })
   if (!planned) { result.skipped += 1; return }
 
