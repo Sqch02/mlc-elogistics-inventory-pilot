@@ -64,6 +64,17 @@ export function buildAutoFixCandidate(
     source_kind: kind,
     source_sendcloud_id: source.shipment.sendcloud_id,
     source_order_ref_hash: source.shipment.order_ref ? sha256(source.shipment.order_ref) : null,
+    // Le numero en clair, en plus du hache qui sert au rapprochement.
+    //
+    // La tache le connait a sa creation, mais ne gardait que l'empreinte. Or
+    // le numero se retrouvait ensuite via la table des expeditions, et quand
+    // cette ligne disparait la tache devient introuvable : ni le moteur ni
+    // l'exploitation ne savent de quelle commande il s'agit. Mesure du 07/08 :
+    // 103 taches dans ce cas, refusees avec `order_ref_unknown`.
+    //
+    // La table d'audit fait deja ce choix, et pour la meme raison : un
+    // exploitant ne reconnait pas un UUID.
+    source_order_ref: source.shipment.order_ref ?? null,
     source_fingerprint: detection.sourceFingerprint,
     primary_pattern: detection.primaryPattern,
     detected_patterns: detection.detectedPatterns,

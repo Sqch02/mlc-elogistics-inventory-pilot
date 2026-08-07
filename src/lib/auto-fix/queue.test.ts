@@ -162,3 +162,34 @@ describe('auto-fix queue model', () => {
     })
   })
 })
+
+describe('numero de commande sur la tache', () => {
+  it('conserve le numero en clair, en plus de son empreinte', () => {
+    // Sans lui, une tache dont la ligne d'expedition a disparu n'est plus
+    // identifiable par personne : le moteur ne retrouve pas la commande, et
+    // l'exploitation n'a qu'un UUID sous les yeux. Mesure du 07/08 : 103
+    // taches dans ce cas, refusees avec `order_ref_unknown`.
+    const candidat = buildAutoFixCandidate('tenant-1', {
+      shipmentId: 'shipment-1',
+      shipment: parsedShipment({
+        id: 123,
+        errors: { address: ['Address too long, maximum 30 characters'] },
+      }),
+    }, { defaultHsCode: null, defaultOriginCountry: null })!
+
+    expect(candidat.source_order_ref).toBe('PRIVATE-ORDER-42')
+    // L'empreinte reste : elle sert au rapprochement et a la deduplication.
+    expect(candidat.source_order_ref_hash).toMatch(/^[a-f0-9]{64}$/)
+  })
+
+  it('accepte une expedition sans numero de commande', () => {
+    const sansRef = parsedShipment({ id: 9, errors: { address: ['too long, maximum 30 characters'] } })
+    const candidat = buildAutoFixCandidate('tenant-1', {
+      shipmentId: 'shipment-9',
+      shipment: { ...sansRef, order_ref: null },
+    }, { defaultHsCode: null, defaultOriginCountry: null })!
+
+    expect(candidat.source_order_ref).toBeNull()
+    expect(candidat.source_order_ref_hash).toBeNull()
+  })
+})
