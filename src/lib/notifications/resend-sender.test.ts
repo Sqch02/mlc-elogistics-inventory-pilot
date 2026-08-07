@@ -97,13 +97,14 @@ describe('corps du message', () => {
   it('annonce la facture avec son montant', () => {
     const texte = buildEmailBody(message())
     expect(texte).toContain('2026-07')
-    expect(texte).toContain('1234.50 EUR')
+    // Format francais : espace insecable, virgule decimale, symbole euro.
+    expect(texte).toMatch(/1\s?234,50\s?€/)
   })
 
   it('n invente pas de montant quand il est absent', () => {
     const texte = buildEmailBody(message({ payload: { invoice_number: '2026-08' } }))
     expect(texte).toContain('2026-08')
-    expect(texte).not.toContain('EUR')
+    expect(texte).not.toContain('€')
   })
 
   it('distingue "stock bas" de "stock faux"', () => {
