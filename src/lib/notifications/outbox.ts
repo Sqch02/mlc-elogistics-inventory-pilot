@@ -27,10 +27,23 @@ export interface SendOutcome {
   permanent?: boolean
 }
 
+/** Piece jointe, deja rendue : le fournisseur ne fabrique rien lui-meme. */
+export interface Attachment {
+  filename: string
+  content: Buffer
+  contentType: string
+}
+
 export interface NotificationSender {
   name: string
-  send: (message: OutboxMessage) => Promise<SendOutcome>
+  send: (message: OutboxMessage, attachments?: Attachment[]) => Promise<SendOutcome>
 }
+
+/**
+ * Prepare les pieces jointes d'un message. Injectee : le worker ne sait pas
+ * fabriquer un PDF, et n'a pas a le savoir.
+ */
+export type AttachmentBuilder = (message: OutboxMessage) => Promise<Attachment[]>
 
 export interface OutboxWorkerResult {
   workerId: string
@@ -64,6 +77,7 @@ export async function runNotificationOutboxWorker(
   client: RpcClient,
   env: Record<string, string | undefined> = process.env,
   sender?: NotificationSender,
+  buildAttachments?: AttachmentBuilder,
 ): Promise<OutboxWorkerResult | { paused: true; reason: string }> {
   // Sans fournisseur configure, on ne reclame RIEN : reclamer incrementerait
   // attempt_count et consommerait le budget de retry pour rien, jusqu'a
@@ -89,7 +103,18 @@ export async function runNotificationOutboxWorker(
   for (const message of messages) {
     let outcome: SendOutcome
     try {
-      outcome = await sender.send(message)
+      // Une piece jointe qui echoue ne doit pas empecher l'envoi : mieux vaut
+      // une facture annoncee sans PDF qu'aucune facture annoncee. Le client
+      // garde son espace pour la telecharger.
+      let attachments: Attachment[] | undefined
+      if (buildAttachments) {
+        try {
+          attachments = await buildAttachments(message)
+        } catch {
+          attachments = undefined
+        }
+      }
+      outcome = await sender.send(message, attachments)
     } catch (error) {
       outcome = {
         ok: false,

@@ -60,10 +60,11 @@ describe('runNotificationOutboxWorker', () => {
 
     const result = await runNotificationOutboxWorker(client, {}, s)
 
+    // Second argument : les pieces jointes, absentes ici faute de fabricant.
     expect(s.send).toHaveBeenCalledWith(expect.objectContaining({
       recipient: 'client@example.test',
       cc: ['equipe@example.test'],
-    }))
+    }), undefined)
     expect(result).toMatchObject({ sent: 1, failed: 0 })
     const marked = calls.find((c) => c.name === 'mark_notification_sent')
     expect(marked?.args).toMatchObject({ p_provider: 'test-provider', p_provider_message_id: 'prov-1' })
@@ -116,5 +117,37 @@ describe('runNotificationOutboxWorker', () => {
     const { client } = makeClient([message(), { id: 42 }, null])
     const result = await runNotificationOutboxWorker(client, {}, sender())
     expect(result).toMatchObject({ claimed: 1, sent: 1 })
+  })
+})
+
+describe('pieces jointes', () => {
+  it('transmet la piece jointe au fournisseur', async () => {
+    const s = sender()
+    const fabricant = vi.fn(async () => ([{
+      filename: 'facture_FAC-2026-018.pdf',
+      content: Buffer.from('%PDF-1.4 contenu'),
+      contentType: 'application/pdf',
+    }]))
+    const { client } = makeClient()
+
+    await runNotificationOutboxWorker(client, { NOTIFICATIONS_PAUSED: 'false' }, s, fabricant)
+
+    expect(fabricant).toHaveBeenCalledOnce()
+    const pieces = (s.send as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1] as Array<{ filename: string }>
+    expect(pieces?.[0].filename).toBe('facture_FAC-2026-018.pdf')
+  })
+
+  it('envoie quand meme si la piece jointe echoue', async () => {
+    // Mieux vaut une facture annoncee sans PDF qu'aucune facture annoncee :
+    // le client garde son espace pour la telecharger.
+    const s = sender()
+    const fabricant = vi.fn(async () => { throw new Error('generation impossible') })
+    const { client } = makeClient()
+
+    const r = await runNotificationOutboxWorker(client, { NOTIFICATIONS_PAUSED: 'false' }, s, fabricant)
+
+    expect(s.send).toHaveBeenCalledOnce()
+    expect((s.send as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBeUndefined()
+    expect(r).toMatchObject({ sent: 1 })
   })
 })
