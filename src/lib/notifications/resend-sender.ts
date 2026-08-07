@@ -30,22 +30,37 @@ export interface ResendConfig {
   fetchImpl?: typeof fetch
 }
 
+/**
+ * Montant au format francais : espace insecable pour les milliers, virgule
+ * decimale, symbole euro. "101928.50 EUR" sur une facture de cent mille euros
+ * fait negligé ; c'est un document commercial, il doit en avoir l'air.
+ */
+function montant(valeur: unknown): string | null {
+  const nombre = typeof valeur === 'number' ? valeur : Number.parseFloat(String(valeur ?? ''))
+  if (!Number.isFinite(nombre)) return null
+  return nombre.toLocaleString('fr-FR', {
+    style: 'currency', currency: 'EUR',
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  })
+}
+
 /** Corps du message, distinct par nature de notification. */
 export function buildEmailBody(message: OutboxMessage): string {
   const p = message.payload
 
   if (message.event_type === 'invoice_sent') {
     const numero = String(p.invoice_number ?? p.month ?? '')
-    const ttc = p.total_ttc === undefined || p.total_ttc === null ? null : Number(p.total_ttc)
+    const ttc = montant(p.total_ttc)
     return [
       'Bonjour,',
       '',
       `Votre facture ${numero} est disponible.`,
-      ttc !== null && Number.isFinite(ttc) ? `Montant TTC : ${ttc.toFixed(2)} EUR` : '',
+      ttc ? `Montant TTC : ${ttc}` : '',
       '',
-      'Vous pouvez la consulter depuis votre espace.',
+      'Vous pouvez la consulter depuis votre espace client.',
       '',
-      "L'equipe HOMEMADE eLogistics",
+      'Bien cordialement,',
+      "L'équipe HOMEMADE eLogistics",
     ].filter(Boolean).join('\n')
   }
 
@@ -53,12 +68,15 @@ export function buildEmailBody(message: OutboxMessage): string {
     return [
       'Bonjour,',
       '',
-      `Le stock de ${String(p.sku_code ?? 'un produit')} est passe sous le seuil d'alerte.`,
-      `Quantite restante : ${String(p.qty_current ?? '?')} (seuil : ${String(p.threshold ?? '?')})`,
+      `Le stock de ${String(p.sku_name ?? p.sku_code ?? 'un produit')} est passé sous le seuil d'alerte.`,
       '',
-      'Un reapprovisionnement est a prevoir.',
+      `Quantité restante : ${String(p.qty_current ?? '?')}`,
+      `Seuil d'alerte : ${String(p.threshold ?? '?')}`,
       '',
-      "L'equipe HOMEMADE eLogistics",
+      'Un réapprovisionnement est à prévoir.',
+      '',
+      'Bien cordialement,',
+      "L'équipe HOMEMADE eLogistics",
     ].join('\n')
   }
 
@@ -103,13 +121,15 @@ export function buildEmailBody(message: OutboxMessage): string {
     return [
       'Bonjour,',
       '',
-      'Votre arrivage a ete receptionne a l entrepot.',
-      `References concernees : ${String(p.sku_count ?? '?')}`,
-      `Unites recues : ${String(p.total_units ?? '?')}`,
+      'Votre arrivage a été réceptionné à l\'entrepôt.',
       '',
-      'Le detail est disponible dans votre espace.',
+      `Références concernées : ${String(p.sku_count ?? '?')}`,
+      `Unités reçues : ${String(p.total_units ?? '?')}`,
       '',
-      "L'equipe HOMEMADE eLogistics",
+      'Le détail est disponible dans votre espace client.',
+      '',
+      'Bien cordialement,',
+      "L'équipe HOMEMADE eLogistics",
     ].join('\n')
   }
 
