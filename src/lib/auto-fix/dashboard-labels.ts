@@ -24,11 +24,16 @@ export const AUTO_FIX_STATE_LABELS: Record<AutoFixJobState, string> = {
   queued: 'En file',
   claimed: 'Réclamé',
   planned: 'Planifié',
+  applying: 'Écriture en cours',
   applied: 'Appliqué',
   retry_wait: 'En attente de reprise',
+  retry_verify: 'Vérification à reprendre',
   simulated: 'Simulé',
   pending_manual: 'À traiter manuellement',
   verified: 'Vérifié',
   manual_resolved: 'Résolu manuellement',
   permanent_failed: 'Échec définitif',
+  applied_unverified: 'Appliqué, non vérifié',
+  // Volontairement explicite : "Obsolète" seul laisserait croire a un abandon.
+  obsolete: 'Sans objet, colis déjà parti',
 }
