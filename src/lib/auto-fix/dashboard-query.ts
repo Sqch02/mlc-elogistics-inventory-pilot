@@ -21,7 +21,7 @@ import type {
 const STATE_SAMPLE_LIMIT = 250
 const MANUAL_LIST_LIMIT = 25
 
-const JOB_SAMPLE_COLUMNS = 'id,primary_pattern,detected_patterns,source_kind,source_sendcloud_id,plan_json,created_at'
+const JOB_SAMPLE_COLUMNS = 'id,primary_pattern,detected_patterns,source_kind,source_sendcloud_id,plan_json,last_error_json,created_at'
 
 // Le numero de commande vient de la table shipments : l'audit ne stocke qu'un
 // identifiant technique, et un exploitant ne reconnait pas un UUID. Sans lui,
@@ -172,10 +172,40 @@ function propositionLisible(plan: Json | null): string | null {
   return `Proposition : ${parties.join(', ')}${perte ? ' — une information disparaît, à vérifier.' : ''}`
 }
 
-function manualReason(plan: Json | null, pattern: AutoFixPattern): string {
+/**
+ * Pourquoi le moteur a renonce, dit en clair.
+ *
+ * Mesure du 07/08 : 92 lignes affichaient "Adresse a raccourcir" sans preciser
+ * que le moteur ne pouvait PAS s'en charger. C'est vrai mais trompeur — on
+ * peut attendre indefiniment une correction qui ne viendra jamais. Un colis
+ * deja cree n'est pas modifiable par le moteur, qui n'ecrit que sur les
+ * commandes : cette ligne est donc du travail humain, et doit le dire.
+ */
+function refusLisible(erreur: Json | null): string | null {
+  if (!isRecord(erreur)) return null
+  const raison = typeof erreur.reason === 'string' ? erreur.reason : null
+  if (!raison) return null
+
+  const messages: Record<string, string> = {
+    parcel_not_editable: 'Colis déjà créé : le moteur ne peut pas le modifier, à corriger dans Sendcloud.',
+    order_not_corrigible: 'Commande déjà traitée par le transporteur, elle ne peut plus être modifiée.',
+    order_lookup_not_found: 'Commande introuvable côté Sendcloud, probablement déjà expédiée.',
+    order_ref_unknown: 'Numéro de commande inconnu de notre base, rapprochement impossible.',
+    service_points_not_activated: 'Points relais non activés sur cette intégration Sendcloud.',
+    service_point_still_active: 'Le point relais fonctionne toujours : la cause est ailleurs.',
+    no_replacement_service_point: 'Aucun point relais de remplacement du même réseau à proximité.',
+  }
+  return messages[raison] ?? null
+}
+
+function manualReason(plan: Json | null, pattern: AutoFixPattern, erreur: Json | null = null): string {
   // La proposition concrete passe avant tout message generique.
   const proposition = propositionLisible(plan)
   if (proposition) return proposition
+
+  // Puis le motif du renoncement : il dit a qui revient le travail.
+  const refus = refusLisible(erreur)
+  if (refus) return refus
 
   if (isRecord(plan) && Array.isArray(plan.warnings)) {
     const warning = plan.warnings.find((item): item is string => typeof item === 'string' && item.length > 0)
@@ -283,7 +313,7 @@ export async function readAutoFixDashboard(
       sourceKind: sourceKind(row.source_kind),
       sourceSendcloudId: row.source_sendcloud_id,
       action: actionFromPlan(row.plan_json),
-      reason: manualReason(row.plan_json, pattern),
+      reason: manualReason(row.plan_json, pattern, row.last_error_json ?? null),
       createdAt: row.created_at,
     }
   }
