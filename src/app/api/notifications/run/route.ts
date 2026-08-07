@@ -27,10 +27,47 @@ export async function POST(request: NextRequest) {
   }
 
   const sender = resendSenderFromEnv(process.env)
+  const db = getAdminDb()
+
   const result = await runNotificationOutboxWorker(
-    getAdminDb() as never,
+    db as never,
     process.env,
     sender ?? undefined,
+    async (message) => {
+      if (message.event_type !== 'invoice_sent') return []
+      const invoiceId = message.payload.invoice_id
+      if (typeof invoiceId !== 'string') return []
+
+      const [{ buildInvoicePdfData }, { renderInvoicePdf }] = await Promise.all([
+        import('@/lib/notifications/invoice-attachment'),
+        import('@/lib/utils/invoice-pdf-server'),
+      ])
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const untyped = db as any
+      const { data: facture } = await untyped
+        .from('invoices_monthly')
+        .select('invoice_number, month, created_at, subtotal_ht, vat_amount, total_ttc, missing_pricing_count, invoice_lines(*)')
+        .eq('id', invoiceId)
+        .eq('tenant_id', message.tenant_id)
+        .maybeSingle()
+      if (!facture) return []
+
+      const { data: reglages } = await untyped
+        .from('tenant_settings').select('*').eq('tenant_id', message.tenant_id).maybeSingle()
+      const { data: client } = await untyped
+        .from('tenants').select('name').eq('id', message.tenant_id).maybeSingle()
+
+      const donnees = buildInvoicePdfData(facture, reglages ?? null, client?.name ?? 'Client')
+      if (!donnees) return []
+
+      const rendu = await renderInvoicePdf(donnees)
+      return [{
+        filename: rendu.filename,
+        content: rendu.bytes,
+        contentType: rendu.contentType,
+      }]
+    },
   )
 
   return NextResponse.json(result)

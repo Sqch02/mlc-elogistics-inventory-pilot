@@ -17,7 +17,7 @@
 // est parti, et le seul risque d'un nouvel essai est un doublon, alors que
 // l'abandon perd la notification.
 
-import type { NotificationSender, OutboxMessage, SendOutcome } from './outbox'
+import type { Attachment, NotificationSender, OutboxMessage, SendOutcome } from './outbox'
 
 const RESEND_URL = 'https://api.resend.com/emails'
 
@@ -141,7 +141,7 @@ export function createResendSender(config: ResendConfig): NotificationSender {
 
   return {
     name: 'resend',
-    async send(message: OutboxMessage): Promise<SendOutcome> {
+    async send(message: OutboxMessage, attachments?: Attachment[]): Promise<SendOutcome> {
       try {
         const response = await fetchImpl(RESEND_URL, {
           method: 'POST',
@@ -158,6 +158,14 @@ export function createResendSender(config: ResendConfig): NotificationSender {
             ...(message.cc.length > 0 ? { cc: message.cc } : {}),
             subject: message.subject,
             text: buildEmailBody(message),
+            ...(attachments && attachments.length > 0
+              ? {
+                  attachments: attachments.map((piece) => ({
+                    filename: piece.filename,
+                    content: piece.content.toString('base64'),
+                  })),
+                }
+              : {}),
           }),
         })
 
