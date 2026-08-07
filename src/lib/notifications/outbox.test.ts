@@ -150,4 +150,34 @@ describe('pieces jointes', () => {
     expect((s.send as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBeUndefined()
     expect(r).toMatchObject({ sent: 1 })
   })
+
+  it('laisse une trace quand la piece jointe manque', async () => {
+    // Le repli precedent est volontaire, mais il ne doit pas etre muet : sans
+    // compteur, des clients cesseraient de recevoir leur facture en PDF et
+    // rien ne le signalerait — l'email part, le statut dit "envoye".
+    const journal = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const fabricant = vi.fn(async () => { throw new Error('generation impossible') })
+    const { client } = makeClient()
+
+    const r = await runNotificationOutboxWorker(client, { NOTIFICATIONS_PAUSED: 'false' }, sender(), fabricant)
+
+    expect(r).toMatchObject({ sent: 1, attached: 0, attachmentFailures: 1 })
+    expect(journal).toHaveBeenCalledOnce()
+    journal.mockRestore()
+  })
+
+  it('ne compte la piece jointe que si l envoi a reussi', async () => {
+    // Compter a la fabrication ferait croire que le client a recu un PDF alors
+    // que l'email n'est jamais parti.
+    const fabricant = vi.fn(async () => ([{
+      filename: 'facture.pdf', content: Buffer.from('%PDF'), contentType: 'application/pdf',
+    }]))
+    const { client } = makeClient()
+
+    const r = await runNotificationOutboxWorker(
+      client, { NOTIFICATIONS_PAUSED: 'false' }, sender({ ok: false, error: 'timeout' }), fabricant,
+    )
+
+    expect(r).toMatchObject({ sent: 0, attached: 0, attachmentFailures: 0 })
+  })
 })
