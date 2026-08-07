@@ -135,3 +135,53 @@ describe('detectAutoFixCause', () => {
     expect(detectAutoFixCause(commande, 'integration_shipment')).not.toBeNull()
   })
 })
+
+describe('cas releves en production le 07/08', () => {
+  // Tous les libelles ci-dessous sont copies tels quels depuis la base : ce
+  // sont les messages que Sendcloud a reellement renvoyes, pas des exemples
+  // reconstitues. C'etait la faille — les regles etaient ecrites contre des
+  // formulations supposees.
+
+  const PANNES_TRANSPORTEUR = [
+    'Erreur du transporteur : service indisponible, veuillez réessayer plus tard ou contacter le transporteur pour assistance.',
+    'Le transporteur a renvoyé une erreur : service indisponible. Veuillez réessayer plus tard ou contacter le transporteur pour obtenir de l\'aide.',
+    'Le transporteur a renvoyé une erreur, service indisponible, veuillez réessayer plus tard ou contacter le support.',
+    'Le transporteur a renvoyé une erreur, service indisponible. Veuillez vérifier le site Web du transporteur pour plus d\'informations.',
+  ]
+
+  it.each(PANNES_TRANSPORTEUR)('ne cree aucune tache pour une panne passagere : %s', (message) => {
+    // 47 occurrences en production, premier motif de la file manuelle. Rien
+    // n'y est corrigeable : ce travail n'appartient pas a l'exploitation.
+    expect(detectAutoFixCause({
+      id: 1,
+      status: { id: 1002, message: 'Announcement failed' },
+      errors: { uncategorized: { non_field_errors: [message] } },
+    }, 'parcel')).toBeNull()
+  })
+
+  it('garde le vrai defaut quand il accompagne une panne passagere', () => {
+    // Sinon le filtre masquerait une correction reellement due.
+    const result = detectAutoFixCause({
+      id: 2,
+      status: { id: 1002, message: 'Announcement failed' },
+      to_service_point: 42,
+      errors: {
+        uncategorized: { non_field_errors: ['Le transporteur a renvoyé une erreur, service indisponible.'] },
+        to_service_point: ['Service point no longer operational'],
+      },
+    }, 'parcel')
+    expect(result?.detectedPatterns).toContain('service_point_missing')
+  })
+
+  it('reconnait un point relais ferme', () => {
+    // 17 occurrences classees "cause inconnue" : le motif exigeait un mot
+    // comme "missing" ou "invalid", or le relais n'est pas absent, il a ferme.
+    const result = detectAutoFixCause({
+      id: 3,
+      status: { id: 1002, message: 'Announcement failed' },
+      to_service_point: 11627787,
+      errors: { to_service_point: ['Service point no longer operational'] },
+    }, 'parcel')
+    expect(result?.detectedPatterns).toContain('service_point_missing')
+  })
+})

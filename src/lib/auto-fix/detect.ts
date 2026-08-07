@@ -118,6 +118,27 @@ function extractMaxLength(text: string): number | null {
   return match ? Number.parseInt(match[1], 10) : null
 }
 
+/**
+ * Panne passagere du transporteur, et non un defaut de la commande.
+ *
+ * Mesure du 07/08 : premier motif de la file manuelle, 47 occurrences, et il
+ * en arrivait encore. Rien n'y est corrigeable — le message dit lui-meme de
+ * reessayer plus tard. Ces lignes occupaient l'exploitation avec du travail
+ * qui ne lui appartient pas.
+ *
+ * Le libelle varie beaucoup ("Erreur du transporteur : service indisponible",
+ * "Le transporteur a renvoye une erreur, service indisponible. Veuillez
+ * verifier le site Web du transporteur", au moins sept formulations pour la
+ * meme panne), d'ou un test sur le fond du message et non sur sa forme.
+ */
+function isTransientCarrierError(message: string): boolean {
+  const texte = normalizeText(message)
+  const parleDuTransporteur = /(transporteur|carrier)/.test(texte)
+  const diServiceIndisponible = /(service indisponible|service unavailable|temporarily unavailable|indisponible temporairement)/.test(texte)
+  const inviteAReessayer = /(reessayer|ressayer|try again|later|plus tard)/.test(texte)
+  return diServiceIndisponible && (parleDuTransporteur || inviteAReessayer)
+}
+
 function classifyEvidence(evidence: RawEvidence, raw: Record<string, unknown>): AutoFixPattern[] {
   const field = normalizeText(evidence.field)
   const message = normalizeText(evidence.message)
@@ -154,7 +175,12 @@ function classifyEvidence(evidence: RawEvidence, raw: Record<string, unknown>): 
   }
   if (
     /(service.?point|point relais|pickup.?point|to_service_point)/.test(combined) &&
-    /(selection|select|requis|required|missing|manquant|introuvable|not found|invalid|not valid|blank|null|empty)/.test(combined)
+    // "no longer operational" manquait : le motif s'appelle _missing, mais le
+    // cas reel n'est pas un relais absent, c'est un relais FERME. Mesure du
+    // 07/08 : 17 occurrences classees "cause inconnue" faute de ce vocabulaire,
+    // alors que le remplacement de relais est justement ce que le moteur sait
+    // faire. Un motif qui ne reconnait pas son propre cas d'usage ne sert a rien.
+    /(selection|select|requis|required|missing|manquant|introuvable|not found|invalid|not valid|blank|null|empty|no longer operational|not operational|plus operationnel|closed|ferme|inactive|inactif)/.test(combined)
   ) {
     matches.push('service_point_missing')
   }
@@ -193,6 +219,10 @@ export function detectAutoFixCause(
     ...flattenEvidence(raw.errors, 'errors'),
     ...flattenEvidence(raw.checkout_payload_errors, 'checkout_payload_errors'),
   ]
+    // Une panne passagere du transporteur n'est pas un defaut de la commande.
+    // On l'ecarte comme simple contexte : si la commande porte AUSSI un vrai
+    // defaut, celui-ci subsiste et la tache est creee normalement.
+    .filter((item) => !isTransientCarrierError(item.message))
   const latentEvidence: RawEvidence[] = options.latentRules
     ? findLatentErrors(raw, options.latentRules).map((item) => ({
         source: 'latent' as const,
