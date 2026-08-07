@@ -636,3 +636,74 @@ describe('runAutoFixLiveWorker — refus avant ecriture', () => {
     expect(d.writeParcel).not.toHaveBeenCalled()
   })
 })
+
+describe('coupe avec perte en point relais', () => {
+  // Observation de l'exploitation (07/08) : "Mondial Relay c'est un point de
+  // retrait, donc on n'a pas forcement besoin que l'adresse soit entierement
+  // bonne". Le colis est achemine vers le point, identifie par son
+  // identifiant ; l'adresse du destinataire ne sert pas au routage.
+  const LIVE = { AUTO_FIX_PAUSED: 'false', AUTO_FIX_DRY_RUN_ENABLED: 'true', AUTO_FIX_LIVE_ENABLED: 'true' }
+
+  const adresseLongue = {
+    address_line_1: 'lot les jardins du chateau d eau et des sources',
+    address_line_2: 'Batiment C', house_number: '12',
+    city: 'X', postal_code: '1', country_code: 'FR',
+  }
+
+  const commande = (relais: boolean) => ({
+    id: '841973149', order_number: '#540787',
+    shipping_address: adresseLongue,
+    order_details: { status: { code: 'on_hold' } },
+    ...(relais ? { service_point_details: { id: '11627787' } } : {}),
+  })
+
+  const tache = () => job({
+    source_kind: 'integration_shipment',
+    source_summary_json: { address_limits: [{ field: 'address_1', max: 32 }] },
+  })
+
+  const deps = (relais: boolean) => ({
+    credentials: async () => ({ apiKey: 'k', secret: 's' }),
+    readParcel: vi.fn(async () => null),
+    writeParcel: vi.fn(async () => ({ ok: true as const, status: 200 })),
+    resolveOrderRef: vi.fn(async () => '#540787'),
+    findOrder: vi.fn(async () => ({ ok: true, order: commande(relais) })),
+    patchOrder: vi.fn(async () => ({ ok: true, order: commande(relais) })),
+    verifyOrder: vi.fn(async () => ({ ok: true, ecarts: [] as string[] })),
+  } as unknown as Parameters<typeof runAutoFixLiveWorker>[2] & { patchOrder: ReturnType<typeof vi.fn> })
+
+  it('reste une simple proposition tant que le reglage est absent', async () => {
+    // Desarme par defaut : le raisonnement est solide mais personne n'a encore
+    // vu une etiquette produite ainsi.
+    const { client, names } = makeClient({ claim: [tache()] })
+    const d = deps(true)
+    await runAutoFixLiveWorker(client, LIVE, d)
+
+    expect(d.patchOrder).not.toHaveBeenCalled()
+    expect(names()).toContain('fail_auto_fix_live')
+  })
+
+  it('applique la coupe une fois le reglage arme', async () => {
+    const { client, calls } = makeClient({ claim: [tache()] })
+    const d = deps(true)
+    await runAutoFixLiveWorker(client, { ...LIVE, AUTO_FIX_LOSSY_ON_SERVICE_POINT: 'true' }, d)
+
+    expect(d.patchOrder).toHaveBeenCalledOnce()
+    const plan = calls.find((c) => c.name === 'plan_auto_fix_live')?.args.p_plan as Record<string, unknown>
+    // La tolerance doit rester tracee : sans elle, impossible de distinguer
+    // ensuite une correction sans perte d'une correction toleree.
+    expect(plan.lossy_accepted_reason).toBe('service_point_delivery')
+    expect(plan.lossy_fields).toBeDefined()
+  })
+
+  it('refuse toujours la coupe pour une livraison a domicile', async () => {
+    // La justification tombe des que le colis va chez le destinataire :
+    // l'adresse redevient l'information qui permet de livrer.
+    const { client, names } = makeClient({ claim: [tache()] })
+    const d = deps(false)
+    await runAutoFixLiveWorker(client, { ...LIVE, AUTO_FIX_LOSSY_ON_SERVICE_POINT: 'true' }, d)
+
+    expect(d.patchOrder).not.toHaveBeenCalled()
+    expect(names()).toContain('fail_auto_fix_live')
+  })
+})
