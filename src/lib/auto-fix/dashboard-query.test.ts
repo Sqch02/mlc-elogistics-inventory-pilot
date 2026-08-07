@@ -240,3 +240,42 @@ describe('lisibilite du motif manuel', () => {
     expect(item?.reason).toContain('information')
   })
 })
+
+describe('motif de renoncement du moteur', () => {
+  it('dit qu un colis deja cree revient a l humain', async () => {
+    // Mesure du 07/08 : 92 lignes affichaient "Adresse a raccourcir" sans
+    // preciser que le moteur ne pouvait PAS s'en charger. Vrai mais trompeur :
+    // on attend une correction qui ne viendra jamais. Refus reellement
+    // observe en production apres remise en file de 5 taches.
+    const { client } = fixtureClient({
+      auto_fix_jobs: [job({
+        id: 'colis-1', state: 'pending_manual', source_kind: 'parcel',
+        plan_json: null,
+        last_error_json: { reason: 'parcel_not_editable' },
+      })],
+      auto_fixes: [],
+    })
+    const { client: settings } = fixtureClient({ tenant_settings: [] })
+
+    const board = await readAutoFixDashboard(client, settings, 'tenant-a', { auditLimit: 5 }, {})
+    const item = board.manualItems.find((m) => m.id === 'colis-1')
+    expect(item?.reason).toContain('Sendcloud')
+    expect(item?.reason).toContain('ne peut pas')
+  })
+
+  it('laisse la proposition primer sur le motif de refus', async () => {
+    // Une proposition concrete vaut mieux qu'une explication d'echec.
+    const { client } = fixtureClient({
+      auto_fix_jobs: [job({
+        id: 'ordre-1', state: 'pending_manual',
+        plan_json: { action: 'patch_order_v3', patch: { city: 'Marseille' } },
+        last_error_json: { reason: 'parcel_not_editable' },
+      })],
+      auto_fixes: [],
+    })
+    const { client: settings } = fixtureClient({ tenant_settings: [] })
+
+    const board = await readAutoFixDashboard(client, settings, 'tenant-a', { auditLimit: 5 }, {})
+    expect(board.manualItems.find((m) => m.id === 'ordre-1')?.reason).toContain('Marseille')
+  })
+})
