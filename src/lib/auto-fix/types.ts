@@ -15,17 +15,27 @@ export const AUTO_FIX_PATTERNS = [
 export type AutoFixPattern = (typeof AUTO_FIX_PATTERNS)[number]
 export type AutoFixSourceKind = 'parcel' | 'integration_shipment'
 
+// Doit rester aligne sur la contrainte auto_fix_jobs_state_check en base.
+// Un etat present en base mais absent d'ici est INVISIBLE sur le tableau de
+// bord : une tache bloquee en `applying` n'apparaissait nulle part, alors que
+// c'est precisement le cas qu'il faut voir.
 export const AUTO_FIX_JOB_STATES = [
   'queued',
   'claimed',
   'planned',
+  'applying',
   'applied',
   'retry_wait',
+  'retry_verify',
   'simulated',
   'pending_manual',
   'verified',
   'manual_resolved',
   'permanent_failed',
+  'applied_unverified',
+  // Refermee sans correction : le colis etait deja parti. Voir la migration
+  // 00115 — ces taches representaient 214 des 401 "corrections manuelles".
+  'obsolete',
 ] as const
 
 export const AUTO_FIX_ACTIONS = [
