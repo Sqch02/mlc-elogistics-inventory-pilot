@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createResendSender, resendSenderFromEnv, buildEmailBody } from './resend-sender'
+import { createResendSender, resendSenderFromEnv, buildEmailBody, moisEnFrancais } from './resend-sender'
 import type { OutboxMessage } from './outbox'
 
 const message = (over: Partial<OutboxMessage> = {}): OutboxMessage => ({
@@ -148,5 +148,39 @@ describe('corps du message', () => {
     }))
     expect(arrivage).toContain('arrivage')
     expect(arrivage).toContain('120')
+  })
+})
+
+describe('mois dans le message de facture', () => {
+  it('nomme le mois concerne', () => {
+    // Demande de l'exploitation : un client qui recoit douze factures par an
+    // ne reconnait pas un numero, il cherche le mois.
+    const corps = buildEmailBody({
+      id: 'm1', tenant_id: 't1', event_type: 'invoice_sent',      recipient: 'client@example.com', cc: [], subject: 'peu importe',
+      attempt_count: 0,
+      payload: { invoice_number: 'FAC-2026-018', month: '2026-07', total_ttc: '101928.50' },
+    })
+    expect(corps).toContain('juillet')
+    expect(corps).toContain('FAC-2026-018')
+  })
+
+  it('reste lisible sans mois exploitable', () => {
+    const corps = buildEmailBody({
+      id: 'm2', tenant_id: 't1', event_type: 'invoice_sent',      recipient: 'client@example.com', cc: [], subject: 'peu importe',
+      attempt_count: 0,
+      payload: { invoice_number: 'FAC-2026-018', month: 'inconnu' },
+    })
+    expect(corps).toContain('FAC-2026-018 est disponible')
+  })
+
+  it('ne depend pas des locales du serveur', () => {
+    // toLocaleDateString donnerait un resultat different selon les locales
+    // installees. La table explicite garantit la meme sortie partout.
+    expect(moisEnFrancais('2026-01')).toBe('Janvier 2026')
+    expect(moisEnFrancais('2026-08')).toBe('Août 2026')
+    expect(moisEnFrancais('2026-12')).toBe('Décembre 2026')
+    expect(moisEnFrancais('2026-13')).toBeNull()
+    expect(moisEnFrancais('2026-00')).toBeNull()
+    expect(moisEnFrancais(null)).toBeNull()
   })
 })

@@ -44,6 +44,26 @@ function montant(valeur: unknown): string | null {
   })
 }
 
+const MOIS = [
+  'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+  'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
+]
+
+/**
+ * Mois lisible a partir d'un `YYYY-MM`.
+ *
+ * Table explicite plutot que `toLocaleDateString('fr-FR')` : la sortie ne doit
+ * pas dependre des locales installees sur le serveur. Le meme choix est fait
+ * cote base (fonction `mois_en_francais`), et les deux doivent rester d'accord
+ * — c'est le meme mois qui part dans l'objet et dans le corps du message.
+ */
+export function moisEnFrancais(valeur: unknown): string | null {
+  const texte = typeof valeur === 'string' ? valeur : ''
+  const correspondance = texte.match(/^(\d{4})-(0[1-9]|1[0-2])$/)
+  if (!correspondance) return null
+  return `${MOIS[Number(correspondance[2]) - 1]} ${correspondance[1]}`
+}
+
 /** Corps du message, distinct par nature de notification. */
 export function buildEmailBody(message: OutboxMessage): string {
   const p = message.payload
@@ -51,10 +71,16 @@ export function buildEmailBody(message: OutboxMessage): string {
   if (message.event_type === 'invoice_sent') {
     const numero = String(p.invoice_number ?? p.month ?? '')
     const ttc = montant(p.total_ttc)
+    const mois = moisEnFrancais(p.month)
     return [
       'Bonjour,',
       '',
-      `Votre facture ${numero} est disponible.`,
+      // Le mois vaut mieux qu'un numero pour retrouver une facture : un client
+      // qui en recoit douze par an ne reconnait pas FAC-2026-018, il cherche
+      // "juillet". Meme raison que le nouvel objet du message.
+      mois
+        ? `Votre facture ${numero} pour le mois de ${mois.toLowerCase()} est disponible.`
+        : `Votre facture ${numero} est disponible.`,
       ttc ? `Montant TTC : ${ttc}` : '',
       '',
       'Vous pouvez la consulter depuis votre espace client.',
