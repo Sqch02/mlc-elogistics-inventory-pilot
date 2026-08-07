@@ -97,6 +97,7 @@ type AutoFixJobRow = Record<string, unknown> & {
   source_kind: string
   source_sendcloud_id: string
   source_order_ref_hash: string | null
+  source_order_ref: string | null
   source_fingerprint: string
   primary_pattern: string
   detected_patterns: string[]
