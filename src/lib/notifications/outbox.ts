@@ -51,6 +51,16 @@ export interface OutboxWorkerResult {
   sent: number
   failed: number
   retried: number
+  /** Envois partis AVEC leur piece jointe. */
+  attached: number
+  /**
+   * Envois partis SANS la piece jointe attendue, faute d'avoir pu la fabriquer.
+   *
+   * Ce compteur existe parce que la panne est invisible autrement : l'email
+   * part quand meme, le statut passe a "envoye", et un client cesserait de
+   * recevoir sa facture sans que rien ne le signale.
+   */
+  attachmentFailures: number
 }
 
 type RpcClient = {
@@ -87,7 +97,9 @@ export async function runNotificationOutboxWorker(
 
   const workerId = `mail-${crypto.randomUUID()}`
   const limit = Math.min(100, Math.max(1, Number(env.NOTIFICATIONS_BATCH ?? 20) || 20))
-  const result: OutboxWorkerResult = { workerId, claimed: 0, sent: 0, failed: 0, retried: 0 }
+  const result: OutboxWorkerResult = {
+    workerId, claimed: 0, sent: 0, failed: 0, retried: 0, attached: 0, attachmentFailures: 0,
+  }
 
   const { data, error } = await client.rpc('claim_notifications', {
     p_worker_id: workerId,
@@ -102,6 +114,8 @@ export async function runNotificationOutboxWorker(
   // Sequentiel : un fournisseur d'email a des quotas, et rien ici n'est urgent.
   for (const message of messages) {
     let outcome: SendOutcome
+    // Le compteur doit refleter ce qui est PARTI, pas ce qui a ete fabrique.
+    let porteUnePieceJointe = false
     try {
       // Une piece jointe qui echoue ne doit pas empecher l'envoi : mieux vaut
       // une facture annoncee sans PDF qu'aucune facture annoncee. Le client
@@ -110,10 +124,17 @@ export async function runNotificationOutboxWorker(
       if (buildAttachments) {
         try {
           attachments = await buildAttachments(message)
-        } catch {
+        } catch (error) {
           attachments = undefined
+          result.attachmentFailures += 1
+          // Trace explicite : sans elle, la degradation est indetectable.
+          console.error(
+            `[notifications] piece jointe non fabriquee (${message.event_type}, ${message.id}) :`,
+            error instanceof Error ? error.message : error,
+          )
         }
       }
+      porteUnePieceJointe = (attachments?.length ?? 0) > 0
       outcome = await sender.send(message, attachments)
     } catch (error) {
       outcome = {
@@ -130,6 +151,7 @@ export async function runNotificationOutboxWorker(
         p_provider_message_id: outcome.providerMessageId ?? null,
       })
       result.sent += 1
+      if (porteUnePieceJointe) result.attached += 1
       continue
     }
 
