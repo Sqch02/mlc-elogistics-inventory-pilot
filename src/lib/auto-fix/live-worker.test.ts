@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { runAutoFixLiveWorker, ARMED_LIVE_PATTERNS, servicePointAutoApply } from './live-worker'
+import { runAutoFixLiveWorker, ARMED_LIVE_PATTERNS, servicePointAutoApply, lossyAutoApplyOnServicePoint } from './live-worker'
 
 const LIVE_ENV = {
   AUTO_FIX_PAUSED: 'false',
@@ -705,5 +705,26 @@ describe('coupe avec perte en point relais', () => {
 
     expect(d.patchOrder).not.toHaveBeenCalled()
     expect(names()).toContain('fail_auto_fix_live')
+  })
+})
+
+describe('tolerance point relais pilotable depuis la base', () => {
+  it('s active par le reglage en base, sans variable d environnement', () => {
+    // Pouvoir couper en une requete compte autant que pouvoir activer :
+    // pour une bascule qui touche de vrais colis, le delai de retour en
+    // arriere fait partie de la surete.
+    expect(lossyAutoApplyOnServicePoint({}, true)).toBe(true)
+    expect(lossyAutoApplyOnServicePoint({}, false)).toBe(false)
+    expect(lossyAutoApplyOnServicePoint({}, undefined)).toBe(false)
+  })
+
+  it('laisse l environnement forcer l arret malgre la base', () => {
+    // Le cran d'arret d'urgence : si la base dit oui a tort, une variable
+    // suffit a tout stopper.
+    expect(lossyAutoApplyOnServicePoint({ AUTO_FIX_LOSSY_ON_SERVICE_POINT: 'false' }, true)).toBe(false)
+  })
+
+  it('laisse l environnement forcer l activation', () => {
+    expect(lossyAutoApplyOnServicePoint({ AUTO_FIX_LOSSY_ON_SERVICE_POINT: 'true' }, false)).toBe(true)
   })
 })

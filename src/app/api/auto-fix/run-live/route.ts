@@ -35,7 +35,19 @@ export async function POST(request: NextRequest) {
   // locale a l'appel.
   const rpcClient = db as unknown as Parameters<typeof runAutoFixLiveWorker>[0]
 
+  // Tolerance de coupe en point relais, lue en base a chaque passage. La lire
+  // ici plutot que dans l'environnement permet de la couper en une requete si
+  // une etiquette pose probleme, sans attendre un redeploiement.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: reglage } = await (db as any)
+    .from('app_config')
+    .select('value')
+    .eq('key', 'auto_fix_lossy_on_service_point')
+    .maybeSingle()
+  const lossyOnServicePoint = String(reglage?.value ?? '').trim().toLowerCase() === 'true'
+
   const result = await runAutoFixLiveWorker(rpcClient, process.env, {
+    lossyOnServicePoint,
     async credentials(tenantId: string): Promise<SendcloudCredentials | null> {
       const { data } = await db
         .from('tenant_settings')

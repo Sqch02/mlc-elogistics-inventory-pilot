@@ -185,3 +185,36 @@ describe('cas releves en production le 07/08', () => {
     expect(result?.detectedPatterns).toContain('service_point_missing')
   })
 })
+
+describe('numero de voie exige (releve du 09/08)', () => {
+  it('classe un numero de voie obligatoire avec les corrections d adresse', () => {
+    // Sans cette classification la tache restait en "cause inconnue" et
+    // n'etait jamais planifiee : la reparation existait mais ne tournait
+    // jamais. C'est le meme plan qui sait recuperer le numero.
+    const result = detectAutoFixCause({
+      shipment_uuid: 'u1',
+      address: 'rue dieffiere n°13',
+      house_number: '',
+      errors: { house_number: ['Ce champ est obligatoire.'] },
+    }, 'integration_shipment')
+    expect(result?.detectedPatterns).toContain('address_too_long')
+  })
+
+  it('classe aussi la variante anglaise', () => {
+    const result = detectAutoFixCause({
+      shipment_uuid: 'u2',
+      address: 'rue dieffiere n°13',
+      house_number: '',
+      errors: { house_number: ['This field is required.'] },
+    }, 'integration_shipment')
+    expect(result?.detectedPatterns).toContain('address_too_long')
+  })
+
+  it('ne classe pas un autre champ obligatoire comme une adresse trop longue', () => {
+    const result = detectAutoFixCause({
+      shipment_uuid: 'u3',
+      errors: { shipping_method: ['This field is required.'] },
+    }, 'integration_shipment')
+    expect(result?.detectedPatterns).not.toContain('address_too_long')
+  })
+})

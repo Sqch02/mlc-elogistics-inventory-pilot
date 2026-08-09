@@ -161,6 +161,19 @@ function classifyEvidence(evidence: RawEvidence, raw: Record<string, unknown>): 
   ) {
     matches.push('address_too_long')
   }
+  // Numero de voie EXIGE mais vide. Range avec les corrections d'adresse parce
+  // que c'est le meme plan qui le traite : il sait recuperer le numero depuis
+  // le libelle de rue ("rue dieffiere n°13") ou le complement.
+  //
+  // Sans cette ligne, la tache restait en "cause inconnue" et n'etait donc
+  // jamais planifiee — la reparation existait mais ne tournait jamais. Releve
+  // le 09/08 sur des commandes belges.
+  if (
+    /house.?number/.test(field) &&
+    /(obligatoire|required|requis|manquant|missing|blank|empty|vide|ce champ)/.test(combined)
+  ) {
+    matches.push('address_too_long')
+  }
   if (
     /(hs.?code|harmonized|code douan|origin_country|country of origin|pays d.origine)/.test(combined) &&
     /(requis|required|missing|manquant|vide|blank)/.test(combined)
