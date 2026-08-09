@@ -74,14 +74,25 @@ export function servicePointAutoApply(env: Record<string, string | undefined>): 
  * Mesure : 24 des 39 arbitrages en attente concernent une livraison en point
  * relais.
  *
- * DESARME PAR DEFAUT. Le raisonnement ci-dessus est solide mais il reste un
- * raisonnement : personne n'a encore vu une etiquette produite ainsi. On
- * calcule donc la proposition, on la rend visible, et on attend que
- * l'exploitation en valide quelques-unes avant d'ouvrir le robinet — la meme
- * progression que pour les adresses et le CHF.
+ * Confirme deux fois par l'exploitation, la seconde spontanement le 09/08 en
+ * envoyant onze corrections faites a la main.
+ *
+ * PILOTABLE DEPUIS LA BASE, et pas seulement par variable d'environnement.
+ * C'est ce qui permet de le couper en une requete si une etiquette pose
+ * probleme, sans attendre un redeploiement — pour une bascule qui touche de
+ * vrais colis, le delai de retour en arriere compte autant que la bascule.
+ *
+ * La variable d'environnement reste prioritaire : elle permet de forcer l'arret
+ * meme si la base dit le contraire.
  */
-export function lossyAutoApplyOnServicePoint(env: Record<string, string | undefined>): boolean {
-  return env.AUTO_FIX_LOSSY_ON_SERVICE_POINT === 'true'
+export function lossyAutoApplyOnServicePoint(
+  env: Record<string, string | undefined>,
+  reglageBase?: boolean,
+): boolean {
+  // Un arret explicite par l'environnement l'emporte sur tout le reste.
+  if (env.AUTO_FIX_LOSSY_ON_SERVICE_POINT === 'false') return false
+  if (env.AUTO_FIX_LOSSY_ON_SERVICE_POINT === 'true') return true
+  return reglageBase === true
 }
 
 interface LiveJob {
@@ -119,6 +130,11 @@ export interface LiveWorkerDependencies {
    * les deux mondes.
    */
   resolveOrderRef?: (tenantId: string, sendcloudId: string) => Promise<string | null>
+  /**
+   * Reglage de tolerance lu en base, pour pouvoir couper sans redeployer.
+   * Absent, seule la variable d'environnement decide.
+   */
+  lossyOnServicePoint?: boolean
   findOrder?: typeof findOrderByNumber
   patchOrder?: typeof patchOrderShippingAddress
   verifyOrder?: typeof verifyOrderAddress
@@ -461,7 +477,7 @@ async function corrigerCommandeImportee(
   const versPointRelais = Boolean(order.service_point_details?.id)
   const perteAcceptable = plan.reason === 'lossy_shortening_requires_review'
     && versPointRelais
-    && lossyAutoApplyOnServicePoint(env)
+    && lossyAutoApplyOnServicePoint(env, deps.lossyOnServicePoint)
 
   if (!plan.ready && !perteAcceptable) {
     // On refuse d'appliquer, mais on enregistre CE QU'ON AURAIT FAIT. Sans
