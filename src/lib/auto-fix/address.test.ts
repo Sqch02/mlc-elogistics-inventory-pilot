@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shortenAddressField, planAddressShortening } from './address'
+import { shortenAddressField, planAddressShortening, nettoyerVille, recoverHouseNumberFromStreet } from './address'
 
 describe('shortenAddressField', () => {
   it('abbreviates known tokens without losing meaning', () => {
@@ -136,5 +136,113 @@ describe('planAddressShortening', () => {
         lossy: false,
       },
     ])
+  })
+})
+
+describe('villes refusees par Mondial Relay (captures du 09/08)', () => {
+  // Valeurs copiees telles quelles depuis les commandes que l'exploitation a
+  // corrigees a la main. Mondial Relay limite la ville a 26 caracteres, la ou
+  // Chronopost accepte 30 : c'est ce qui explique le volume Mondial Relay.
+
+  it('retire le code postal recopie entre parentheses (#547015)', () => {
+    // "Ensure that city has at most 26 characters (it has 30)."
+    // Le code postal est deja dans son champ : le retirer ne perd rien.
+    const r = nettoyerVille('Villeneuve-Les-Sablons (60175)', '60175')
+    expect(r.value).toBe('Villeneuve-Les-Sablons')
+    expect(r.value.length).toBeLessThanOrEqual(26)
+    expect(r.applied).toContain('drop_postal_code_in_city')
+  })
+
+  it('retire l arrondissement porte par le code postal (#546574)', () => {
+    // "Marseille 12ème arrondissement" avec 13012 : les deux derniers
+    // chiffres du code designent deja le 12e.
+    const r = nettoyerVille('Marseille 12ème arrondissement', '13012')
+    expect(r.value).toBe('Marseille')
+    expect(r.applied).toContain('drop_arrondissement_in_city')
+  })
+
+  it('NE retire PAS un arrondissement que le code postal ne confirme pas', () => {
+    // La retenue est le coeur du sujet : si les numeros divergent, ce n'est
+    // plus un doublon mais une vraie information, et la supprimer changerait
+    // la destination.
+    const r = nettoyerVille('Marseille 12ème arrondissement', '13000')
+    expect(r.value).toBe('Marseille 12ème arrondissement')
+    expect(r.applied).toEqual([])
+  })
+
+  it('NE retire PAS une parenthese qui n est pas le code postal', () => {
+    const r = nettoyerVille('Saint-Denis (La Reunion)', '97400')
+    expect(r.value).toBe('Saint-Denis (La Reunion)')
+    expect(r.applied).toEqual([])
+  })
+
+  it('corrige la ville sans perte dans le plan complet', () => {
+    // Le test qui compte vraiment : ces commandes ne doivent plus partir en
+    // arbitrage humain.
+    const plan = planAddressShortening(
+      {
+        address: "rue de l'argilière", house_number: '39',
+        city: 'Villeneuve-Les-Sablons (60175)', postal_code: '60175',
+      },
+      [{ field: 'city', max: 26 }],
+    )
+    expect(plan.ready).toBe(true)
+    expect(plan.lossyFields).toEqual([])
+    expect(plan.patch.city).toBe('Villeneuve-Les-Sablons')
+  })
+
+  it('corrige Marseille sans perte dans le plan complet', () => {
+    const plan = planAddressShortening(
+      {
+        address: 'AVENUE WILLIAM BOOTH', house_number: '153',
+        city: 'Marseille 12ème arrondissement', postal_code: '13012',
+      },
+      [{ field: 'city', max: 26 }],
+    )
+    expect(plan.ready).toBe(true)
+    expect(plan.lossyFields).toEqual([])
+    expect(plan.patch.city).toBe('Marseille')
+  })
+})
+
+describe('numero de voie ecrit dans la rue (capture #546576)', () => {
+  it('recupere le numero precede de son marqueur', () => {
+    // Belgique, "Ce champ est obligatoire" sur le numero de voie alors que
+    // la rue vaut "rue dieffiere n°13".
+    const r = recoverHouseNumberFromStreet('', 'rue dieffiere n°13')
+    expect(r).toEqual({ houseNumber: '13', street: 'rue dieffiere' })
+  })
+
+  it('NE devine PAS un numero sans marqueur', () => {
+    // "rue du 8 mai 1945" se termine par un nombre qui n'est pas un numero de
+    // voie. Se tromper enverrait le colis a une autre porte.
+    expect(recoverHouseNumberFromStreet('', 'rue du 8 mai 1945')).toBeNull()
+    expect(recoverHouseNumberFromStreet('', 'avenue du 11 novembre')).toBeNull()
+  })
+
+  it('ne touche a rien si le numero est deja renseigne', () => {
+    expect(recoverHouseNumberFromStreet('7', 'rue dieffiere n°13')).toBeNull()
+  })
+
+  it('refuse de vider le libelle de rue', () => {
+    expect(recoverHouseNumberFromStreet('', 'n°13')).toBeNull()
+  })
+
+  it('n agit que lorsque le refus porte sur le numero de voie', () => {
+    // Sans refus sur ce champ, on ne touche pas : 100 commandes sur 100 ont un
+    // numero vide sans que cela pose probleme.
+    const sansRefus = planAddressShortening(
+      { address: 'rue dieffiere n°13', house_number: '', city: 'maulde', postal_code: '7534' },
+      [{ field: 'city', max: 26 }],
+    )
+    expect(sansRefus.patch.house_number).toBeUndefined()
+
+    const avecRefus = planAddressShortening(
+      { address: 'rue dieffiere n°13', house_number: '', city: 'maulde', postal_code: '7534' },
+      [{ field: 'house_number', max: 20 }],
+    )
+    expect(avecRefus.patch.house_number).toBe('13')
+    expect(avecRefus.patch.address).toBe('rue dieffiere')
+    expect(avecRefus.lossyFields).toEqual([])
   })
 })
