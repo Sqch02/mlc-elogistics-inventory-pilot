@@ -180,6 +180,59 @@ export function stripAdministrativeTail(value: string, minLength = 3): { value: 
 }
 
 /**
+ * Nettoie la VILLE de ce que la commande porte deja ailleurs.
+ *
+ * CAS REELS releves par l'exploitation le 09/08, tous refuses par Mondial
+ * Relay dont la limite de ville est 26 caracteres :
+ *
+ *   "Villeneuve-Les-Sablons (60175)"   30 -> 22   code postal deja en champ
+ *   "Marseille 12eme arrondissement"   30 ->  9   13012 porte l'arrondissement
+ *
+ * Sans ce nettoyage, ces deux villes partaient en troncature aveugle
+ * ("Marseille 12eme arrondis") et donc en arbitrage humain. Or il n'y a rien a
+ * arbitrer : l'information retiree est deja dans le champ code postal.
+ *
+ * Strictement sans perte, et c'est verifie plutot que suppose — on n'enleve
+ * l'arrondissement que si le code postal porte EXACTEMENT le meme numero.
+ */
+export function nettoyerVille(
+  value: string,
+  postalCode?: string,
+): { value: string; applied: string[] } {
+  const applied: string[] = []
+  let ville = value.trim()
+  const cp = (postalCode ?? '').trim()
+
+  // 1. Code postal recopie entre parentheses. On exige la correspondance
+  //    exacte : "(Sud)" ou "(Haute-Ville)" ne sont pas des doublons.
+  if (cp) {
+    const sansParenthese = ville.replace(new RegExp(`\\s*\\(\\s*${cp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\)\\s*$`), '')
+    if (sansParenthese !== ville && sansParenthese.trim().length >= 2) {
+      ville = sansParenthese.trim()
+      applied.push('drop_postal_code_in_city')
+    }
+  }
+
+  // 2. Arrondissement deja porte par le code postal. Les deux derniers
+  //    chiffres du code le designent : 13012 -> 12e, 75011 -> 11e.
+  //
+  //    On ne retire RIEN si les numeros different : ce serait alors une vraie
+  //    perte d'information, pas un doublon.
+  const arrondissement = ville.match(/^(.*?)[\s,]+(\d{1,2})\s*(?:e|er|eme|ème|ère)?\s*(?:arr\.?|arrondissement)$/i)
+  if (arrondissement && cp.length === 5) {
+    const numeroVille = Number(arrondissement[2])
+    const numeroCode = Number(cp.slice(-2))
+    const tete = arrondissement[1].trim()
+    if (numeroVille === numeroCode && tete.length >= 2) {
+      ville = tete
+      applied.push('drop_arrondissement_in_city')
+    }
+  }
+
+  return { value: ville, applied }
+}
+
+/**
  * Retire du libelle de voie ce que la commande porte deja dans ses champs
  * structures : code postal, ville en fin de chaine, et numero de voie recopie.
  * Strictement sans perte — on ne supprime qu'un doublon exact.
@@ -349,6 +402,42 @@ export function recoverHouseNumber(
   return { houseNumber: match[1].replace(/\s+/g, ' ').trim(), source: 'address_2' }
 }
 
+/**
+ * Recupere un numero de voie ecrit DANS le libelle de rue, a la belge.
+ *
+ * CAS REEL (#546576, 09/08, Belgique) : rue "rue dieffiere n°13", numero de
+ * voie VIDE -> "Ce champ est obligatoire". Le numero est la, precede de son
+ * marqueur.
+ *
+ * ON EXIGE LE MARQUEUR "n°". Un nombre en fin de libelle ne suffit pas : "rue
+ * du 8 mai 1945" ou "avenue du 11 novembre" se terminent par un nombre qui
+ * n'est pas un numero de voie. Le marqueur leve l'ambiguite, et sans lui on
+ * prefere ne rien faire — se tromper de numero envoie le colis a une autre
+ * porte.
+ *
+ * Ne se declenche QUE sur un refus constate. La mesure du 07/08 est formelle :
+ * 100 commandes sur 100 ont un numero de voie vide sans que cela pose
+ * probleme. Ce vide n'est donc pas une anomalie en soi.
+ */
+export function recoverHouseNumberFromStreet(
+  houseNumber: string | undefined,
+  street: string | undefined,
+): { houseNumber: string; street: string } | null {
+  if (houseNumber && houseNumber.trim() !== '') return null
+
+  const libelle = (street ?? '').trim()
+  if (!libelle) return null
+
+  const match = libelle.match(/^(.*?)[\s,]*\bn(?:o|°|º)\s*\.?\s*(\d{1,5}\s*(?:bis|ter|quater|[A-Za-z])?)\s*$/i)
+  if (!match) return null
+
+  const reste = match[1].trim().replace(/[\s,]+$/, '')
+  // Sans libelle de rue restant, on n'aurait plus d'adresse du tout.
+  if (reste.length < 3) return null
+
+  return { houseNumber: match[2].replace(/\s+/g, ' ').trim(), street: reste }
+}
+
 export interface AddressContextResult extends ShortenResult {
   /** Renseigne quand un complement a ete deplace vers un `address_2` vide. */
   address2?: string
@@ -507,6 +596,26 @@ export function planAddressShortening(
     })
   }
 
+  // Meme idee, mais le numero dort dans le libelle de rue : "rue dieffiere
+  // n°13". On ne le fait QUE si le refus porte sur le numero de voie — le
+  // champ est vide sur la quasi-totalite des commandes sans que cela gene.
+  const numeroExige = limits.some((limit) => canonicalField(limit.field) === 'house_number')
+  if (!patch.house_number && numeroExige) {
+    const extrait = recoverHouseNumberFromStreet(asText('house_number'), asText('address'))
+    if (extrait) {
+      patch.house_number = extrait.houseNumber
+      patch.address = extrait.street
+      audit.push({
+        field: 'house_number',
+        before_length: 0,
+        after_length: extrait.houseNumber.length,
+        limit: 0,
+        applied: ['recover_house_number_from_street'],
+        lossy: false,
+      })
+    }
+  }
+
   // Le numero de voie se traite AVANT le reste : quand il contient du texte
   // d'adresse, le rendre a sa place peut suffire a resoudre le depassement de
   // la voie elle-meme, et il n'y a alors plus rien a raccourcir.
@@ -558,9 +667,19 @@ export function planAddressShortening(
     // La ville subit le meme traitement que la voie : "Marseille,
     // Bouches-du-Rhone, France" doit devenir "Marseille", pas etre tronque a
     // trente caracteres au milieu d'un mot.
-    const queue = field === 'city' || field === 'address_2'
+    let queue = field === 'city' || field === 'address_2'
       ? stripAdministrativeTail(value)
       : { value, applied: [] as string[] }
+
+    // Puis les doublons propres a la ville : code postal entre parentheses,
+    // arrondissement deja porte par le code. Sans perte, donc avant toute
+    // troncature — c'est ce qui evite un arbitrage humain inutile.
+    if (field === 'city') {
+      const propre = nettoyerVille(queue.value, asText('postal_code'))
+      if (propre.applied.length > 0) {
+        queue = { value: propre.value, applied: [...queue.applied, ...propre.applied] }
+      }
+    }
 
     const result =
       field === 'address'
