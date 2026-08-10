@@ -156,7 +156,12 @@ function classifyEvidence(evidence: RawEvidence, raw: Record<string, unknown>): 
     matches.push('currency_chf')
   }
   if (
-    /(address|adresse|city|ville|house.?number|postal|address_add)/.test(combined) &&
+    // `name` et `company_name` sont bien des champs du bloc destinataire :
+    // c'est le meme plan qui les traite, en basculant une organisation collee
+    // au nom vers son propre champ. Sans eux ici, la limite arrivait depuis le
+    // refus mais la tache restait en "cause inconnue" et n'etait jamais
+    // planifiee. Releve le 09/08 sur quatre commandes.
+    /(address|adresse|city|ville|house.?number|postal|address_add|\bname\b|company)/.test(combined) &&
     /(caracter|character|trop long|too long|depasse|exceed|raccourcir|at most|max)/.test(combined)
   ) {
     matches.push('address_too_long')

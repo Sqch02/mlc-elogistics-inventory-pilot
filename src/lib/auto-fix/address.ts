@@ -19,6 +19,12 @@ const ADDRESS_FIELDS = [
   'house_number',
   'city',
   'postal_code',
+  // Le nom du destinataire a lui aussi une limite, et elle varie selon le
+  // transporteur : 32 caracteres constate chez Colis Prive, 35 ailleurs. Sans
+  // ce champ dans la liste, la limite arrivait bien depuis le refus mais le
+  // plan l'ignorait — la tache restait en "cause inconnue".
+  'name',
+  'company_name',
 ] as const
 
 export type AddressField = (typeof ADDRESS_FIELDS)[number]
@@ -438,6 +444,79 @@ export function recoverHouseNumberFromStreet(
   return { houseNumber: match[2].replace(/\s+/g, ' ').trim(), street: reste }
 }
 
+/**
+ * Marqueurs d'organisation, choisis pour ne jamais etre un patronyme.
+ *
+ * "Martin", "Leclerc" ou "Bernard" sont des noms de famille courants ET des
+ * enseignes : ils n'ont donc rien a faire ici. Ceux retenus ci-dessous ne se
+ * portent pas comme nom de personne en France.
+ */
+const MARQUEURS_ORGANISATION = [
+  'croix-rouge', 'croix rouge', 'secours populaire', 'secours catholique',
+  'association', 'assoc.', 'fondation', 'federation', 'amicale',
+  'sarl', 'sasu', 'sas', 'eurl', 'sci', 'scop', 'scic', 'gaec', 'earl',
+  'mairie', 'ccas', 'prefecture', 'communaute de communes',
+  'hopital', 'clinique', 'ehpad', 'maison de retraite', 'residence',
+  'foyer', 'centre hospitalier', 'cabinet', 'pharmacie', 'laboratoire',
+  'ecole', 'college', 'lycee', 'universite', 'institut', 'ime', 'esat', 'mas',
+  'etablissement', 'entreprise individuelle', 'societe',
+  'restaurant', 'boulangerie', 'camping', 'hotel',
+]
+
+/**
+ * Bascule une organisation collee au nom vers le champ entreprise.
+ *
+ * CAS REEL (#546632, capture du 09/08) : "Christine HEGY Croix-Rouge
+ * Française" fait 36 caracteres, la limite est 32, et le champ entreprise
+ * juste a cote est VIDE. Refus : "Ensure that name has at most 32 characters".
+ *
+ * L'exploitation corrige exactement ainsi — confirme par Quentin le 10/08 :
+ * « tu peux basculer la dessus car c'est ce que je fais actuellement ».
+ * Rien n'est perdu : l'information change de champ, elle reste imprimee.
+ *
+ * ON N'AGIT QUE SUR MARQUEUR RECONNU. Sans marqueur, impossible de savoir ou
+ * finit la personne et ou commence la structure, et se tromper couperait le
+ * nom du destinataire — celui qui sert a retirer le colis au point relais. On
+ * rend alors la main plutot que de deviner.
+ */
+export function extraireOrganisation(
+  nom: string | undefined,
+  entrepriseExistante: string | undefined,
+  limiteNom: number,
+  limiteEntreprise = 50,
+): { name: string; company_name: string } | null {
+  const complet = (nom ?? '').trim()
+  if (!complet || complet.length <= limiteNom) return null
+
+  // Jamais ecraser une entreprise deja renseignee.
+  if ((entrepriseExistante ?? '').trim() !== '') return null
+
+  const normalise = complet
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+
+  let debut = -1
+  for (const marqueur of MARQUEURS_ORGANISATION) {
+    const position = normalise.indexOf(marqueur)
+    // Position 0 : le nom EST l'organisation, il n'y a pas de personne a
+    // separer. On ne touche pas.
+    if (position > 0 && (debut === -1 || position < debut)) debut = position
+  }
+  if (debut <= 0) return null
+
+  const personne = complet.slice(0, debut).trim().replace(/[,;-]+$/, '').trim()
+  const organisation = complet.slice(debut).trim()
+
+  // Deux parties reellement exploitables, sinon on n'a rien separe d'utile.
+  if (personne.length < 3 || organisation.length < 3) return null
+  // Si la personne seule depasse encore, la bascule ne resout pas le refus.
+  if (personne.length > limiteNom) return null
+  // Et l'organisation doit tenir dans son propre champ.
+  if (organisation.length > limiteEntreprise) return null
+
+  return { name: personne, company_name: organisation }
+}
+
 export interface AddressContextResult extends ShortenResult {
   /** Renseigne quand un complement a ete deplace vers un `address_2` vide. */
   address2?: string
@@ -613,6 +692,27 @@ export function planAddressShortening(
         applied: ['recover_house_number_from_street'],
         lossy: false,
       })
+    }
+  }
+
+  // Le nom se traite avant tout raccourcissement : basculer l'organisation
+  // dans son champ resout le depassement SANS RIEN PERDRE, la ou tronquer le
+  // nom du destinataire lui ferait perdre celui qui sert a retirer le colis.
+  const limiteNom = strictest.get('name')
+  if (limiteNom !== undefined) {
+    const separe = extraireOrganisation(asText('name'), asText('company_name'), limiteNom)
+    if (separe) {
+      patch.name = separe.name
+      patch.company_name = separe.company_name
+      audit.push({
+        field: 'name',
+        before_length: (asText('name') ?? '').length,
+        after_length: separe.name.length,
+        limit: limiteNom,
+        applied: ['move_organisation_to_company'],
+        lossy: false,
+      })
+      strictest.delete('name')
     }
   }
 
