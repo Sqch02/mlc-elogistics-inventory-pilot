@@ -421,9 +421,12 @@ async function runSync(correlationId: string) {
               maxPages,
               onPaginationCap,
             )
-          : Promise.resolve({
-              items: [], pagesFetched: 0, hasMore: false, nextCursor: undefined,
-            } as BoundedFetchResult<ParsedReturn>),
+          // Volontairement `undefined`, et non un resultat vide : c'est ce qui
+          // empeche STRUCTURELLEMENT d'enregistrer un point de reprise pour une
+          // lecture qui n'a pas eu lieu. Un resultat vide passait les controles
+          // existants, rafraichissait l'horodatage a chaque cycle, et la
+          // ressource cessait d'etre lue pour toujours.
+          : Promise.resolve(undefined),
       ])
 
       const parcelFetch: BoundedFetchResult<ParsedShipment> | undefined =
@@ -471,7 +474,17 @@ async function runSync(correlationId: string) {
             resumed: storedIntegrationContinuations.size > 0,
             error: errorMessage(integrationSettled.reason),
           },
-        returns: returnFetch ? {
+        returns: !returnsDus ? {
+          // Dire qu'on n'a pas lu, et non qu'on n'a rien trouve.
+          status: 'success',
+          fetched: 0,
+          pages_fetched: 0,
+          pagination_capped: false,
+          has_more: returnDrain.resuming,
+          resumed: returnDrain.resuming,
+          watermark_before: returnDrain.watermark,
+          skipped_reason: 'interval_not_elapsed',
+        } : returnFetch ? {
           status: returnFetch.hasMore ? 'partial' : 'success',
           fetched: returnFetch.items.length,
           pages_fetched: returnFetch.pagesFetched,
@@ -909,6 +922,14 @@ async function runSync(correlationId: string) {
       }
       resourceStats.integration_shipments = aggregateIntegrationStats(integrationOutcomes)
 
+      // Une lecture sautee n'enregistre RIEN.
+      //
+      // Sinon l'horodatage du point de reprise se rafraichit a chaque cycle,
+      // ne vieillit jamais, et l'intervalle horaire n'est jamais atteint : la
+      // ressource cesse d'etre lue pour toujours. C'est exactement ce qui
+      // s'est produit apres le premier deploiement, et seule la remesure l'a
+      // montre — le tableau annoncait "succes, 0 retour", ce qui se lit comme
+      // "j'ai regarde, il n'y avait rien".
       if (returnFetch) {
         if (returnsPersistenceError) {
           resourceStats.returns.status = 'failed'
