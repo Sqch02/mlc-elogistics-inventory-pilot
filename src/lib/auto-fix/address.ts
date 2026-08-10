@@ -445,6 +445,54 @@ export function recoverHouseNumberFromStreet(
 }
 
 /**
+ * Retire du nom l'entreprise que la commande porte DEJA dans son champ.
+ *
+ * CAS REELS, lus le 10/08 sur les commandes que le moteur n'arrivait pas a
+ * traiter :
+ *
+ *   nom "Port de Gustavia Bateau Elios Angel Deborah"  (43)
+ *   entreprise "Port de Gustavia Bateau"               -> nom "Elios Angel Deborah"
+ *
+ *   nom "Confiance obseques Chevalier Karine"          (35)
+ *   entreprise "Confiance obseques"                    -> nom "Chevalier Karine"
+ *
+ * C'est le motif DOMINANT, et non celui de la capture #546632 : le champ
+ * entreprise est deja rempli, et son contenu est recopie en tete du nom.
+ *
+ * Strictement sans perte : on ne supprime qu'un doublon exact de ce qui est
+ * deja imprime par ailleurs. Meme principe que pour le libelle de voie, ou
+ * l'on retire le code postal et la ville deja portes par leurs champs.
+ */
+export function retirerEntrepriseDupliquee(
+  nom: string | undefined,
+  entreprise: string | undefined,
+): { name: string } | null {
+  const complet = (nom ?? '').trim()
+  const societe = (entreprise ?? '').trim()
+  if (!complet || !societe) return null
+
+  const cle = (valeur: string) => valeur
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/\s+/g, ' ').trim()
+
+  const nomCle = cle(complet)
+  const societeCle = cle(societe)
+  if (!nomCle.startsWith(societeCle)) return null
+
+  // On coupe sur la chaine d'origine, a la longueur du doublon normalise.
+  // Les deux cles partagent le meme nombre de caracteres visibles ici, les
+  // accents etant conserves par NFD sous forme de marques combinantes.
+  let reste = complet.normalize('NFD').slice(societe.normalize('NFD').length)
+  reste = reste.normalize('NFC').replace(/^[\s,;:-]+/, '').trim()
+
+  // Sans reste exploitable, le nom EST l'entreprise : le vider laisserait le
+  // colis sans destinataire nomme.
+  if (reste.length < 3) return null
+
+  return { name: reste }
+}
+
+/**
  * Marqueurs d'organisation, choisis pour ne jamais etre un patronyme.
  *
  * "Martin", "Leclerc" ou "Bernard" sont des noms de famille courants ET des
@@ -700,7 +748,27 @@ export function planAddressShortening(
   // nom du destinataire lui ferait perdre celui qui sert a retirer le colis.
   const limiteNom = strictest.get('name')
   if (limiteNom !== undefined) {
-    const separe = extraireOrganisation(asText('name'), asText('company_name'), limiteNom)
+    // 1. Doublon exact de l'entreprise en tete du nom : motif le plus frequent,
+    //    et le seul totalement sans perte puisque l'information reste imprimee
+    //    par son propre champ.
+    const degroupe = retirerEntrepriseDupliquee(asText('name'), asText('company_name'))
+    if (degroupe && degroupe.name.length <= limiteNom) {
+      patch.name = degroupe.name
+      audit.push({
+        field: 'name',
+        before_length: (asText('name') ?? '').length,
+        after_length: degroupe.name.length,
+        limit: limiteNom,
+        applied: ['drop_duplicated_company_in_name'],
+        lossy: false,
+      })
+      strictest.delete('name')
+    }
+
+    // 2. Sinon, organisation collee au nom avec un champ entreprise VIDE.
+    const separe = strictest.has('name')
+      ? extraireOrganisation(asText('name'), asText('company_name'), limiteNom)
+      : null
     if (separe) {
       patch.name = separe.name
       patch.company_name = separe.company_name

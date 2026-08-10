@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shortenAddressField, planAddressShortening, nettoyerVille, recoverHouseNumberFromStreet, extraireOrganisation } from './address'
+import { shortenAddressField, planAddressShortening, nettoyerVille, recoverHouseNumberFromStreet, extraireOrganisation, retirerEntrepriseDupliquee } from './address'
 
 describe('shortenAddressField', () => {
   it('abbreviates known tokens without losing meaning', () => {
@@ -305,5 +305,51 @@ describe('marqueurs accentues', () => {
   it('reconnait un marqueur en majuscules', () => {
     expect(extraireOrganisation('Paul Martin EHPAD Les Tilleuls', '', 20))
       .toEqual({ name: 'Paul Martin', company_name: 'EHPAD Les Tilleuls' })
+  })
+})
+
+describe('entreprise recopiee en tete du nom (commandes reelles du 10/08)', () => {
+  it('retire le doublon exact — #547242', () => {
+    // nom 43 caracteres, entreprise deja renseignee et recopiee en tete.
+    const r = retirerEntrepriseDupliquee(
+      'Port de Gustavia Bateau Elios Angel Deborah', 'Port de Gustavia Bateau',
+    )
+    expect(r).toEqual({ name: 'Elios Angel Deborah' })
+  })
+
+  it('retire le doublon malgre les accents — #546396', () => {
+    const r = retirerEntrepriseDupliquee(
+      'Confiance obsèques Chevalier Karine', 'Confiance obsèques',
+    )
+    expect(r).toEqual({ name: 'Chevalier Karine' })
+  })
+
+  it('ne touche a rien si l entreprise n est pas en tete', () => {
+    expect(retirerEntrepriseDupliquee('Karine Chevalier Confiance', 'Confiance')).toBeNull()
+  })
+
+  it('refuse de vider le nom quand il EST l entreprise', () => {
+    // Le colis se retrouverait sans destinataire nomme.
+    expect(retirerEntrepriseDupliquee('Confiance obsèques', 'Confiance obsèques')).toBeNull()
+  })
+
+  it('ne fait rien sans entreprise renseignee', () => {
+    expect(retirerEntrepriseDupliquee('Christine HEGY Croix-Rouge', '')).toBeNull()
+  })
+
+  it('corrige sans perte dans le plan complet', () => {
+    const plan = planAddressShortening(
+      {
+        name: 'Confiance obsèques Chevalier Karine',
+        company_name: 'Confiance obsèques',
+        address: '2 rue des Lilas', city: 'Nantes', postal_code: '44000',
+      },
+      [{ field: 'name', max: 32 }],
+    )
+    expect(plan.ready).toBe(true)
+    expect(plan.lossyFields).toEqual([])
+    expect(plan.patch.name).toBe('Chevalier Karine')
+    // L'entreprise n'est pas touchee : elle portait deja l'information.
+    expect(plan.patch.company_name).toBeUndefined()
   })
 })
