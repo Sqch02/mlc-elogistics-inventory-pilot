@@ -791,17 +791,34 @@ export function planAddressShortening(
   const numeroBrut = asText('house_number')
   if (limiteNumero !== undefined && numeroBrut && numeroBrut.length > limiteNumero) {
     const separe = splitHouseNumber(numeroBrut)
-    const complementLibre = !asText('address_2') || asText('address_2')!.trim() === ''
+    const complementActuel = (asText('address_2') ?? '').trim()
+    const complementLibre = complementActuel === ''
 
-    if (separe && complementLibre && separe.houseNumber.length <= limiteNumero) {
+    // Complement deja occupe : on peut quand meme y AJOUTER, tant que le tout
+    // tient dans la limite du champ. Rien n'est perdu, les deux informations
+    // restent imprimees.
+    //
+    // Cas reel (#547802, 10/08) : numero de voie "13 All Albeniz" refuse a 8
+    // caracteres, complement occupe par "BT G1". Le moteur renoncait, alors
+    // que "BT G1 All Albeniz" tient largement.
+    const limiteComplement = strictest.get('address_2') ?? 30
+    const complementFusionne = separe && !complementLibre
+      ? `${complementActuel} ${separe.complement}`.trim()
+      : null
+    const fusionPossible = complementFusionne !== null
+      && complementFusionne.length <= limiteComplement
+
+    if (separe && separe.houseNumber.length <= limiteNumero && (complementLibre || fusionPossible)) {
       patch.house_number = separe.houseNumber
-      patch.address_2 = separe.complement
+      patch.address_2 = complementLibre ? separe.complement : complementFusionne!
       audit.push({
         field: 'house_number',
         before_length: numeroBrut.length,
         after_length: separe.houseNumber.length,
         limit: limiteNumero,
-        applied: ['split_house_number_to_address_2'],
+        applied: [complementLibre
+          ? 'split_house_number_to_address_2'
+          : 'split_house_number_appended_to_address_2'],
         lossy: false,
       })
     } else {
