@@ -353,3 +353,67 @@ describe('entreprise recopiee en tete du nom (commandes reelles du 10/08)', () =
     expect(plan.patch.company_name).toBeUndefined()
   })
 })
+
+describe('les cinq corrections manuelles du 10/08 au soir', () => {
+  // Valeurs copiees telles quelles depuis les captures de l'exploitation.
+  // Deux limites nouvelles y apparaissent : numero de voie a 8 caracteres
+  // chez Mondial Relay, ville a 25 chez Colis Prive.
+
+  it('#547678 separe un numero de voie de 13 caracteres', () => {
+    const plan = planAddressShortening(
+      { address: 'Lot', house_number: '4 les Emeries', address_2: '',
+        city: 'La Fare-les-Oliviers', postal_code: '13580' },
+      [{ field: 'house_number', max: 8 }],
+    )
+    expect(plan.ready).toBe(true)
+    expect(plan.lossyFields).toEqual([])
+    expect(plan.patch.house_number).toBe('4')
+    expect(plan.patch.address_2).toBe('les Emeries')
+  })
+
+  it('#547487 abrege Saint pour rentrer dans 25 caracteres', () => {
+    const plan = planAddressShortening(
+      { address: '221 Rue des Fanges', house_number: '', address_2: '',
+        city: 'Saint-Symphorien-sur-Coise', postal_code: '69590' },
+      [{ field: 'city', max: 25 }],
+    )
+    expect(plan.ready).toBe(true)
+    expect(plan.lossyFields).toEqual([])
+    expect(plan.patch.city).toBe('St-Symphorien-sur-Coise')
+  })
+
+  it('#547643 abrege une commune de 27 caracteres', () => {
+    const plan = planAddressShortening(
+      { address: '575 Chemin de Fief Garnier', house_number: '', address_2: '',
+        city: 'Saint-Thomas-de-Courcerieres', postal_code: '53160' },
+      [{ field: 'city', max: 25 }],
+    )
+    expect(plan.ready).toBe(true)
+    expect(plan.lossyFields).toEqual([])
+    expect(plan.patch.city).toBe('St-Thomas-de-Courcerieres')
+  })
+
+  it('#547802 ajoute au complement deja occupe au lieu de renoncer', () => {
+    // Le moteur renoncait parce que le complement contenait "BT G1". Or les
+    // deux tiennent ensemble : rien n'est perdu.
+    const plan = planAddressShortening(
+      { address: 'Le roy d espagne', house_number: '13 All Albeniz', address_2: 'BT G1',
+        city: 'MARSEILLE', postal_code: '13008' },
+      [{ field: 'house_number', max: 8 }],
+    )
+    expect(plan.ready).toBe(true)
+    expect(plan.lossyFields).toEqual([])
+    expect(plan.patch.house_number).toBe('13')
+    expect(plan.patch.address_2).toBe('BT G1 All Albeniz')
+  })
+
+  it('renonce si la fusion ne tient pas dans le complement', () => {
+    // Le garde-fou : on n'ajoute que si le tout rentre.
+    const plan = planAddressShortening(
+      { address: 'rue X', house_number: '13 Allee des Grands Peupliers du Parc',
+        address_2: 'Batiment C Escalier 4 Porte Gauche', city: 'Lyon', postal_code: '69000' },
+      [{ field: 'house_number', max: 8 }],
+    )
+    expect(plan.lossyFields).toContain('house_number')
+  })
+})

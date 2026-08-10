@@ -46,7 +46,21 @@ export interface ValidationRules {
  */
 export const OBSERVED_RULES: ValidationRules = {
   addressCombinedMax: 32,
-  cityMax: 30,
+  // Refus REELS, a trois limites differentes selon le transporteur :
+  //   "city has at most 25 characters (it has 26)."  Colis Prive
+  //   "city has at most 26 characters (it has 30)."  Mondial Relay
+  //   "no more than 30 characters."                  Chronopost
+  //
+  // On retient la plus stricte. Le raccourcissement d'une ville est sans
+  // perte dans l'immense majorite des cas (abreviation "Saint" -> "St",
+  // retrait d'un code postal recopie), et une valeur plus courte que
+  // necessaire n'est jamais refusee — l'inverse l'est.
+  //
+  // Verifie avant de resserrer : sur 100 commandes en attente, ZERO ville
+  // depassait 25 caracteres. Le resserrement ne fabrique donc pas de bruit,
+  // il rattrape des refus qu'on subissait sans les voir venir. Deux cas du
+  // 10/08 au soir seraient passes automatiquement.
+  cityMax: 25,
   // Deux refus REELS observes le 27/07 sur le meme champ, a deux limites
   // differentes :
   //   "Ensure that address 2 has at most 32 characters (it has 39)."
@@ -55,11 +69,22 @@ export const OBSERVED_RULES: ValidationRules = {
   // produire une valeur plus courte que necessaire n'est jamais refuse,
   // l'inverse l'est.
   address2Max: 30,
-  // Limite REELLE, lue sur un refus : "Ensure this field has no more than 20
-  // characters." J'avais devine 8 — c'etait faux, et c'est le motif le plus
-  // frequent releve par l'exploitation sur une soiree. Ne jamais deviner une
-  // limite qu'on peut observer.
-  houseNumberMax: 20,
+  // Deux limites REELLES selon le transporteur :
+  //   "no more than 20 characters."                       observe le 27/07
+  //   "house number has at most 8 characters (it has 13)" Mondial Relay, 10/08
+  //
+  // J'avais d'abord DEVINE 8, puis lu 20 sur un refus, et j'en avais conclu
+  // que 8 etait faux. Les deux sont vrais : la limite depend du transporteur.
+  // Corriger une supposition par une observation ne dispense pas de continuer
+  // a observer.
+  //
+  // On retient la plus stricte. Un numero trop long n'est jamais tronque : il
+  // est SEPARE, le texte partant dans le complement d'adresse. L'operation est
+  // donc sans perte, et la declencher plus souvent ne coute rien.
+  //
+  // Verifie avant de resserrer : sur 100 commandes en attente, ZERO numero
+  // depassait 8 caracteres.
+  houseNumberMax: 8,
   // Refus reel : "Ensure this field has no more than 50 characters." sur
   // "Entreprise individuelle L'Atelier du Phenix par Chris".
   companyNameMax: 50,
