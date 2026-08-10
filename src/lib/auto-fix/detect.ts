@@ -130,13 +130,29 @@ function extractMaxLength(text: string): number | null {
  * "Le transporteur a renvoye une erreur, service indisponible. Veuillez
  * verifier le site Web du transporteur", au moins sept formulations pour la
  * meme panne), d'ou un test sur le fond du message et non sur sa forme.
+ *
+ * MISE A JOUR DU 11/08 : une huitieme formulation est apparue, que le test
+ * initial laissait passer — "Probleme de connexion au serveur du transporteur ;
+ * verifiez la page de statut de Sendcloud ou du transporteur si cela persiste."
+ *
+ * Elle ne parle pas de service indisponible mais de connexion. C'est pourtant
+ * la meme chose : une panne d'infrastructure entre Sendcloud et le
+ * transporteur, sur laquelle la commande n'y est pour rien. Quatre taches
+ * attendaient ainsi dans la file manuelle.
+ *
+ * Une liste de formulations ne sera jamais close. On teste donc deux idees
+ * distinctes — indisponibilite ou probleme de liaison — plutot que d'ajouter
+ * une phrase a chaque fois.
  */
 function isTransientCarrierError(message: string): boolean {
   const texte = normalizeText(message)
-  const parleDuTransporteur = /(transporteur|carrier)/.test(texte)
+  const parleDuTransporteur = /(transporteur|carrier|sendcloud)/.test(texte)
   const diServiceIndisponible = /(service indisponible|service unavailable|temporarily unavailable|indisponible temporairement)/.test(texte)
-  const inviteAReessayer = /(reessayer|ressayer|try again|later|plus tard)/.test(texte)
-  return diServiceIndisponible && (parleDuTransporteur || inviteAReessayer)
+  const diProblemeDeLiaison = /(probleme de connexion|connection (problem|error|issue)|connexion au serveur|timeout|delai d.attente depasse)/.test(texte)
+  const inviteAReessayer = /(reessayer|ressayer|try again|later|plus tard|si cela persiste|page de statut|status page)/.test(texte)
+
+  return (diServiceIndisponible || diProblemeDeLiaison)
+    && (parleDuTransporteur || inviteAReessayer)
 }
 
 function classifyEvidence(evidence: RawEvidence, raw: Record<string, unknown>): AutoFixPattern[] {
