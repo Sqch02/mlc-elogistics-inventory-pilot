@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { detectAutoFixCause } from './detect'
+import { OBSERVED_RULES } from './validate'
 
 describe('detectAutoFixCause', () => {
   it('does not infer a cause from On Hold, warnings or CHF data alone', () => {
@@ -297,5 +298,43 @@ describe('etiquette deja produite (mesure du 10/08)', () => {
     }
     const r = detectAutoFixCause(commande, 'integration_shipment', { latentRules: REGLES })
     expect(r?.detectedPatterns).toContain('address_too_long')
+  })
+})
+
+describe('les seuils resserres declenchent bien la detection', () => {
+  // Le maillon qui manquait : verifier que la tache est CREEE, et pas
+  // seulement que le plan saurait corriger. Trois fois aujourd'hui, une
+  // reparation existait sans jamais etre atteinte.
+  const REGLES = OBSERVED_RULES
+
+  it('signale une ville de 26 caracteres (refusee a 25 par Colis Prive)', () => {
+    const r = detectAutoFixCause({
+      shipment_uuid: 'v1',
+      address: '221 Rue des Fanges', house_number: '',
+      city: 'Saint-Symphorien-sur-Coise', postal_code: '69590',
+      parcel_items: [{ quantity: 1 }],
+    }, 'integration_shipment', { latentRules: REGLES })
+    expect(r?.detectedPatterns).toContain('address_too_long')
+  })
+
+  it('signale un numero de voie de 13 caracteres (refuse a 8 par Mondial Relay)', () => {
+    const r = detectAutoFixCause({
+      shipment_uuid: 'v2',
+      address: 'Lot', house_number: '4 les Emeries',
+      city: 'La Fare-les-Oliviers', postal_code: '13580',
+      parcel_items: [{ quantity: 1 }],
+    }, 'integration_shipment', { latentRules: REGLES })
+    expect(r?.detectedPatterns).toContain('address_too_long')
+  })
+
+  it('ne signale pas une adresse qui tient dans les limites les plus strictes', () => {
+    // Le garde-fou contre l'avalanche : ce qui rentre partout reste muet.
+    const r = detectAutoFixCause({
+      shipment_uuid: 'v3',
+      address: '12 rue des Lilas', house_number: '12',
+      city: 'Nantes', postal_code: '44000',
+      parcel_items: [{ quantity: 1 }],
+    }, 'integration_shipment', { latentRules: REGLES })
+    expect(r).toBeNull()
   })
 })
