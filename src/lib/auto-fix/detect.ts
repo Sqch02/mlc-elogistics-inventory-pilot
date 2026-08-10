@@ -241,7 +241,24 @@ export function detectAutoFixCause(
     // On l'ecarte comme simple contexte : si la commande porte AUSSI un vrai
     // defaut, celui-ci subsiste et la tache est creee normalement.
     .filter((item) => !isTransientCarrierError(item.message))
-  const latentEvidence: RawEvidence[] = options.latentRules
+  // Une etiquette deja produite DEMENT la detection anticipee.
+  //
+  // Celle-ci predit ce qui echouera au moment de creer l'etiquette. Quand
+  // l'etiquette existe, la prediction n'est pas seulement caduque : le
+  // transporteur a accepte l'adresse, donc elle etait bonne.
+  //
+  // Mesure du 10/08 : 6 des 7 escalades de la nuit venaient de la. Des colis
+  // etiquetes, avec numero de suivi, signales pour une adresse que Sendcloud
+  // avait acceptee. Du travail manuel fabrique de toutes pieces, et le plus
+  // corrosif qui soit : un tableau qui signale des non-problemes finit ignore.
+  //
+  // Les erreurs REELLEMENT rapportees restent, elles : si le transporteur se
+  // plaint apres coup, c'est un vrai probleme.
+  const etiquetteDejaProduite = sourceKind === 'parcel' && (
+    Boolean(raw.date_announced)
+    || (typeof raw.tracking_number === 'string' && raw.tracking_number.trim() !== '')
+  )
+  const latentEvidence: RawEvidence[] = options.latentRules && !etiquetteDejaProduite
     ? findLatentErrors(raw, options.latentRules).map((item) => ({
         source: 'latent' as const,
         field: item.field,

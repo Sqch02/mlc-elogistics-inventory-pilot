@@ -245,3 +245,57 @@ describe('nom du destinataire trop long (capture #546632)', () => {
     expect(limites.some((l) => l.field === 'name' && l.max === 35)).toBe(true)
   })
 })
+
+describe('etiquette deja produite (mesure du 10/08)', () => {
+  const REGLES = {
+    addressCombinedMax: 32, cityMax: 30, address2Max: 30, houseNumberMax: 20,
+    companyNameMax: 50, requireAddress: true, requireParcelItems: false,
+    acceptedCurrencies: null,
+  }
+
+  const colisEtiquete = {
+    id: 1,
+    status: { id: 1000, message: 'Ready to send' },
+    date_announced: '2026-08-10T06:12:00Z',
+    tracking_number: '6A21000123456',
+    address: 'une adresse vraiment beaucoup trop longue pour la limite',
+    house_number: '12', city: 'Paris', postal_code: '75001',
+    parcel_items: [{ quantity: 1 }],
+  }
+
+  it('ne signale plus une adresse que le transporteur a acceptee', () => {
+    // 6 des 7 escalades de la nuit venaient de la : des colis etiquetes, avec
+    // numero de suivi, signales pour une adresse deja acceptee. Du travail
+    // manuel fabrique de toutes pieces.
+    expect(detectAutoFixCause(colisEtiquete, 'parcel', { latentRules: REGLES })).toBeNull()
+  })
+
+  it('signale toujours la meme adresse tant qu aucune etiquette n existe', () => {
+    // La detection anticipee garde tout son sens AVANT l'etiquette.
+    const avant = { ...colisEtiquete, date_announced: null, tracking_number: '' }
+    const r = detectAutoFixCause(avant, 'parcel', { latentRules: REGLES })
+    expect(r?.detectedPatterns).toContain('address_too_long')
+  })
+
+  it('garde une erreur REELLEMENT rapportee malgre l etiquette', () => {
+    // Si le transporteur se plaint apres coup, c'est un vrai probleme.
+    const r = detectAutoFixCause(
+      { ...colisEtiquete, errors: { address: ['Ensure that address 1 has at most 32 characters.'] } },
+      'parcel', { latentRules: REGLES },
+    )
+    expect(r?.detectedPatterns).toContain('address_too_long')
+  })
+
+  it('ne change rien pour les commandes importees', () => {
+    // Une commande n'a pas d'etiquette : la regle ne la concerne pas.
+    const commande = {
+      shipment_uuid: 'u1',
+      address: 'une adresse vraiment beaucoup trop longue pour la limite',
+      house_number: '12', city: 'Paris', postal_code: '75001',
+      date_announced: '2026-08-10T06:12:00Z',
+      parcel_items: [{ quantity: 1 }],
+    }
+    const r = detectAutoFixCause(commande, 'integration_shipment', { latentRules: REGLES })
+    expect(r?.detectedPatterns).toContain('address_too_long')
+  })
+})
