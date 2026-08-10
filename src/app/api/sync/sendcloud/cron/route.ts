@@ -364,9 +364,20 @@ async function runSync(correlationId: string) {
         loadIntegrationContinuations(adminClient, tenant.id, cycleStartedAt),
       ])
 
-      // Un drain en cours n'est jamais interrompu : on ne saute que les
-      // lectures de confort, pas une pagination commencee.
-      const returnsDus = returnDrain.resuming || returnsSontDus(returnDrain.updatedAt, cycleStartedAt)
+      // L'espacement s'applique MEME a une pagination commencee.
+      //
+      // C'est contre-intuitif, et j'avais d'abord ecrit l'inverse. Mesure faite
+      // apres coup : le plus gros consommateur etait justement en pagination
+      // perpetuelle — 453 retours, plafond de deux pages par cycle, un drain
+      // qui ne se termine donc jamais. L'exception "on n'interrompt pas un
+      // drain" le rendait immunise contre le correctif, et il continuait a
+      // ramener 200 retours toutes les cinq minutes.
+      //
+      // Reprendre n'apporte ici rien d'incremental : le filtre etant ignore,
+      // c'est toujours la meme collection. Le curseur est conserve et le drain
+      // se poursuit au prochain passage horaire ; la garde d'obsolescence des
+      // points de reprise (2 h) reste plus large que l'intervalle.
+      const returnsDus = returnsSontDus(returnDrain.updatedAt, cycleStartedAt)
 
       logger.info('Incremental drains:', {
         parcels: { since: parcelDrain.watermark, resumed: parcelDrain.resuming },

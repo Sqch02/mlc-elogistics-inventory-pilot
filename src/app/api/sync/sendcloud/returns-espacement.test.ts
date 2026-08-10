@@ -40,3 +40,21 @@ describe('espacement de la lecture des retours', () => {
       { SENDCLOUD_RETURNS_INTERVAL_MINUTES: 'beaucoup' })).toBe(false)
   })
 })
+
+describe('espacement applique meme en pagination', () => {
+  it('espace aussi un drain en cours', () => {
+    // J'avais d'abord exempte les paginations en cours. Le plus gros
+    // consommateur etait justement en pagination perpetuelle : 453 retours,
+    // deux pages par cycle, un drain qui ne se termine jamais. L'exception le
+    // rendait immunise contre le correctif.
+    //
+    // Reprendre n'apporte rien d'incremental quand le filtre est ignore :
+    // c'est toujours la meme collection.
+    expect(returnsSontDus('2026-08-10T11:57:00Z', '2026-08-10T12:00:00Z', {})).toBe(false)
+  })
+
+  it('reprend le drain au passage horaire suivant', () => {
+    // Le curseur est conserve : le drain se poursuit, il ne recommence pas.
+    expect(returnsSontDus('2026-08-10T11:00:00Z', '2026-08-10T12:00:00Z', {})).toBe(true)
+  })
+})
