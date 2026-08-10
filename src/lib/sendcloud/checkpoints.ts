@@ -15,6 +15,12 @@ export interface IncrementalDrain {
   resuming: boolean
   failureCount: number
   resetReason?: 'stale' | 'repeated_failures'
+  /**
+   * Date du dernier passage enregistre. Permet d'espacer une ressource dont la
+   * lecture coute cher sans rien apporter a chaque cycle — cf les retours,
+   * pour lesquels l'API ignore le filtre incremental.
+   */
+  updatedAt?: string
 }
 
 export interface IntegrationContinuation {
@@ -132,14 +138,18 @@ export async function loadIncrementalDrain(
       windowEndsAt: data.window_ends_at,
       resuming: true,
       failureCount: data.consecutive_failures,
+      updatedAt: data.updated_at,
     }
   }
 
-  return freshIncrementalDrain(
-    resource,
-    data?.watermark || fallbackWatermark,
-    cycleStartedAt,
-  )
+  return {
+    ...freshIncrementalDrain(
+      resource,
+      data?.watermark || fallbackWatermark,
+      cycleStartedAt,
+    ),
+    updatedAt: data?.updated_at,
+  }
 }
 
 export async function persistIncrementalDrain(
