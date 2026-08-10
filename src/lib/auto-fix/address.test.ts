@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shortenAddressField, planAddressShortening, nettoyerVille, recoverHouseNumberFromStreet } from './address'
+import { shortenAddressField, planAddressShortening, nettoyerVille, recoverHouseNumberFromStreet, extraireOrganisation } from './address'
 
 describe('shortenAddressField', () => {
   it('abbreviates known tokens without losing meaning', () => {
@@ -244,5 +244,66 @@ describe('numero de voie ecrit dans la rue (capture #546576)', () => {
     expect(avecRefus.patch.house_number).toBe('13')
     expect(avecRefus.patch.address).toBe('rue dieffiere')
     expect(avecRefus.lossyFields).toEqual([])
+  })
+})
+
+describe('organisation collee au nom (capture #546632)', () => {
+  it('bascule l organisation dans le champ entreprise', () => {
+    // "Ensure that name has at most 32 characters (it has 36)."
+    // L'exploitation corrige exactement ainsi, confirme par Quentin.
+    const r = extraireOrganisation('Christine HEGY Croix-Rouge Française', '', 32)
+    expect(r).toEqual({ name: 'Christine HEGY', company_name: 'Croix-Rouge Française' })
+  })
+
+  it('N ECRASE JAMAIS une entreprise deja renseignee', () => {
+    expect(extraireOrganisation('Christine HEGY Croix-Rouge Française', 'Deja La', 32)).toBeNull()
+  })
+
+  it('ne touche pas un nom qui EST l organisation', () => {
+    // Position 0 : il n'y a pas de personne a separer.
+    expect(extraireOrganisation('Association des Amis du Vieux Moulin de Bray', '', 32)).toBeNull()
+  })
+
+  it('rend la main quand aucun marqueur n est reconnu', () => {
+    // Sans marqueur on ne sait pas ou finit la personne. Deviner couperait le
+    // nom qui sert a retirer le colis au point relais.
+    expect(extraireOrganisation('Jean-Baptiste de La Rochefoucauld Montbel', '', 32)).toBeNull()
+  })
+
+  it('refuse si la personne seule depasse encore la limite', () => {
+    const nom = 'Marie-Christine Vandenbroucke-Delatour Association Test'
+    expect(extraireOrganisation(nom, '', 32)).toBeNull()
+  })
+
+  it('ne fait rien si le nom tient deja', () => {
+    expect(extraireOrganisation('Paul Croix-Rouge', '', 32)).toBeNull()
+  })
+
+  it('corrige sans perte dans le plan complet', () => {
+    const plan = planAddressShortening(
+      {
+        name: 'Christine HEGY Croix-Rouge Française', company_name: '',
+        address: '3 rue crève cœur', city: 'Bourg-en-Bresse', postal_code: '01000',
+      },
+      [{ field: 'name', max: 32 }],
+    )
+    expect(plan.ready).toBe(true)
+    expect(plan.lossyFields).toEqual([])
+    expect(plan.patch.name).toBe('Christine HEGY')
+    expect(plan.patch.company_name).toBe('Croix-Rouge Française')
+  })
+})
+
+describe('marqueurs accentues', () => {
+  it('reconnait un marqueur porteur d accents', () => {
+    // La liste des marqueurs est sans accents : c'est la normalisation qui
+    // doit faire le rapprochement. Verifie ici plutot que suppose.
+    expect(extraireOrganisation('Marie Dupont École Sainte-Anne', '', 20))
+      .toEqual({ name: 'Marie Dupont', company_name: 'École Sainte-Anne' })
+  })
+
+  it('reconnait un marqueur en majuscules', () => {
+    expect(extraireOrganisation('Paul Martin EHPAD Les Tilleuls', '', 20))
+      .toEqual({ name: 'Paul Martin', company_name: 'EHPAD Les Tilleuls' })
   })
 })

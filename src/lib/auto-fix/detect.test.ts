@@ -218,3 +218,30 @@ describe('numero de voie exige (releve du 09/08)', () => {
     expect(result?.detectedPatterns).not.toContain('address_too_long')
   })
 })
+
+describe('nom du destinataire trop long (capture #546632)', () => {
+  it('classe le refus sur le nom avec les corrections d adresse', () => {
+    // Sans cette classification, la limite arrivait bien depuis le refus mais
+    // le plan ne tournait jamais : meme piege que le numero de voie.
+    const result = detectAutoFixCause({
+      shipment_uuid: 'n1',
+      name: 'Christine HEGY Croix-Rouge Française',
+      company_name: '',
+      errors: { name: ['Ensure that name has at most 32 characters (it has 36).'] },
+    }, 'integration_shipment')
+    expect(result?.detectedPatterns).toContain('address_too_long')
+  })
+
+  it('remonte la limite exacte lue dans le refus', () => {
+    // La limite varie selon le transporteur : 32 chez Colis Prive, 35
+    // ailleurs. Elle doit venir du message, jamais d'une constante.
+    const result = detectAutoFixCause({
+      shipment_uuid: 'n2',
+      name: 'Un nom vraiment tres long pour le test ici',
+      errors: { name: ['Ensure that name has at most 35 characters (it has 41).'] },
+    }, 'integration_shipment')
+    const limites = (result?.sourceSummary as { address_limits?: Array<{ field: string; max: number }> })
+      ?.address_limits ?? []
+    expect(limites.some((l) => l.field === 'name' && l.max === 35)).toBe(true)
+  })
+})
