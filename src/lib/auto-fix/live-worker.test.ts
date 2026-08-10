@@ -788,3 +788,44 @@ describe('numero de commande fige sur la tache', () => {
     expect(d.findOrder.mock.calls[0][1]).toBe('#540787')
   })
 })
+
+describe('tache dont la cause a disparu', () => {
+  it('ne part PAS en correction manuelle', async () => {
+    // Le moteur relit la commande et constate qu'il n'y a plus rien a
+    // corriger, le plus souvent parce que l'exploitation l'a deja fait a la
+    // main. Ce n'est pas un echec : c'est une reussite par une autre voie.
+    //
+    // Sept taches figuraient ainsi dans la file du 10/08 comme du travail
+    // restant, alors que le probleme etait resolu — et elles faussaient le
+    // taux d'escalade en comptant comme des echecs.
+    const dejaCorrigee = {
+      id: '841973149', order_number: '#540787',
+      shipping_address: {
+        address_line_1: '76 grand rue', address_line_2: '', house_number: '',
+        city: 'Herbignac', postal_code: '44410',
+      },
+      order_details: { status: { code: 'on_hold' } },
+    }
+    const { client, calls } = makeClient({ claim: [job({
+      source_kind: 'integration_shipment',
+      source_summary_json: { address_limits: [{ field: 'address_1', max: 32 }] },
+      source_order_ref: '#540787',
+    })] })
+    const d = {
+      credentials: async () => ({ apiKey: 'k', secret: 's' }),
+      readParcel: vi.fn(async () => null),
+      writeParcel: vi.fn(async () => ({ ok: true as const, status: 200 })),
+      findOrder: vi.fn(async () => ({ ok: true, order: dejaCorrigee })),
+      patchOrder: vi.fn(),
+      verifyOrder: vi.fn(),
+    } as unknown as Parameters<typeof runAutoFixLiveWorker>[2]
+
+    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+
+    const echec = calls.find((c) => c.name === 'fail_auto_fix_live')
+    const erreur = echec?.args.p_error as { reason?: string; category?: string }
+    expect(erreur?.reason).toBe('already_resolved')
+    // C'est la categorie qui decide de l'etat terminal cote base.
+    expect(erreur?.category).toBe('resolved')
+  })
+})

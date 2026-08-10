@@ -366,7 +366,8 @@ async function convertirDevise(
   }
 
   const { patch, converted } = convertPaymentDetails(order.payment_details, brut)
-  if (converted === 0) return refuse('already_resolved')
+  // Cause disparue, pas un echec : etat terminal, jamais la file manuelle.
+  if (converted === 0) return refuse('already_resolved', 'resolved')
 
   const planned = await rpc<boolean>(client, 'plan_auto_fix_live', {
     p_job_id: job.id, p_worker_id: workerId,
@@ -490,7 +491,8 @@ async function corrigerCommandeImportee(
   // corrige a la main, il n'y a plus rien a raccourcir et on s'arrete.
   const limits = (job.source_summary_json.address_limits ?? []) as AddressLimit[]
   const plan = planAddressShortening(ordreVersAdresse(order), limits)
-  if (plan.reason === 'nothing_to_shorten') return refuse('already_resolved')
+  // Cause disparue, pas un echec : etat terminal, jamais la file manuelle.
+  if (plan.reason === 'nothing_to_shorten') return refuse('already_resolved', 'resolved')
 
   // Une coupe avec perte devient acceptable si le colis part en point relais :
   // l'adresse coupee ne sert alors pas a l'acheminement. Restreint a la SEULE
