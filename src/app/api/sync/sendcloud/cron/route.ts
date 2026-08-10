@@ -24,6 +24,7 @@ import { safeEqual } from '@/lib/utils/safe-compare'
 import { reverseDuplicateShipmentStock } from '@/lib/stock/reverse-duplicates'
 import { reconcileTenantStock, type StockReconcileResult } from '@/lib/stock/reconcile-stock'
 import { buildShipmentRow } from '@/lib/sendcloud/build-shipment-row'
+
 import {
   createSyncCorrelationId,
   createSyncLogger,
@@ -53,6 +54,41 @@ import {
   type IntegrationContinuation,
   type StoredIntegrationContinuation,
 } from '@/lib/sendcloud/checkpoints'
+
+/**
+ * Faut-il relire les retours a ce cycle ?
+ *
+ * L'API Sendcloud IGNORE le filtre `updated_after` sur /returns. Verifie en
+ * direct le 10/08 : `updated_after=2030-01-01`, une date dans le futur,
+ * renvoie quand meme la collection entiere. Chaque cycle retelechargeait donc
+ * TOUS les retours de chaque client, toutes les cinq minutes.
+ *
+ * Mesure sur 24 h : 187 retours ramenes a chaque cycle chez un client qui en
+ * compte 453 en base, et exactement 15 a chaque cycle chez un autre qui en a
+ * 5. Environ 58 000 enregistrements par jour pour une donnee qui bouge
+ * quelques fois par semaine.
+ *
+ * Un retour n'a rien d'urgent : une lecture horaire suffit, et divise ce
+ * volume par douze.
+ */
+export function returnsSontDus(
+  dernierPassage: string | undefined,
+  maintenant: string,
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  // Jamais lu : on lit.
+  if (!dernierPassage) return true
+
+  const minutes = Number(env.SENDCLOUD_RETURNS_INTERVAL_MINUTES)
+  const intervalle = Number.isFinite(minutes) && minutes >= 0 ? minutes : 60
+
+  const precedent = Date.parse(dernierPassage)
+  const courant = Date.parse(maintenant)
+  // Horodatage illisible : on lit plutot que de sauter indefiniment.
+  if (!Number.isFinite(precedent) || !Number.isFinite(courant)) return true
+
+  return courant - precedent >= intervalle * 60_000
+}
 
 type ResourceName = 'parcels' | 'integration_shipments' | 'returns'
 type ResourceStatus = 'success' | 'partial' | 'failed'
@@ -328,9 +364,13 @@ async function runSync(correlationId: string) {
         loadIntegrationContinuations(adminClient, tenant.id, cycleStartedAt),
       ])
 
+      // Un drain en cours n'est jamais interrompu : on ne saute que les
+      // lectures de confort, pas une pagination commencee.
+      const returnsDus = returnDrain.resuming || returnsSontDus(returnDrain.updatedAt, cycleStartedAt)
+
       logger.info('Incremental drains:', {
         parcels: { since: parcelDrain.watermark, resumed: parcelDrain.resuming },
-        returns: { since: returnDrain.watermark, resumed: returnDrain.resuming },
+        returns: { since: returnDrain.watermark, resumed: returnDrain.resuming, due: returnsDus },
       })
 
       const [parcelSettled, integrationSettled, returnSettled] = await Promise.allSettled([
@@ -348,13 +388,31 @@ async function runSync(correlationId: string) {
           storedIntegrationContinuations,
           onPaginationCap,
         ),
-        fetchReturnBatch(
-          credentials,
-          returnDrain.watermark,
-          returnDrain.cursor,
-          maxPages,
-          onPaginationCap,
-        ),
+        // Les retours ne sont lus qu'a intervalle espace.
+        //
+        // L'API Sendcloud IGNORE le filtre `updated_after` sur /returns :
+        // verifie en direct le 10/08, `updated_after=2030-01-01` — une date
+        // dans le futur — renvoie quand meme la collection entiere. Chaque
+        // passage retelechargeait donc TOUS les retours du client.
+        //
+        // Mesure sur 24 h : 187 retours ramenes a chaque cycle chez un client
+        // qui en compte 453 en base, et exactement 15 a chaque cycle chez un
+        // autre qui en a 5. Soit environ 58 000 enregistrements par jour pour
+        // une donnee qui bouge quelques fois par semaine, et l'essentiel du
+        // depassement de bande passante signale par l'hebergeur.
+        //
+        // Un retour n'a rien d'urgent : on le lit toutes les heures.
+        returnsDus
+          ? fetchReturnBatch(
+              credentials,
+              returnDrain.watermark,
+              returnDrain.cursor,
+              maxPages,
+              onPaginationCap,
+            )
+          : Promise.resolve({
+              items: [], pagesFetched: 0, hasMore: false, nextCursor: undefined,
+            } as BoundedFetchResult<ParsedReturn>),
       ])
 
       const parcelFetch: BoundedFetchResult<ParsedShipment> | undefined =
