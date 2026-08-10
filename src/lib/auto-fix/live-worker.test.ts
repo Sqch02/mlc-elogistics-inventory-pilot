@@ -728,3 +728,63 @@ describe('tolerance point relais pilotable depuis la base', () => {
     expect(lossyAutoApplyOnServicePoint({ AUTO_FIX_LOSSY_ON_SERVICE_POINT: 'true' }, false)).toBe(true)
   })
 })
+
+describe('numero de commande fige sur la tache', () => {
+  const ordre = () => ({
+    id: '841973149', order_number: '#540787',
+    shipping_address: {
+      address_line_1: '76 grand rue hoscas Herbignac 44410', address_line_2: '',
+      house_number: '', city: 'Herbignac', postal_code: '44410',
+    },
+    order_details: { status: { code: 'on_hold' } },
+  })
+
+  const deps = (over: Record<string, unknown> = {}) => ({
+    credentials: async () => ({ apiKey: 'k', secret: 's' }),
+    readParcel: vi.fn(async () => null),
+    writeParcel: vi.fn(async () => ({ ok: true as const, status: 200 })),
+    findOrder: vi.fn(async () => ({ ok: true, order: ordre() })),
+    patchOrder: vi.fn(async () => ({ ok: true, order: ordre() })),
+    verifyOrder: vi.fn(async () => ({ ok: true, ecarts: [] as string[] })),
+    ...over,
+  } as unknown as Parameters<typeof runAutoFixLiveWorker>[2] & { findOrder: ReturnType<typeof vi.fn> })
+
+  const tache = (over: Record<string, unknown> = {}) => job({
+    source_kind: 'integration_shipment',
+    source_summary_json: { address_limits: [{ field: 'address_1', max: 32 }] },
+    ...over,
+  })
+
+  it('corrige meme si la ligne d expedition a disparu', async () => {
+    // 103 taches ont du etre refermees pour ce seul motif : le numero etait
+    // stocke sur la tache mais jamais lu, et la table des expeditions faisait
+    // seule autorite.
+    const { client } = makeClient({ claim: [tache({ source_order_ref: '#540787' })] })
+    const d = deps({ resolveOrderRef: vi.fn(async () => null) })
+
+    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+
+    expect(d.findOrder).toHaveBeenCalledOnce()
+    expect(d.findOrder.mock.calls[0][1]).toBe('#540787')
+  })
+
+  it('retombe sur la table des expeditions quand la tache ne porte rien', async () => {
+    const { client } = makeClient({ claim: [tache({ source_order_ref: null })] })
+    const d = deps({ resolveOrderRef: vi.fn(async () => '#999999') })
+
+    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+
+    expect(d.findOrder.mock.calls[0][1]).toBe('#999999')
+  })
+
+  it('prefere le numero fige a celui des expeditions', async () => {
+    // La tache doit rester fidele a la commande qu'elle a observee, meme si la
+    // ligne d'expedition a ete reaffectee depuis.
+    const { client } = makeClient({ claim: [tache({ source_order_ref: '#540787' })] })
+    const d = deps({ resolveOrderRef: vi.fn(async () => '#AUTRE') })
+
+    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+
+    expect(d.findOrder.mock.calls[0][1]).toBe('#540787')
+  })
+})

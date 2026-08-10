@@ -104,6 +104,14 @@ interface LiveJob {
   primary_pattern: string
   detected_patterns: string[]
   original_sendcloud_id: string
+  /**
+   * Numero de commande fige a la creation de la tache (migration 00116).
+   *
+   * Il est deja present dans la charge renvoyee par la reclamation, qui serialise
+   * la ligne entiere. On le lisait pourtant nulle part : la donnee etait ecrite
+   * et jamais utilisee.
+   */
+  source_order_ref?: string | null
   source_summary_json: Record<string, unknown>
   plan_json?: { patch?: Record<string, unknown> } | null
   write_started_at?: string | null
@@ -435,7 +443,6 @@ async function corrigerCommandeImportee(
   refuse: (reason: string, category?: string) => Promise<void>,
 ): Promise<void> {
   const resolveOrderRef = deps.resolveOrderRef
-  if (!resolveOrderRef) return refuse('order_ref_resolver_missing', 'configuration')
 
   const findOrder = deps.findOrder ?? findOrderByNumber
   const patchOrder = deps.patchOrder ?? patchOrderShippingAddress
@@ -444,8 +451,22 @@ async function corrigerCommandeImportee(
   const credentials = await deps.credentials(job.tenant_id)
   if (!credentials) return refuse('credentials_missing', 'configuration')
 
-  const orderRef = await resolveOrderRef(job.tenant_id, job.original_sendcloud_id)
-  if (!orderRef) return refuse('order_ref_unknown')
+  // Le numero fige sur la tache d'abord, la table des expeditions ensuite.
+  //
+  // C'est l'inverse qui se faisait, et cela rendait la tache orpheline des que
+  // sa ligne d'expedition disparaissait : 103 taches ont du etre refermees pour
+  // ce seul motif le 07/08. Le numero etait pourtant stocke sur la tache depuis
+  // la migration 00116 — ecrit, mais jamais lu.
+  const refFigee = (job.source_order_ref ?? '').trim()
+  const orderRef = refFigee !== ''
+    ? refFigee
+    : resolveOrderRef
+      ? await resolveOrderRef(job.tenant_id, job.original_sendcloud_id)
+      : null
+  if (!orderRef) {
+    return refuse(resolveOrderRef ? 'order_ref_unknown' : 'order_ref_resolver_missing',
+      resolveOrderRef ? undefined : 'configuration')
+  }
 
   if (job.primary_pattern === 'service_point_missing') {
     return remplacerPointRelais(client, workerId, job, credentials, orderRef, env, deps, result, refuse)
@@ -605,6 +626,9 @@ function asJob(value: unknown): LiveJob | null {
     primary_pattern: String(v.primary_pattern ?? ''),
     detected_patterns: Array.isArray(v.detected_patterns) ? v.detected_patterns.map(String) : [],
     original_sendcloud_id: String(v.original_sendcloud_id ?? v.source_sendcloud_id ?? ''),
+    // Absent de cette liste, le numero fige n'arrivait jamais jusqu'au moteur :
+    // la reclamation le renvoyait bien, la conversion le jetait.
+    source_order_ref: typeof v.source_order_ref === 'string' ? v.source_order_ref : null,
     source_summary_json: (v.source_summary_json ?? {}) as Record<string, unknown>,
     plan_json: (v.plan_json ?? null) as LiveJob['plan_json'],
     write_started_at: (v.write_started_at as string | null) ?? null,
