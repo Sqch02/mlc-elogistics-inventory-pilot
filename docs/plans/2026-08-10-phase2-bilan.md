@@ -78,11 +78,24 @@ maximale relevée est de 6,2 s, sur un cas isolé.
 
 | Fenêtre | Taux |
 |---|---|
-| 7 derniers jours | **12,6 %** |
+| 7 derniers jours | **10,3 %** |
 | Nuit du 09 au 10/08, après derniers correctifs | 5,6 % |
-| Sur les commandes seules (périmètre du moteur) | 10,2 % |
 
-**L'objectif de 10 % n'est pas tenu sur la durée.** Le détail quotidien montre
+**L'objectif de 10 % n'est pas encore tenu sur la durée**, mais l'écart est
+désormais marginal.
+
+Ce taux était mesuré à 12,6 % le 10/08 au soir. Il a baissé sans qu'aucune
+correction supplémentaire ne soit appliquée, parce que **deux catégories
+comptaient à tort comme des échecs** :
+
+- huit tâches dont la cause avait disparu avant l'intervention du moteur, le
+  plus souvent parce que l'exploitation avait corrigé à la main ; elles
+  disposent désormais d'un état terminal propre ;
+- quatre tâches signalant une panne de connexion entre Sendcloud et le
+  transporteur, sur laquelle la commande n'est pour rien.
+
+Ces douze cas n'étaient ni des échecs ni du travail restant. Les compter comme
+tels faussait la mesure autant que l'affichage. Le détail quotidien montre
 une variabilité réelle :
 
 ```
@@ -102,7 +115,8 @@ n'ont pas encore de mesure sur une durée significative** :
 
 1. suppression des faux signalements sur colis déjà étiquetés ;
 2. tolérance de coupe d'adresse en point relais, armée dans la nuit du 09 au 10 ;
-3. resserrement des seuils aux limites réellement observées.
+3. resserrement des seuils aux limites réellement observées ;
+4. correction de la mesure elle-même (voir ci-dessus).
 
 **Une confirmation sur trois à quatre jours de flux normal est nécessaire avant
 de considérer le critère tenu.**
