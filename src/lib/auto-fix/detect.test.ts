@@ -144,6 +144,10 @@ describe('cas releves en production le 07/08', () => {
   // formulations supposees.
 
   const PANNES_TRANSPORTEUR = [
+    // Huitieme formulation, relevee le 11/08 : elle parle de connexion et
+    // non d'indisponibilite. Quatre taches attendaient dans la file manuelle
+    // parce que le test initial ne couvrait que la premiere idee.
+    'Problème de connexion au serveur du transporteur ; vérifiez la page de statut de Sendcloud ou du transporteur si cela persiste.',
     'Erreur du transporteur : service indisponible, veuillez réessayer plus tard ou contacter le transporteur pour assistance.',
     'Le transporteur a renvoyé une erreur : service indisponible. Veuillez réessayer plus tard ou contacter le transporteur pour obtenir de l\'aide.',
     'Le transporteur a renvoyé une erreur, service indisponible, veuillez réessayer plus tard ou contacter le support.',
