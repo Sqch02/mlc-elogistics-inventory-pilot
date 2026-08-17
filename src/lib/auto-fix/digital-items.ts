@@ -46,20 +46,49 @@ export interface PlanArticlesDematerialises {
   defaults_used?: { hs_code?: string; country_of_origin?: string }
 }
 
+/**
+ * Un article, dans l'UNE OU L'AUTRE des deux formes que renvoie Sendcloud.
+ *
+ * Les colis (API v2) et les commandes (API v3) ne nomment pas les memes champs
+ * pour la meme information :
+ *
+ *   colis     `weight: "0.270"`            `origin_country: "FR"`
+ *   commande  `measurement.weight.value`   `country_of_origin: "FR"`
+ *
+ * Ne lire qu'une seule forme fait croire que TOUT manque. Constate sur donnees
+ * reelles : la proposition ramenait une commande de 271 g a 2 g, avec un tarif
+ * faux a la cle. Les tests unitaires ne l'avaient pas vu, ils n'employaient que
+ * la forme v3.
+ */
 interface ArticleBrut {
+  // Forme v3 (commandes).
   measurement?: { weight?: { value?: number | string; unit?: string } | null } | null
-  hs_code?: string | null
   country_of_origin?: string | null
+  // Forme v2 (colis).
+  weight?: number | string | null
+  origin_country?: string | null
+  // Commun aux deux.
+  hs_code?: string | null
   quantity?: number | null
 }
 
 function poidsEnKg(article: ArticleBrut): number {
-  const brut = article.measurement?.weight
-  const valeur = Number(brut?.value ?? 0)
-  if (!Number.isFinite(valeur) || valeur <= 0) return 0
-  // L'API melange les unites : l'article est en kg, la commande en grammes.
-  // Confondre les deux produirait un poids mille fois trop grand.
-  return String(brut?.unit ?? 'kg').toLowerCase() === 'g' ? valeur / 1000 : valeur
+  const structure = article.measurement?.weight
+  if (structure && structure.value !== undefined && structure.value !== null) {
+    const valeur = Number(structure.value)
+    if (!Number.isFinite(valeur) || valeur <= 0) return 0
+    // L'API melange les unites : confondre grammes et kilogrammes produirait
+    // un poids mille fois trop grand.
+    return String(structure.unit ?? 'kg').toLowerCase() === 'g' ? valeur / 1000 : valeur
+  }
+
+  // Forme plate des colis : toujours des kilogrammes, souvent une chaine.
+  const plat = Number(article.weight ?? 0)
+  return Number.isFinite(plat) && plat > 0 ? plat : 0
+}
+
+function origine(article: ArticleBrut): string | null | undefined {
+  return article.country_of_origin ?? article.origin_country
 }
 
 function vide(valeur: string | null | undefined): boolean {
@@ -89,7 +118,7 @@ export function buildDigitalItemsPlan(
     const poids = poidsEnKg(article)
     const sansPoids = poids <= 0
     const sansCodeSh = vide(article.hs_code)
-    const sansOrigine = vide(article.country_of_origin)
+    const sansOrigine = vide(origine(article))
     if (!sansPoids && !sansCodeSh && !sansOrigine) continue
 
     const correction: ArticleACorriger = {

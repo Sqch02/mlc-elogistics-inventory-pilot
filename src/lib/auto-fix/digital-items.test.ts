@@ -110,3 +110,49 @@ describe('articles dematerialises', () => {
     expect(plan.order_weight_grams).toBeGreaterThanOrEqual(1)
   })
 })
+
+describe('forme plate des colis (API v2)', () => {
+  // Articles copies tels quels depuis une commande reelle. C'est elle qui a
+  // revele le defaut : en ne lisant que la forme v3, le moteur croyait TOUS
+  // les articles sans poids ni origine, et proposait de ramener une commande
+  // de 271 g a 2 g. Les tests unitaires ne l'avaient pas vu.
+  const REELS = [
+    { sku: 'FLRN-HYPPDP-MOTI', weight: '0.001', hs_code: '210690', origin_country: 'FR', quantity: 1 },
+    { sku: 'FLRNBU-PPOIDS-X3HY', weight: '0.270', hs_code: '210690', origin_country: 'FR', quantity: 1 },
+  ]
+
+  it('ne touche a rien quand tout est deja renseigne', () => {
+    const plan = buildDigitalItemsPlan(REELS, DEFAUTS)
+    expect(plan.ok).toBe(false)
+    expect(plan.reason).toBe('nothing_to_fix')
+  })
+
+  it('lit un poids ecrit en chaine de caracteres', () => {
+    const plan = buildDigitalItemsPlan(
+      [{ weight: '0', hs_code: '210690', origin_country: 'FR', quantity: 1 }, REELS[1]],
+      DEFAUTS,
+    )
+    expect(plan.ok).toBe(true)
+    // 0,001 + 0,270 = 0,271 kg. Le defaut produisait 2 g.
+    expect(plan.order_weight_grams).toBe(271)
+    expect(plan.items).toHaveLength(1)
+  })
+
+  it('reconnait origin_country comme country_of_origin', () => {
+    // Deux noms pour la meme information selon l'API. N'en lire qu'un ferait
+    // ecraser une origine correcte par une valeur par defaut.
+    const plan = buildDigitalItemsPlan(
+      [{ weight: '0', hs_code: '210690', origin_country: 'FR', quantity: 1 }],
+      DEFAUTS,
+    )
+    expect(plan.items[0].country_of_origin).toBeUndefined()
+  })
+
+  it('renseigne l origine quand elle manque vraiment', () => {
+    const plan = buildDigitalItemsPlan(
+      [{ weight: '0', hs_code: '210690', origin_country: null, quantity: 1 }],
+      DEFAUTS,
+    )
+    expect(plan.items[0].country_of_origin).toBe('DE')
+  })
+})
