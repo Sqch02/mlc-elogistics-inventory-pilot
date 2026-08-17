@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shortenAddressField, planAddressShortening, nettoyerVille, recoverHouseNumberFromStreet, extraireOrganisation, retirerEntrepriseDupliquee } from './address'
+import { shortenAddressField, planAddressShortening, nettoyerVille, recoverHouseNumberFromStreet, extraireOrganisation, retirerEntrepriseDupliquee, nettoyerCodePostal } from './address'
 
 describe('shortenAddressField', () => {
   it('abbreviates known tokens without losing meaning', () => {
@@ -415,5 +415,84 @@ describe('les cinq corrections manuelles du 10/08 au soir', () => {
       [{ field: 'house_number', max: 8 }],
     )
     expect(plan.lossyFields).toContain('house_number')
+  })
+})
+
+describe('les six cas du 17/08 au soir', () => {
+  it('#550791 separe la personne de la structure sur " - "', () => {
+    // "AGNÈS BALLEREAU - CAPSTAN AVOCATS", 33 caracteres pour une limite de 32.
+    // La liste de marqueurs ne connaissait pas "AVOCATS", et une liste de
+    // metiers ne sera jamais close. Le separateur est generique.
+    const r = extraireOrganisation('AGNÈS BALLEREAU - CAPSTAN AVOCATS', '', 32)
+    expect(r).toEqual({ name: 'AGNÈS BALLEREAU', company_name: 'CAPSTAN AVOCATS' })
+  })
+
+  it('ne coupe PAS un patronyme compose', () => {
+    // Un nom compose francais s'ecrit sans espaces autour du trait d'union.
+    // Des espaces des deux cotes marquent une separation voulue.
+    expect(extraireOrganisation('Jean-Baptiste Dupont-Durand-Lefevre-Martin', '', 32)).toBeNull()
+  })
+
+  it('#550601 retire le prefixe pays du code postal luxembourgeois', () => {
+    // "Enter a valid zip code." Les codes luxembourgeois font quatre chiffres ;
+    // le L est la convention d'ecriture du pays, pas une partie du code.
+    expect(nettoyerCodePostal('L7333', 'LU')).toEqual({ postal_code: '7333' })
+    expect(nettoyerCodePostal('L-7333', 'LU')).toEqual({ postal_code: '7333' })
+  })
+
+  it('NE retire PAS un prefixe qui ne correspond pas au pays declare', () => {
+    // Retirer un B devant un code allemand changerait la destination.
+    expect(nettoyerCodePostal('B7333', 'LU')).toBeNull()
+    expect(nettoyerCodePostal('L7333', 'FR')).toBeNull()
+  })
+
+  it('ne touche pas a un code postal deja valide', () => {
+    expect(nettoyerCodePostal('7333', 'LU')).toBeNull()
+    expect(nettoyerCodePostal('38880', 'FR')).toBeNull()
+  })
+
+  it('#550824 abrege Route et rentre dans la limite combinee', () => {
+    const plan = planAddressShortening(
+      { address: 'Route de Finhan La Poste Nord', address_2: '',
+        house_number: '562', city: 'Montech', postal_code: '82700' },
+      [{ field: 'address_1', max: 32 }],
+    )
+    expect(plan.ready).toBe(true)
+    expect(plan.lossyFields).toEqual([])
+    expect(plan.patch.address).toBe('Rte de Finhan La Poste Nord')
+  })
+
+  it('#550903 ajoute au complement occupe', () => {
+    const plan = planAddressShortening(
+      { address: 'Le petit bois', address_2: 'Appt A 18',
+        house_number: '162 rue privat', city: 'Bessieres', postal_code: '31660' },
+      [{ field: 'house_number', max: 8 }],
+    )
+    expect(plan.ready).toBe(true)
+    expect(plan.lossyFields).toEqual([])
+    expect(plan.patch.house_number).toBe('162')
+    expect(plan.patch.address_2).toBe('Appt A 18 rue privat')
+  })
+})
+
+describe('code postal dans le plan complet', () => {
+  it('#550601 corrige le code postal sans perte', () => {
+    const plan = planAddressShortening(
+      { address: 'rue des Prés', house_number: '39', address_2: '',
+        city: 'Steinsel', postal_code: 'L7333', country_code: 'LU' },
+      [{ field: 'postal_code', max: 10 }],
+    )
+    expect(plan.ready).toBe(true)
+    expect(plan.lossyFields).toEqual([])
+    expect(plan.patch.postal_code).toBe('7333')
+  })
+
+  it('ne touche pas au code postal quand le pays ne correspond pas', () => {
+    const plan = planAddressShortening(
+      { address: 'rue des Prés', house_number: '39', address_2: '',
+        city: 'Steinsel', postal_code: 'L7333', country_code: 'FR' },
+      [{ field: 'postal_code', max: 10 }],
+    )
+    expect(plan.patch.postal_code).toBeUndefined()
   })
 })

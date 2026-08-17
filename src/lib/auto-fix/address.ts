@@ -493,6 +493,45 @@ export function retirerEntrepriseDupliquee(
 }
 
 /**
+ * Retire d'un code postal le prefixe pays que la commande porte deja.
+ *
+ * CAS REEL (#550601, 17/08) : code postal "L7333" au Luxembourg, refuse avec
+ * "Enter a valid zip code." Les codes luxembourgeois font quatre chiffres ; le
+ * "L" est la convention d'ecriture du pays (L-7333), pas une partie du code.
+ *
+ * Sans perte : le pays est deja dans son propre champ. On n'agit QUE si le
+ * prefixe correspond au pays declare — retirer un "B" devant un code allemand
+ * changerait la destination.
+ */
+const PREFIXES_PAYS: Record<string, { lettre: string; chiffres: number }> = {
+  LU: { lettre: 'L', chiffres: 4 },
+  BE: { lettre: 'B', chiffres: 4 },
+  DE: { lettre: 'D', chiffres: 5 },
+  FR: { lettre: 'F', chiffres: 5 },
+  CH: { lettre: 'CH', chiffres: 4 },
+  AT: { lettre: 'A', chiffres: 4 },
+}
+
+export function nettoyerCodePostal(
+  codePostal: string | undefined,
+  paysCode: string | undefined,
+): { postal_code: string } | null {
+  const brut = (codePostal ?? '').trim()
+  const pays = (paysCode ?? '').trim().toUpperCase()
+  if (!brut || !pays) return null
+
+  const attendu = PREFIXES_PAYS[pays]
+  if (!attendu) return null
+
+  // Le prefixe peut etre colle ("L7333") ou separe ("L-7333", "L 7333").
+  const motif = new RegExp(`^${attendu.lettre}[\\s-]?(\\d{${attendu.chiffres}})$`, 'i')
+  const trouve = brut.match(motif)
+  if (!trouve) return null
+
+  return { postal_code: trouve[1] }
+}
+
+/**
  * Marqueurs d'organisation, choisis pour ne jamais etre un patronyme.
  *
  * "Martin", "Leclerc" ou "Bernard" sont des noms de famille courants ET des
@@ -538,6 +577,25 @@ export function extraireOrganisation(
 
   // Jamais ecraser une entreprise deja renseignee.
   if ((entrepriseExistante ?? '').trim() !== '') return null
+
+  // 1. Separateur explicite " - ", entoure d'espaces.
+  //
+  // CAS REEL (#550791, 17/08) : "AGNÈS BALLEREAU - CAPSTAN AVOCATS", 33
+  // caracteres pour une limite de 32. La liste de marqueurs ne connaissait pas
+  // "AVOCATS", et une liste de metiers ne sera jamais close.
+  //
+  // Le separateur, lui, est un signal generique et sans ambiguite : un nom
+  // compose francais s'ecrit SANS espaces autour du trait d'union
+  // ("Dupont-Durand"). Des espaces des deux cotes marquent donc une separation
+  // voulue par celui qui a saisi, pas un patronyme.
+  const separateur = complet.match(/^(.{2,}?)\s+[-–—]\s+(.{2,})$/)
+  if (separateur) {
+    const personne = separateur[1].trim()
+    const organisation = separateur[2].trim()
+    if (personne.length <= limiteNom && organisation.length <= limiteEntreprise) {
+      return { name: personne, company_name: organisation }
+    }
+  }
 
   const normalise = complet
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -710,6 +768,22 @@ export function planAddressShortening(
   // remet a sa place. On ne cree PAS d'alerte pour ce seul motif — trois mille
   // commandes ont un numero vide sans que cela pose probleme — mais quand on
   // traite deja la commande, autant supprimer un refus a venir.
+  // Prefixe pays sur le code postal : correction opportuniste, sans perte, et
+  // independante de toute limite de longueur — le refus porte sur la validite
+  // du code, pas sur sa taille.
+  const codePropre = nettoyerCodePostal(asText('postal_code'), asText('country_code'))
+  if (codePropre) {
+    patch.postal_code = codePropre.postal_code
+    audit.push({
+      field: 'postal_code',
+      before_length: (asText('postal_code') ?? '').length,
+      after_length: codePropre.postal_code.length,
+      limit: 0,
+      applied: ['drop_country_prefix_in_postal_code'],
+      lossy: false,
+    })
+  }
+
   const recupere = recoverHouseNumber(asText('house_number'), asText('address_2'))
   if (recupere) {
     patch.house_number = recupere.houseNumber
