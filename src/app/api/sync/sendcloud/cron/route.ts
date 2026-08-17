@@ -46,6 +46,7 @@ import {
   integrationContinuation,
   loadIncrementalDrain,
   loadIntegrationContinuations,
+  lastIntegrationReadAt,
   persistIncrementalDrain,
   persistIntegrationContinuation,
   recordCheckpointFailure,
@@ -56,38 +57,67 @@ import {
 } from '@/lib/sendcloud/checkpoints'
 
 /**
- * Faut-il relire les retours a ce cycle ?
+ * Une ressource doit-elle etre relue a ce cycle ?
  *
- * L'API Sendcloud IGNORE le filtre `updated_after` sur /returns. Verifie en
- * direct le 10/08 : `updated_after=2030-01-01`, une date dans le futur,
- * renvoie quand meme la collection entiere. Chaque cycle retelechargeait donc
- * TOUS les retours de chaque client, toutes les cinq minutes.
+ * Deux ressources coutent cher et ne rapportent rien a etre relues toutes les
+ * cinq minutes :
  *
- * Mesure sur 24 h : 187 retours ramenes a chaque cycle chez un client qui en
- * compte 453 en base, et exactement 15 a chaque cycle chez un autre qui en a
- * 5. Environ 58 000 enregistrements par jour pour une donnee qui bouge
- * quelques fois par semaine.
+ * LES RETOURS. L'API Sendcloud IGNORE le filtre `updated_after` sur /returns —
+ * verifie en direct, une date dans le FUTUR renvoie quand meme la collection
+ * entiere. Chaque cycle retelechargeait donc tout.
  *
- * Un retour n'a rien d'urgent : une lecture horaire suffit, et divise ce
- * volume par douze.
+ * LES COMMANDES EN ATTENTE. Aucun filtre incremental non plus : la liste
+ * complete est relue a chaque passage. Mesure du 17/08 : 140 000 lectures par
+ * jour pour environ 500 commandes distinctes. Or le moteur d'auto-correction
+ * ne tourne que toutes les quinze minutes — on lisait trois fois plus souvent
+ * que le consommateur ne pouvait agir.
+ *
+ * PIEGE A NE PAS REPRODUIRE : la date passee ici doit etre lue AVANT toute
+ * ecriture du cycle. Les points de reprise sont reactualises a chaque passage,
+ * y compris quand rien n'a ete lu ; une date relue apres vaudrait toujours
+ * "maintenant" et l'intervalle ne serait jamais atteint. La ressource cesserait
+ * alors d'etre lue pour toujours, sans que rien ne le signale.
  */
+export function lectureEstDue(
+  dernierPassage: string | undefined,
+  maintenant: string,
+  intervalleParDefautMinutes: number,
+  intervalleConfigure?: string,
+): boolean {
+  // Jamais lu : on lit.
+  if (!dernierPassage) return true
+
+  const minutes = Number(intervalleConfigure)
+  const intervalle = Number.isFinite(minutes) && minutes >= 0 ? minutes : intervalleParDefautMinutes
+
+  const precedent = Date.parse(dernierPassage)
+  const courant = Date.parse(maintenant)
+  // Horodatage illisible : on lit plutot que de sauter indefiniment. Une
+  // lecture inutile coute moins cher qu'une ressource jamais relue.
+  if (!Number.isFinite(precedent) || !Number.isFinite(courant)) return true
+
+  return courant - precedent >= intervalle * 60_000
+}
+
+/** Les retours changent quelques fois par semaine : lecture horaire. */
 export function returnsSontDus(
   dernierPassage: string | undefined,
   maintenant: string,
   env: Record<string, string | undefined> = process.env,
 ): boolean {
-  // Jamais lu : on lit.
-  if (!dernierPassage) return true
+  return lectureEstDue(dernierPassage, maintenant, 60, env.SENDCLOUD_RETURNS_INTERVAL_MINUTES)
+}
 
-  const minutes = Number(env.SENDCLOUD_RETURNS_INTERVAL_MINUTES)
-  const intervalle = Number.isFinite(minutes) && minutes >= 0 ? minutes : 60
-
-  const precedent = Date.parse(dernierPassage)
-  const courant = Date.parse(maintenant)
-  // Horodatage illisible : on lit plutot que de sauter indefiniment.
-  if (!Number.isFinite(precedent) || !Number.isFinite(courant)) return true
-
-  return courant - precedent >= intervalle * 60_000
+/**
+ * Les commandes en attente alimentent le moteur d'auto-correction, qui passe
+ * toutes les quinze minutes. Lire plus souvent que lui ne sert a rien.
+ */
+export function commandesSontDues(
+  dernierPassage: string | undefined,
+  maintenant: string,
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return lectureEstDue(dernierPassage, maintenant, 15, env.SENDCLOUD_ORDERS_INTERVAL_MINUTES)
 }
 
 type ResourceName = 'parcels' | 'integration_shipments' | 'returns'
@@ -346,6 +376,11 @@ async function runSync(correlationId: string) {
       const paginationCaps: PaginationCapNotice[] = []
       const onPaginationCap = (notice: PaginationCapNotice) => paginationCaps.push(notice)
 
+      // Lue AVANT toute ecriture du cycle : les points de reprise sont
+      // reactualises a chaque passage, et une date relue apres vaudrait
+      // toujours "maintenant".
+      const derniereLectureCommandes = await lastIntegrationReadAt(adminClient, tenant.id)
+
       const [parcelDrain, returnDrain, storedIntegrationContinuations] = await Promise.all([
         loadIncrementalDrain(
           adminClient,
@@ -378,6 +413,11 @@ async function runSync(correlationId: string) {
       // se poursuit au prochain passage horaire ; la garde d'obsolescence des
       // points de reprise (2 h) reste plus large que l'intervalle.
       const returnsDus = returnsSontDus(returnDrain.updatedAt, cycleStartedAt)
+      // Une pagination commencee se poursuit : l'interrompre ferait repartir
+      // du debut a chaque fois, et la liste ne serait jamais parcourue en
+      // entier.
+      const commandesDues = storedIntegrationContinuations.size > 0
+        || commandesSontDues(derniereLectureCommandes, cycleStartedAt)
 
       logger.info('Incremental drains:', {
         parcels: { since: parcelDrain.watermark, resumed: parcelDrain.resuming },
@@ -392,13 +432,31 @@ async function runSync(correlationId: string) {
           maxPages,
           onPaginationCap,
         ),
-        fetchIntegrationBatches(
-          credentials,
-          maxPages,
-          cycleStartedAt,
-          storedIntegrationContinuations,
-          onPaginationCap,
-        ),
+        // Les commandes en attente ne sont lues qu'a intervalle espace.
+        //
+        // Aucun filtre incremental n'existe sur cette ressource : la liste
+        // complete est relue a chaque passage. Mesure du 17/08 : 140 000
+        // lectures par jour pour environ 500 commandes distinctes, dont 75 700
+        // pour un seul client qui en compte 263.
+        //
+        // Or le moteur d'auto-correction ne passe que toutes les quinze
+        // minutes. On lisait donc trois fois plus souvent que le consommateur
+        // ne pouvait agir.
+        //
+        // Un tableau vide, et non un resultat vide : c'est ce qui empeche
+        // STRUCTURELLEMENT d'enregistrer un point de reprise pour une lecture
+        // qui n'a pas eu lieu. Meme piege que sur les retours, ou un resultat
+        // vide rafraichissait l'horodatage a chaque cycle et gelait la
+        // ressource pour toujours.
+        commandesDues
+          ? fetchIntegrationBatches(
+              credentials,
+              maxPages,
+              cycleStartedAt,
+              storedIntegrationContinuations,
+              onPaginationCap,
+            )
+          : Promise.resolve([]),
         // Les retours ne sont lus qu'a intervalle espace.
         //
         // L'API Sendcloud IGNORE le filtre `updated_after` sur /returns :
@@ -920,7 +978,20 @@ async function runSync(correlationId: string) {
           outcome.error = errorMessage(error)
         }
       }
-      resourceStats.integration_shipments = aggregateIntegrationStats(integrationOutcomes)
+      resourceStats.integration_shipments = commandesDues
+        ? aggregateIntegrationStats(integrationOutcomes)
+        : {
+            // Dire qu'on n'a pas lu, et non qu'on n'a rien trouve. Un compteur
+            // qui annonce "zero" alors qu'on n'a pas regarde empeche de voir
+            // une panne.
+            status: 'success',
+            fetched: 0,
+            pages_fetched: 0,
+            pagination_capped: false,
+            has_more: false,
+            resumed: false,
+            skipped_reason: 'interval_not_elapsed',
+          }
 
       // Une lecture sautee n'enregistre RIEN.
       //

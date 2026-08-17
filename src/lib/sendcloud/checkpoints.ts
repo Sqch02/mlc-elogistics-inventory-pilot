@@ -244,6 +244,36 @@ export async function loadIntegrationContinuations(
   return checkpoints
 }
 
+/**
+ * Date de la derniere lecture des commandes pour ce client.
+ *
+ * Sert a espacer une ressource dont la relecture ne rapporte rien : la liste
+ * des commandes en attente ne change pas toutes les cinq minutes, et le moteur
+ * d'auto-correction ne tourne de toute facon que toutes les quinze.
+ *
+ * A LIRE AVANT toute ecriture du cycle : les points de reprise sont
+ * reactualises a chaque passage, y compris quand le drain est termine. Lue
+ * apres, cette date vaudrait toujours "maintenant" et l'intervalle ne serait
+ * jamais atteint — c'est le defaut que j'ai introduit puis corrige sur les
+ * retours.
+ */
+export async function lastIntegrationReadAt(
+  client: AdminClient,
+  tenantId: string,
+): Promise<string | undefined> {
+  const { data, error } = await client
+    .from('sendcloud_sync_checkpoints')
+    .select('updated_at')
+    .eq('tenant_id', tenantId)
+    .eq('resource', 'integration_shipments')
+    .order('updated_at', { ascending: false })
+    .limit(1)
+
+  if (isMissingCheckpointTable(error)) return undefined
+  if (error) throw checkpointError('load integration_shipments timestamp', error)
+  return data?.[0]?.updated_at ?? undefined
+}
+
 export function integrationContinuation(
   integrationId: number,
   cycleStartedAt: string,
