@@ -29,6 +29,15 @@ export interface ValidationRules {
   houseNumberMax: number | null
   /** Limite sur le nom d'entreprise. */
   companyNameMax: number | null
+  /**
+   * Limite sur le NOM DU DESTINATAIRE, distincte de celle du nom d'entreprise.
+   *
+   * Son absence expliquait un cas signale par l'exploitation le 17/08 : un nom
+   * trop long n'etait jamais anticipe, donc il n'apparaissait qu'a la tentative
+   * d'etiquette — c'est-a-dire au moment ou l'exploitation le corrigeait
+   * elle-meme. Le moteur savait le traiter mais arrivait toujours apres.
+   */
+  recipientNameMax: number | null
   /** Le libelle de voie est obligatoire : vide, l'expedition est refusee. */
   requireAddress: boolean
   /** Sendcloud refuse une expedition sans aucune ligne d'article. */
@@ -88,6 +97,9 @@ export const OBSERVED_RULES: ValidationRules = {
   // Refus reel : "Ensure this field has no more than 50 characters." sur
   // "Entreprise individuelle L'Atelier du Phenix par Chris".
   companyNameMax: 50,
+  // Refus reel : "Ensure that name has at most 32 characters (it has 36)."
+  // 32 chez Colis Prive, 35 ailleurs : on retient la plus stricte.
+  recipientNameMax: 32,
   requireAddress: true,
   requireParcelItems: true,
   // Refus reel observe : "La devise fournie n'est pas prise en charge par
@@ -165,6 +177,18 @@ export function findLatentErrors(
       source: 'latent',
       basis: 'observed_refusal',
       message: 'Ce champ est obligatoire.',
+    })
+  }
+
+  const destinataire = text(raw.name)
+  if (rules.recipientNameMax !== null && destinataire.length > rules.recipientNameMax) {
+    found.push({
+      field: 'name',
+      source: 'latent',
+      basis: 'observed_refusal',
+      message:
+        `Ensure that name has at most ${rules.recipientNameMax} characters ` +
+        `(it has ${destinataire.length}).`,
     })
   }
 

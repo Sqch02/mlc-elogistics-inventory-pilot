@@ -254,7 +254,7 @@ describe('nom du destinataire trop long (capture #546632)', () => {
 describe('etiquette deja produite (mesure du 10/08)', () => {
   const REGLES = {
     addressCombinedMax: 32, cityMax: 30, address2Max: 30, houseNumberMax: 20,
-    companyNameMax: 50, requireAddress: true, requireParcelItems: false,
+    companyNameMax: 50, recipientNameMax: 32, requireAddress: true, requireParcelItems: false,
     acceptedCurrencies: null,
   }
 
@@ -339,6 +339,38 @@ describe('les seuils resserres declenchent bien la detection', () => {
       city: 'Nantes', postal_code: '44000',
       parcel_items: [{ quantity: 1 }],
     }, 'integration_shipment', { latentRules: REGLES })
+    expect(r).toBeNull()
+  })
+})
+
+describe('nom du destinataire trop long, anticipe', () => {
+  // Signale par l'exploitation le 17/08. Le moteur SAVAIT deja traiter ce cas,
+  // mais il arrivait toujours apres : sans regle anticipee, le refus
+  // n'apparaissait qu'a la tentative d'etiquette, c'est-a-dire au moment ou
+  // l'exploitation le corrigeait elle-meme.
+  //
+  // Savoir corriger ne sert a rien si on arrive apres celui qu'on voulait
+  // soulager.
+  it('signale un nom de 36 caracteres AVANT toute tentative', () => {
+    const r = detectAutoFixCause({
+      shipment_uuid: 'n1',
+      name: 'Christine HEGY Croix-Rouge Française',
+      company_name: '',
+      address: '3 rue creve coeur', house_number: '3',
+      city: 'Bourg-en-Bresse', postal_code: '01000',
+      parcel_items: [{ quantity: 1 }],
+    }, 'integration_shipment', { latentRules: OBSERVED_RULES })
+    expect(r?.detectedPatterns).toContain('address_too_long')
+  })
+
+  it('ne signale pas un nom qui tient', () => {
+    const r = detectAutoFixCause({
+      shipment_uuid: 'n2',
+      name: 'Christine Hegy', company_name: '',
+      address: '3 rue creve coeur', house_number: '3',
+      city: 'Bourg-en-Bresse', postal_code: '01000',
+      parcel_items: [{ quantity: 1 }],
+    }, 'integration_shipment', { latentRules: OBSERVED_RULES })
     expect(r).toBeNull()
   })
 })
