@@ -11,6 +11,7 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { planAddressShortening, type AddressLimit } from './address'
+import { buildDigitalItemsPlan, digitalItemsPlanToJson } from './digital-items'
 import { buildChfToEurConversion } from './currency'
 import type { Json } from '@/types/database'
 import { patchParcelById, comparePatch, type ParcelPatch, type WriteResult } from './sendcloud-write'
@@ -138,6 +139,18 @@ export interface LiveWorkerDependencies {
    * les deux mondes.
    */
   resolveOrderRef?: (tenantId: string, sendcloudId: string) => Promise<string | null>
+  /**
+   * Valeurs douanieres par defaut du client, pour les articles qui n'en
+   * portent pas. Absentes, aucune proposition n'est calculee : inventer un
+   * code douanier serait une declaration fausse.
+   */
+  customsDefaults?: (
+    tenantId: string,
+  ) => Promise<{ hs_code?: string | null; country_of_origin?: string | null } | null>
+  /** Articles de la commande, pour calculer la proposition de poids. */
+  orderItems?: (
+    job: { tenant_id: string; original_sendcloud_id: string },
+  ) => Promise<Array<Record<string, unknown>> | null>
   /**
    * Reglage de tolerance lu en base, pour pouvoir couper sans redeployer.
    * Absent, seule la variable d'environnement decide.
@@ -827,6 +840,29 @@ export async function runAutoFixLiveWorker(
                 ...(conversion.change as Record<string, unknown>),
               },
             })
+          }
+          // Articles dematerialises : poids absent et donnees douanieres
+          // manquantes. L'exploitation le corrige a la main de la meme facon
+          // chaque fois (0,001 kg, plus le code SH et l'origine par defaut).
+          //
+          // Non arme : un poids modifie change le tarif et parfois le
+          // transporteur retenu, et un code SH est une declaration douaniere.
+          // On enregistre la proposition pour qu'elle soit relue avant d'ouvrir
+          // le robinet.
+          if (job.primary_pattern === 'weight_too_low' || job.primary_pattern === 'hs_code_missing') {
+            const defauts = await deps.customsDefaults?.(job.tenant_id)
+            const articles = deps.orderItems ? await deps.orderItems(job).catch(() => null) : null
+            if (defauts && articles) {
+              const propose = buildDigitalItemsPlan(articles, defauts)
+              await rpc<boolean>(client, 'plan_auto_fix_live', {
+                p_job_id: job.id, p_worker_id: workerId,
+                p_plan: {
+                  action: 'fill_digital_item_details',
+                  proposal_only: true,
+                  ...(digitalItemsPlanToJson(propose) as Record<string, unknown>),
+                },
+              })
+            }
           }
           await refuse('pattern_not_armed'); continue
         }

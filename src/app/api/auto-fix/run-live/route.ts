@@ -48,6 +48,44 @@ export async function POST(request: NextRequest) {
 
   const result = await runAutoFixLiveWorker(rpcClient, process.env, {
     lossyOnServicePoint,
+
+    /**
+     * Valeurs douanieres par defaut du client. Absentes, aucune proposition
+     * n'est calculee pour les articles dematerialises : inventer un code
+     * douanier serait une declaration fausse.
+     */
+    async customsDefaults(tenantId: string) {
+      const { data } = await db
+        .from('tenant_settings')
+        .select('default_hs_code, default_origin_country')
+        .eq('tenant_id', tenantId)
+        .maybeSingle()
+      if (!data) return null
+      return {
+        hs_code: data.default_hs_code,
+        country_of_origin: data.default_origin_country,
+      }
+    },
+
+    /**
+     * Articles de la commande, lus depuis l'instantane conserve en base. On ne
+     * rappelle pas Sendcloud pour cela : le calcul ne sert qu'a montrer ce
+     * qu'on ferait, il n'a pas besoin d'etre plus frais que la detection.
+     */
+    async orderItems(job: { tenant_id: string; original_sendcloud_id: string }) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const untyped = db as any
+      const { data } = await untyped
+        .from('shipments')
+        .select('raw_json')
+        .eq('tenant_id', job.tenant_id)
+        .eq('sendcloud_id', job.original_sendcloud_id)
+        .maybeSingle()
+      const raw = (data?.raw_json ?? {}) as Record<string, unknown>
+      const details = raw.order_details as { order_items?: unknown } | undefined
+      const articles = details?.order_items ?? raw.parcel_items
+      return Array.isArray(articles) ? (articles as Array<Record<string, unknown>>) : null
+    },
     async credentials(tenantId: string): Promise<SendcloudCredentials | null> {
       const { data } = await db
         .from('tenant_settings')
