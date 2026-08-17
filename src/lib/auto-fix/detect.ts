@@ -182,6 +182,16 @@ function classifyEvidence(evidence: RawEvidence, raw: Record<string, unknown>): 
   ) {
     matches.push('address_too_long')
   }
+  // Code postal refuse comme invalide. Range avec les corrections d'adresse
+  // parce que c'est le meme plan qui le traite : il sait retirer un prefixe
+  // pays que la commande porte deja dans son champ pays ("L7333" au
+  // Luxembourg). Releve le 17/08.
+  if (
+    /(postal|zip|code postal)/.test(field) &&
+    /(valid|invalide|incorrect|not a valid|entrez|enter a)/.test(combined)
+  ) {
+    matches.push('address_too_long')
+  }
   // Numero de voie EXIGE mais vide. Range avec les corrections d'adresse parce
   // que c'est le meme plan qui le traite : il sait recuperer le numero depuis
   // le libelle de rue ("rue dieffiere n°13") ou le complement.

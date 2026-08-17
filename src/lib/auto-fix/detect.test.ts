@@ -374,3 +374,18 @@ describe('nom du destinataire trop long, anticipe', () => {
     expect(r).toBeNull()
   })
 })
+
+describe('code postal refuse (capture #550601)', () => {
+  it('classe un code postal invalide avec les corrections d adresse', () => {
+    // "Enter a valid zip code." sur "L7333" au Luxembourg. Sans cette
+    // classification, la reparation existerait sans jamais tourner — le piege
+    // le plus recurrent de ce projet.
+    const r = detectAutoFixCause({
+      shipment_uuid: 'cp1',
+      address: 'rue des Prés', house_number: '39',
+      city: 'Steinsel', postal_code: 'L7333', country_code: 'LU',
+      errors: { postal_code: ['Enter a valid zip code.'] },
+    }, 'integration_shipment')
+    expect(r?.detectedPatterns).toContain('address_too_long')
+  })
+})
