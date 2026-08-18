@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shortenAddressField, planAddressShortening, nettoyerVille, recoverHouseNumberFromStreet, extraireOrganisation, retirerEntrepriseDupliquee, nettoyerCodePostal } from './address'
+import { shortenAddressField, planAddressShortening, nettoyerVille, recoverHouseNumberFromStreet, extraireOrganisation, retirerEntrepriseDupliquee, nettoyerCodePostal, extraireMentionChez } from './address'
 
 describe('shortenAddressField', () => {
   it('abbreviates known tokens without losing meaning', () => {
@@ -494,5 +494,50 @@ describe('code postal dans le plan complet', () => {
       [{ field: 'postal_code', max: 10 }],
     )
     expect(plan.patch.postal_code).toBeUndefined()
+  })
+})
+
+describe('mention chez dans le nom (capture #550968)', () => {
+  it('deplace la mention vers le complement d adresse', () => {
+    // "Florence Houbin chez Marie Noëlle HOUBIN", 40 caracteres pour 32.
+    // Le moteur tronquait en "Florence Houbin chez Marie", qui ne designe
+    // plus personne. La norme postale francaise place le point de remise sur
+    // la ligne complement.
+    const r = extraireMentionChez('Florence Houbin chez Marie Noëlle HOUBIN', '', 32)
+    expect(r).toEqual({ name: 'Florence Houbin', address_2: 'chez Marie Noëlle HOUBIN' })
+  })
+
+  it('ne touche pas a un commerce nomme Chez quelque chose', () => {
+    // "Chez Marcel" n'a pas de personne avant : rien a deplacer.
+    expect(extraireMentionChez('Chez Marcel Restaurant du Port et des Halles', '', 32)).toBeNull()
+  })
+
+  it('refuse si le complement deborderait', () => {
+    expect(extraireMentionChez(
+      'Florence Houbin chez Marie Noëlle HOUBIN',
+      'Batiment C Escalier 4 Porte Gauche', 32,
+    )).toBeNull()
+  })
+
+  it('ajoute a un complement libre de place', () => {
+    const r = extraireMentionChez('Florence Houbin chez Marie', 'Apt 3', 20, 30)
+    expect(r).toEqual({ name: 'Florence Houbin', address_2: 'Apt 3 chez Marie' })
+  })
+
+  it('ne fait rien si le nom tient deja', () => {
+    expect(extraireMentionChez('Paul chez Marie', '', 32)).toBeNull()
+  })
+
+  it('corrige sans perte dans le plan complet', () => {
+    const plan = planAddressShortening(
+      { name: 'Florence Houbin chez Marie Noëlle HOUBIN', company_name: '',
+        address: '6 Grande Rue', address_2: '', house_number: '',
+        city: 'Prâlon', postal_code: '21410', country_code: 'FR' },
+      [{ field: 'name', max: 32 }],
+    )
+    expect(plan.ready).toBe(true)
+    expect(plan.lossyFields).toEqual([])
+    expect(plan.patch.name).toBe('Florence Houbin')
+    expect(plan.patch.address_2).toBe('chez Marie Noëlle HOUBIN')
   })
 })
