@@ -532,6 +532,46 @@ export function nettoyerCodePostal(
 }
 
 /**
+ * Deplace une mention "chez" du nom vers le complement d'adresse.
+ *
+ * CAS REEL (#550968, 18/08) : "Florence Houbin chez Marie Noëlle HOUBIN",
+ * 40 caracteres pour une limite de 32. Le moteur tronquait en plein milieu et
+ * produisait "Florence Houbin chez Marie", ce qui ne designe plus personne.
+ *
+ * La norme postale francaise prevoit exactement ce cas : le destinataire va sur
+ * la ligne 1, et le point de remise ("chez M. X", "service de...") sur la
+ * ligne 2, celle du complement. On ne fait donc que remettre l'information a sa
+ * place — elle reste imprimee, rien n'est perdu.
+ *
+ * On exige une personne AVANT le "chez" : un commerce nomme "Chez Marcel" n'a
+ * rien a deplacer.
+ */
+export function extraireMentionChez(
+  nom: string | undefined,
+  complementExistant: string | undefined,
+  limiteNom: number,
+  limiteComplement = 30,
+): { name: string; address_2: string } | null {
+  const complet = (nom ?? '').trim()
+  if (!complet || complet.length <= limiteNom) return null
+
+  const trouve = complet.match(/^(.{3,}?)\s+(chez\s+.{2,})$/i)
+  if (!trouve) return null
+
+  const personne = trouve[1].trim().replace(/[,;-]+$/, '').trim()
+  const mention = trouve[2].trim()
+  if (personne.length < 3 || personne.length > limiteNom) return null
+
+  // Complement libre : la mention y va telle quelle. Sinon on ajoute a la
+  // suite, tant que le tout tient dans la limite du champ.
+  const actuel = (complementExistant ?? '').trim()
+  const destination = actuel === '' ? mention : `${actuel} ${mention}`
+  if (destination.length > limiteComplement) return null
+
+  return { name: personne, address_2: destination }
+}
+
+/**
  * Marqueurs d'organisation, choisis pour ne jamais etre un patronyme.
  *
  * "Martin", "Leclerc" ou "Bernard" sont des noms de famille courants ET des
@@ -822,6 +862,25 @@ export function planAddressShortening(
   // nom du destinataire lui ferait perdre celui qui sert a retirer le colis.
   const limiteNom = strictest.get('name')
   if (limiteNom !== undefined) {
+    // 0. Mention "chez" : elle appartient a la ligne complement, pas a la
+    //    ligne destinataire. C'est la norme postale, et c'est sans perte.
+    const chez = extraireMentionChez(
+      asText('name'), asText('address_2'), limiteNom, strictest.get('address_2') ?? 30,
+    )
+    if (chez) {
+      patch.name = chez.name
+      patch.address_2 = chez.address_2
+      audit.push({
+        field: 'name',
+        before_length: (asText('name') ?? '').length,
+        after_length: chez.name.length,
+        limit: limiteNom,
+        applied: ['move_care_of_to_address_2'],
+        lossy: false,
+      })
+      strictest.delete('name')
+    }
+
     // 1. Doublon exact de l'entreprise en tete du nom : motif le plus frequent,
     //    et le seul totalement sans perte puisque l'information reste imprimee
     //    par son propre champ.
