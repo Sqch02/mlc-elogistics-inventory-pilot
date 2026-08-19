@@ -448,6 +448,43 @@ export function recoverHouseNumber(
  * 100 commandes sur 100 ont un numero de voie vide sans que cela pose
  * probleme. Ce vide n'est donc pas une anomalie en soi.
  */
+/**
+ * Separe un numero colle a son type de voie.
+ *
+ * CAS REEL (#551528, 19/08) : numero de voie "376Avenue" pour une limite de 8,
+ * et rue "Du Lieutenant Giffault". La vraie adresse est "376 Avenue Du
+ * Lieutenant Giffault" : le type de voie appartient au DEBUT du libelle de rue,
+ * pas au complement.
+ *
+ * ON EXIGE UN TYPE DE VOIE RECONNU. Sans cela, "12B" serait coupe en "12" + "B"
+ * alors que le B fait partie du numero — et le colis irait a la mauvaise porte.
+ * C'est la meme prudence que pour le numero precede de "n°".
+ */
+const TYPES_DE_VOIE = [
+  'avenue', 'rue', 'boulevard', 'chemin', 'route', 'allee', 'allée', 'impasse',
+  'place', 'square', 'quai', 'cours', 'passage', 'sentier', 'villa', 'faubourg',
+]
+
+export function separerTypeDeVoieColle(
+  houseNumber: string | undefined,
+  street: string | undefined,
+): { houseNumber: string; address: string } | null {
+  const numero = (houseNumber ?? '').trim()
+  const libelle = (street ?? '').trim()
+  if (!numero || !libelle) return null
+
+  const decoupe = numero.match(/^(\d{1,5})\s*([A-Za-zÀ-ÿ]+)\s*$/)
+  if (!decoupe) return null
+
+  const type = decoupe[2]
+  const normalise = type.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  if (!TYPES_DE_VOIE.some((connu) => connu.normalize('NFD').replace(/[\u0300-\u036f]/g, '') === normalise)) {
+    return null
+  }
+
+  return { houseNumber: decoupe[1], address: `${type} ${libelle}`.replace(/\s+/g, ' ').trim() }
+}
+
 export function recoverHouseNumberFromStreet(
   houseNumber: string | undefined,
   street: string | undefined,
@@ -946,7 +983,24 @@ export function planAddressShortening(
   const limiteNumero = strictest.get('house_number')
   const numeroBrut = asText('house_number')
   if (limiteNumero !== undefined && numeroBrut && numeroBrut.length > limiteNumero) {
-    const separe = splitHouseNumber(numeroBrut)
+    // Type de voie colle au numero : il appartient au DEBUT du libelle de rue,
+    // pas au complement. Traite en premier, c'est le seul cas sans perte.
+    const colle = separerTypeDeVoieColle(numeroBrut, asText('address'))
+    if (colle && colle.houseNumber.length <= limiteNumero) {
+      patch.house_number = colle.houseNumber
+      patch.address = colle.address
+      audit.push({
+        field: 'house_number',
+        before_length: numeroBrut.length,
+        after_length: colle.houseNumber.length,
+        limit: limiteNumero,
+        applied: ['split_glued_street_type'],
+        lossy: false,
+      })
+      strictest.delete('house_number')
+    }
+
+    const separe = colle ? null : splitHouseNumber(numeroBrut)
     const complementActuel = (asText('address_2') ?? '').trim()
     const complementLibre = complementActuel === ''
 
@@ -977,7 +1031,7 @@ export function planAddressShortening(
           : 'split_house_number_appended_to_address_2'],
         lossy: false,
       })
-    } else {
+    } else if (!colle) {
       // Pas de separation evidente, ou complement deja occupe : on ne tronque
       // PAS un numero de voie. Couper "3 au college" en "3 au colleg" ne
       // produirait rien d'utilisable, et perdrait une localisation reelle.

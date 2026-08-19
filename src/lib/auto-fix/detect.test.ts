@@ -389,3 +389,28 @@ describe('code postal refuse (capture #550601)', () => {
     expect(r?.detectedPatterns).toContain('address_too_long')
   })
 })
+
+describe('code postal a prefixe pays, anticipe (cas du 19/08)', () => {
+  it('signale AVANT toute tentative d etiquette', () => {
+    // La reparation existait depuis la veille, mais le refus n'apparaissait
+    // qu'a la tentative — donc au moment ou l'exploitation le corrigeait
+    // elle-meme. Deuxieme fois que je tombe sur ce piege.
+    const r = detectAutoFixCause({
+      shipment_uuid: 'lu1',
+      address: 'rue de Steinfort', house_number: '41',
+      city: 'KLEINBETTINGEN', postal_code: 'L8381', country_code: 'LU',
+      parcel_items: [{ quantity: 1 }],
+    }, 'integration_shipment', { latentRules: OBSERVED_RULES })
+    expect(r?.detectedPatterns).toContain('address_too_long')
+  })
+
+  it('ne signale pas un code postal deja valide', () => {
+    const r = detectAutoFixCause({
+      shipment_uuid: 'lu2',
+      address: 'rue de Steinfort', house_number: '41',
+      city: 'KLEINBETTINGEN', postal_code: '8381', country_code: 'LU',
+      parcel_items: [{ quantity: 1 }],
+    }, 'integration_shipment', { latentRules: OBSERVED_RULES })
+    expect(r).toBeNull()
+  })
+})
