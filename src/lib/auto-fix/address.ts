@@ -78,6 +78,29 @@ export interface ShortenResult {
   applied: string[]
 }
 
+/**
+ * Retire les mots de liaison laisses en fin de coupe.
+ *
+ * Une coupe a la frontiere de mot produit facilement "10 Rue des Frères Eugène
+ * et" ou "Av F Mitterrand Parc des". Releve sur les deux propositions du 19/08.
+ *
+ * L'information est deja perdue a ce stade — ce n'est pas ce qu'on repare. Mais
+ * une proposition qui se termine par "et" a l'air cassee, et une suggestion qui
+ * a l'air cassee decredibilise toutes les autres. L'exploitation doit pouvoir
+ * la lire d'un coup d'oeil et dire oui ou non.
+ */
+function trimTrailingConnector(value: string): string {
+  const connecteurs = /\s+(et|ou|de|des|du|d|la|le|les|l|aux?|en|sur|sous|par|pour|avec|a)$/i
+  let sortie = value.trim()
+  // Plusieurs peuvent s'enchainer : "Rue des Frères de la" -> "Rue des Frères".
+  for (let i = 0; i < 3; i += 1) {
+    const suivant = sortie.replace(connecteurs, '').trim()
+    if (suivant === sortie || suivant.length < 3) break
+    sortie = suivant
+  }
+  return sortie
+}
+
 export function shortenAddressField(value: string, limit: number): ShortenResult {
   const applied: string[] = []
 
@@ -117,7 +140,7 @@ export function shortenAddressField(value: string, limit: number): ShortenResult
   const lastBoundary = Math.max(cut.lastIndexOf(' '), cut.lastIndexOf('-'))
   if (lastBoundary > 0) {
     applied.push('word_boundary')
-    return { value: cut.slice(0, lastBoundary).trim(), lossy: true, applied }
+    return { value: trimTrailingConnector(cut.slice(0, lastBoundary)), lossy: true, applied }
   }
 
   // 4. Dernier recours : un seul mot plus long que la limite.

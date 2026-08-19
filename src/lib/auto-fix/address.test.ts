@@ -541,3 +541,36 @@ describe('mention chez dans le nom (capture #550968)', () => {
     expect(plan.patch.address_2).toBe('chez Marie Noëlle HOUBIN')
   })
 })
+
+describe('propositions lisibles apres coupe (cas du 19/08)', () => {
+  it('ne laisse pas une proposition finir par une conjonction', () => {
+    // Releve en production : "10 Rue des Frères Eugène et". L'information est
+    // deja perdue a ce stade, ce n'est pas ce qu'on repare. Mais une
+    // suggestion qui a l'air cassee decredibilise toutes les autres.
+    const r = shortenAddressField('10 Rue des Frères Eugène et Adrien Peugeot', 32)
+    expect(r.lossy).toBe(true)
+    expect(r.value).not.toMatch(/\s(et|de|des|du|la|le|les|aux?)$/i)
+    expect(r.value).toBe('10 Rue des Frères Eugène')
+  })
+
+  it('ne laisse pas une proposition finir par un article', () => {
+    const r = shortenAddressField('Av F Mitterrand Parc des Expositions Sud', 30)
+    expect(r.value).not.toMatch(/\sdes$/i)
+  })
+
+  it('enchaine les liaisons quand il y en a plusieurs', () => {
+    const r = shortenAddressField('Rue des Frères de la Concorde Nationale', 25)
+    expect(r.value).not.toMatch(/\s(de|la)$/i)
+  })
+
+  it('ne mange pas un mot porteur de sens', () => {
+    // "Lyon" n'est pas une liaison : on ne le retire pas.
+    const r = shortenAddressField('Grande Avenue de la Ville de Lyon Nord', 34)
+    expect(r.value).toContain('Lyon')
+  })
+
+  it('ne vide jamais la valeur', () => {
+    const r = shortenAddressField('de la et des du', 8)
+    expect(r.value.length).toBeGreaterThanOrEqual(3)
+  })
+})
