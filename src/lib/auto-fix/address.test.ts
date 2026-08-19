@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shortenAddressField, planAddressShortening, nettoyerVille, recoverHouseNumberFromStreet, extraireOrganisation, retirerEntrepriseDupliquee, nettoyerCodePostal, extraireMentionChez } from './address'
+import { shortenAddressField, planAddressShortening, nettoyerVille, recoverHouseNumberFromStreet, extraireOrganisation, retirerEntrepriseDupliquee, nettoyerCodePostal, extraireMentionChez, separerTypeDeVoieColle } from './address'
 
 describe('shortenAddressField', () => {
   it('abbreviates known tokens without losing meaning', () => {
@@ -572,5 +572,34 @@ describe('propositions lisibles apres coupe (cas du 19/08)', () => {
   it('ne vide jamais la valeur', () => {
     const r = shortenAddressField('de la et des du', 8)
     expect(r.value.length).toBeGreaterThanOrEqual(3)
+  })
+})
+
+describe('les deux cas du 19/08 au soir', () => {
+  it('#551528 separe un numero colle a son type de voie', () => {
+    // "376Avenue" pour une limite de 8. La vraie adresse est
+    // "376 Avenue Du Lieutenant Giffault" : le type de voie appartient au
+    // debut du libelle de rue, pas au complement.
+    const plan = planAddressShortening(
+      { address: 'Du Lieutenant Giffault', house_number: '376Avenue', address_2: '',
+        city: 'Pays de Belvès', postal_code: '24170', country_code: 'FR' },
+      [{ field: 'house_number', max: 8 }],
+    )
+    expect(plan.ready).toBe(true)
+    expect(plan.lossyFields).toEqual([])
+    expect(plan.patch.house_number).toBe('376')
+    expect(plan.patch.address).toBe('Avenue Du Lieutenant Giffault')
+  })
+
+  it('ne coupe PAS un numero a suffixe comme 12B', () => {
+    // Sans type de voie reconnu, on ne touche a rien : le B fait partie du
+    // numero, et le colis irait a la mauvaise porte.
+    expect(separerTypeDeVoieColle('12B', 'Rue des Lilas')).toBeNull()
+    expect(separerTypeDeVoieColle('45bis', 'Rue des Lilas')).toBeNull()
+  })
+
+  it('reconnait les types de voie accentues', () => {
+    expect(separerTypeDeVoieColle('12Allée', 'des Tilleuls'))
+      .toEqual({ houseNumber: '12', address: 'Allée des Tilleuls' })
   })
 })

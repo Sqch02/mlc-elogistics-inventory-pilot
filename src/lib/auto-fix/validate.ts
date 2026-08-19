@@ -18,6 +18,8 @@
 // transporteurs. Les limites sont donc parametrables, et leur origine est
 // tracee dans la preuve produite — on n'affirme pas ce qu'on n'a pas verifie.
 
+import { nettoyerCodePostal } from './address'
+
 export interface ValidationRules {
   /** Limite sur la voie COMBINEE au numero de maison. */
   addressCombinedMax: number | null
@@ -189,6 +191,20 @@ export function findLatentErrors(
       message:
         `Ensure that name has at most ${rules.recipientNameMax} characters ` +
         `(it has ${destinataire.length}).`,
+    })
+  }
+
+  // Code postal portant le prefixe pays : anticipe, sinon le refus n'apparait
+  // qu'a la tentative d'etiquette — c'est-a-dire au moment ou l'exploitation le
+  // corrige elle-meme. Constate le 19/08 sur un code luxembourgeois, alors que
+  // la reparation existait depuis la veille.
+  const codeAvecPrefixe = nettoyerCodePostal(text(raw.postal_code), text(raw.country_code))
+  if (codeAvecPrefixe) {
+    found.push({
+      field: 'postal_code',
+      source: 'latent',
+      basis: 'observed_refusal',
+      message: 'Enter a valid zip code.',
     })
   }
 
