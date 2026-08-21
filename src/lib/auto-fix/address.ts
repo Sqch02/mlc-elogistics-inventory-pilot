@@ -242,6 +242,21 @@ export function nettoyerVille(
     }
   }
 
+  // 1bis. Mention administrative entre parentheses : region, departement.
+  //
+  // CAS REEL (20/08) : "LIVET-ET-GAVET (RHÔNE-ALPES)" etait tronque en
+  // "LIVET-ET-GAVET (RHÔNE", parenthese ouverte et jamais refermee. La region
+  // n'apporte rien a l'acheminement — le code postal la porte deja — et la
+  // couper au milieu produit une proposition qui a l'air cassee.
+  //
+  // Meme principe que la coupe a la virgule : on ne retire qu'un groupe
+  // ENTIER, jamais un morceau.
+  const sansMention = ville.replace(/\s*\([^()]*\)\s*$/, '').trim()
+  if (sansMention !== ville && sansMention.length >= 3) {
+    ville = sansMention
+    applied.push('drop_parenthesised_mention_in_city')
+  }
+
   // 2. Arrondissement deja porte par le code postal. Les deux derniers
   //    chiffres du code le designent : 13012 -> 12e, 75011 -> 11e.
   //

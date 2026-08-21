@@ -170,10 +170,33 @@ describe('villes refusees par Mondial Relay (captures du 09/08)', () => {
     expect(r.applied).toEqual([])
   })
 
-  it('NE retire PAS une parenthese qui n est pas le code postal', () => {
+  it('retire une mention administrative entre parentheses', () => {
+    // DECISION REVUE LE 21/08. J'avais d'abord refuse de toucher aux
+    // parentheses autres que le code postal, par prudence.
+    //
+    // Une coupe reelle m'a fait changer d'avis : "LIVET-ET-GAVET (RHÔNE-ALPES)"
+    // sortait en "LIVET-ET-GAVET (RHÔNE", parenthese ouverte et jamais
+    // refermee. Couper au milieu d'une mention est pire que la retirer en
+    // entier.
+    //
+    // Ce qui rend le retrait sur : en France l'acheminement se fait sur le
+    // couple code postal + ville, et le code postal leve deja l'ambiguite —
+    // 97400 designe La Reunion, 93200 la Seine-Saint-Denis. La mention entre
+    // parentheses est un confort de lecture, pas une donnee de routage.
     const r = nettoyerVille('Saint-Denis (La Reunion)', '97400')
-    expect(r.value).toBe('Saint-Denis (La Reunion)')
-    expect(r.applied).toEqual([])
+    expect(r.value).toBe('Saint-Denis')
+    expect(r.applied).toContain('drop_parenthesised_mention_in_city')
+  })
+
+  it('ne retire QUE des groupes entiers, jamais un morceau', () => {
+    // Une parenthese non fermee n'est pas un groupe : on n'y touche pas.
+    const r = nettoyerVille('LIVET-ET-GAVET (RHÔNE', '38220')
+    expect(r.value).toBe('LIVET-ET-GAVET (RHÔNE')
+  })
+
+  it('ne vide jamais la ville', () => {
+    const r = nettoyerVille('(Sud)', '38220')
+    expect(r.value).toBe('(Sud)')
   })
 
   it('corrige la ville sans perte dans le plan complet', () => {
@@ -601,5 +624,18 @@ describe('les deux cas du 19/08 au soir', () => {
   it('reconnait les types de voie accentues', () => {
     expect(separerTypeDeVoieColle('12Allée', 'des Tilleuls'))
       .toEqual({ houseNumber: '12', address: 'Allée des Tilleuls' })
+  })
+})
+
+describe('ville avec mention regionale (cas du 20/08)', () => {
+  it('corrige LIVET-ET-GAVET sans perte dans le plan complet', () => {
+    const plan = planAddressShortening(
+      { address: '12 rue du Pont', house_number: '12', address_2: '',
+        city: 'LIVET-ET-GAVET (RHÔNE-ALPES)', postal_code: '38220', country_code: 'FR' },
+      [{ field: 'city', max: 25 }],
+    )
+    expect(plan.ready).toBe(true)
+    expect(plan.lossyFields).toEqual([])
+    expect(plan.patch.city).toBe('LIVET-ET-GAVET')
   })
 })
