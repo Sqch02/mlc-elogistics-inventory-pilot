@@ -21,6 +21,7 @@ const PATTERN_PRIORITY: AutoFixPattern[] = [
   'hs_code_missing',
   'weight_too_low',
   'service_point_missing',
+  'address_missing',
   'unknown',
 ]
 
@@ -192,6 +193,16 @@ function classifyEvidence(evidence: RawEvidence, raw: Record<string, unknown>): 
   ) {
     matches.push('address_too_long')
   }
+  // Rue vide. Distinct d'une adresse trop longue : il n'y a rien a
+  // raccourcir, la donnee manque tout simplement.
+  if (
+    /(address_1|address_add1|\baddress\b|adresse)/.test(field) &&
+    !/address_2|address_add2/.test(field) &&
+    /(obligatoire|required|requis|manquant|missing|blank|empty|vide|ce champ)/.test(combined)
+  ) {
+    matches.push('address_missing')
+  }
+
   // Numero de voie EXIGE mais vide. Range avec les corrections d'adresse parce
   // que c'est le meme plan qui le traite : il sait recuperer le numero depuis
   // le libelle de rue ("rue dieffiere n°13") ou le complement.

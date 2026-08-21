@@ -6,6 +6,7 @@ export const AUTO_FIX_PATTERN_LABELS: Record<AutoFixPattern, string> = {
   hs_code_missing: 'Code douanier manquant',
   weight_too_low: 'Poids trop bas',
   service_point_missing: 'Point relais manquant',
+  address_missing: 'Adresse absente',
   sender_eori_missing: 'EORI expéditeur manquant',
   unknown: 'Cause inconnue',
 }

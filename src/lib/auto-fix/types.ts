@@ -9,6 +9,10 @@ export const AUTO_FIX_PATTERNS = [
   'weight_too_low',
   'service_point_missing',
   'sender_eori_missing',
+  // Rue vide : rien a recuperer, le complement l'est aussi. On le nomme pour
+  // que le tableau dise "adresse manquante" plutot que "cause inconnue" —
+  // l'exploitation sait alors quoi faire, meme si le moteur ne peut rien.
+  'address_missing',
   'unknown',
 ] as const
 

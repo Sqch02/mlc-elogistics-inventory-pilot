@@ -414,3 +414,30 @@ describe('code postal a prefixe pays, anticipe (cas du 19/08)', () => {
     expect(r).toBeNull()
   })
 })
+
+describe('rue vide (cas du 20/08)', () => {
+  it('nomme la cause au lieu de la laisser inconnue', () => {
+    // Rien a corriger automatiquement : la rue est vide et le complement
+    // aussi. Mais "cause inconnue" n'aide pas l'exploitation, alors que
+    // "adresse absente" lui dit exactement quoi faire.
+    const r = detectAutoFixCause({
+      shipment_uuid: 'v1',
+      address: '', address_2: '', house_number: '12',
+      city: 'Nantes', postal_code: '44000',
+      errors: { address_1: ['Ce champ est obligatoire.'] },
+    }, 'integration_shipment')
+    expect(r?.detectedPatterns).toContain('address_missing')
+    expect(r?.detectedPatterns).not.toContain('unknown')
+  })
+
+  it('ne confond pas avec un complement d adresse vide', () => {
+    // Un complement vide est normal, ce n'est pas une adresse manquante.
+    const r = detectAutoFixCause({
+      shipment_uuid: 'v2',
+      address: '12 rue des Lilas', address_2: '', house_number: '12',
+      city: 'Nantes', postal_code: '44000',
+      errors: { address_2: ['Ce champ est obligatoire.'] },
+    }, 'integration_shipment')
+    expect(r?.detectedPatterns ?? []).not.toContain('address_missing')
+  })
+})

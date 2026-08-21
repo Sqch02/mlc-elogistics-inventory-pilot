@@ -218,6 +218,7 @@ function manualReason(plan: Json | null, pattern: AutoFixPattern, erreur: Json |
     weight_too_low: 'Poids article inférieur au minimum accepté.',
     service_point_missing: 'Aucun point relais compatible sélectionné.',
     sender_eori_missing: 'EORI expéditeur à configurer dans le compte Sendcloud.',
+    address_missing: "Adresse absente : le nom de rue est vide et il n'y a rien à récupérer ailleurs. À renseigner.",
     unknown: 'Cause structurée non reconnue par les détecteurs.',
   }
   return reasons[pattern]
