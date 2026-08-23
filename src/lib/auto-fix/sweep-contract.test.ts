@@ -14,6 +14,11 @@ const sql = readFileSync(
   'utf8',
 )
 
+const sqlIntrouvables = readFileSync(
+  join(process.cwd(), 'supabase/migrations/00122_fermer_les_taches_sans_commande_identifiable.sql'),
+  'utf8',
+)
+
 describe('balayage de la file manuelle', () => {
   it('referme une tache dont la commande est partie par un autre colis', () => {
     expect(sql).toContain("s.status_id = 1002")
@@ -42,5 +47,28 @@ describe('balayage de la file manuelle', () => {
     expect(sql).toContain('FOR UPDATE OF j SKIP LOCKED')
     expect(sql).toContain('autre.tenant_id = s.tenant_id')
     expect(sql).toContain("SET search_path TO 'public'")
+  })
+
+  /**
+   * Le cron supprime la ligne de commande des que le colis est cree. Une tache
+   * qui n'a pas fige son numero devient alors introuvable pour tout le monde.
+   * 42 des 51 taches de la file etaient dans ce cas le 24/08.
+   */
+  it('referme une tache dont la commande n est identifiable par personne', () => {
+    expect(sqlIntrouvables).toContain("j.source_kind = 'integration_shipment'")
+    expect(sqlIntrouvables).toContain('NOT EXISTS')
+    expect(sqlIntrouvables).toContain("'order_row_deleted_after_parcel_created'")
+  })
+
+  it('ne touche JAMAIS une tache dont le numero est fige', () => {
+    // C'est la seule garde qui empeche cette regle d'avaler du travail reel :
+    // depuis la migration 00121 toute tache neuve porte son numero.
+    expect(sqlIntrouvables).toContain('j.source_order_ref IS NULL')
+  })
+
+  it('n ouvre pas la fonction au public', () => {
+    // REVOKE sur anon seul est un no-op tant que PUBLIC garde le droit.
+    expect(sqlIntrouvables).toContain('REVOKE ALL ON FUNCTION public.close_unidentifiable_auto_fix_jobs(integer) FROM PUBLIC')
+    expect(sqlIntrouvables).toContain('GRANT EXECUTE ON FUNCTION public.close_unidentifiable_auto_fix_jobs(integer) TO service_role')
   })
 })
