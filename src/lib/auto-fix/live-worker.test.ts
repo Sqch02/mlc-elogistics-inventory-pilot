@@ -828,4 +828,41 @@ describe('tache dont la cause a disparu', () => {
     // C'est la categorie qui decide de l'etat terminal cote base.
     expect(erreur?.category).toBe('resolved')
   })
+  it('classe une commande deja partie comme sans objet, pas comme travail manuel', async () => {
+    // Deux taches attendaient depuis le 11/08 dans la file manuelle avec cette
+    // raison. Personne ne peut corriger une commande partie : l'y laisser,
+    // c'est demander un travail qui n'existe pas.
+    const dejaPartie = {
+      id: '841973150', order_number: '#540788',
+      shipping_address: {
+        address_line_1: 'une adresse beaucoup trop longue pour la limite', address_line_2: '',
+        house_number: '4', city: 'Nantes', postal_code: '44000',
+      },
+      order_details: { status: { code: 'fulfilled' } },
+    }
+    const { client, calls } = makeClient({ claim: [job({
+      source_kind: 'integration_shipment',
+      source_summary_json: { address_limits: [{ field: 'address_1', max: 32 }] },
+      source_order_ref: '#540788',
+    })] })
+    const d = {
+      credentials: async () => ({ apiKey: 'k', secret: 's' }),
+      readParcel: vi.fn(async () => null),
+      writeParcel: vi.fn(async () => ({ ok: true as const, status: 200 })),
+      findOrder: vi.fn(async () => ({ ok: true, order: dejaPartie })),
+      patchOrder: vi.fn(),
+      verifyOrder: vi.fn(),
+    } as unknown as Parameters<typeof runAutoFixLiveWorker>[2]
+
+    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+
+    const echec = calls.find((c) => c.name === 'fail_auto_fix_live')
+    const erreur = echec?.args.p_error as { reason?: string; category?: string; detail?: string }
+    expect(erreur?.reason).toBe('order_not_corrigible')
+    // 'obsolete' mene a un etat terminal ; 'non_retryable' menait a la file.
+    expect(erreur?.category).toBe('obsolete')
+    expect(erreur?.category).not.toBe('non_retryable')
+    // Le statut lu est consigne, sinon la fermeture ne se relit pas.
+    expect(erreur?.detail).toBe('fulfilled')
+  })
 })

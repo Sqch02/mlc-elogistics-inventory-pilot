@@ -182,6 +182,15 @@ export interface LiveWorkerDependencies {
 // aurait laisse passer une adresse ecrite dans le mauvais champ.
 // ---------------------------------------------------------------------------
 
+/**
+ * Le statut lu chez Sendcloud, consigne au moment ou le moteur renonce. Sans
+ * lui, une tache refermee dit « commande non corrigible » sans dire pourquoi,
+ * et la fermeture ne peut plus etre relue ni contestee.
+ */
+function statutCommande(order: OrderV3): string {
+  return order.order_details?.status?.code ?? 'statut inconnu'
+}
+
 function ordreVersAdresse(order: OrderV3): Record<string, unknown> {
   const a = order.shipping_address ?? {}
   return {
@@ -220,7 +229,7 @@ async function remplacerPointRelais(
   env: Record<string, string | undefined>,
   deps: LiveWorkerDependencies,
   result: LiveWorkerResult,
-  refuse: (reason: string, category?: string) => Promise<void>,
+  refuse: (reason: string, category?: string, detail?: string) => Promise<void>,
 ): Promise<void> {
   const findOrder = deps.findOrder ?? findOrderByNumber
   const lirePoint = deps.getServicePoint ?? getServicePoint
@@ -231,7 +240,7 @@ async function remplacerPointRelais(
     return refuse(`order_lookup_${lookup.reason}`, lookup.reason === 'http_error' ? 'retryable' : 'non_retryable')
   }
   const order = lookup.order
-  if (!isCorrigible(order)) return refuse('order_not_corrigible')
+  if (!isCorrigible(order)) return refuse('order_not_corrigible', 'obsolete', statutCommande(order))
 
   const actuelId = order.service_point_details?.id
   if (!actuelId) return refuse('service_point_absent')
@@ -354,7 +363,7 @@ async function convertirDevise(
   orderRef: string,
   deps: LiveWorkerDependencies,
   result: LiveWorkerResult,
-  refuse: (reason: string, category?: string) => Promise<void>,
+  refuse: (reason: string, category?: string, detail?: string) => Promise<void>,
 ): Promise<void> {
   if (!deps.chfRate) return refuse('exchange_rate_unavailable', 'configuration')
 
@@ -364,7 +373,7 @@ async function convertirDevise(
     return refuse(`order_lookup_${lookup.reason}`, lookup.reason === 'http_error' ? 'retryable' : 'non_retryable')
   }
   const order = lookup.order
-  if (!isCorrigible(order)) return refuse('order_not_corrigible')
+  if (!isCorrigible(order)) return refuse('order_not_corrigible', 'obsolete', statutCommande(order))
 
   // `providerQuote.rate` est le taux publie par la BCE : combien de francs
   // vaut un euro. C'est celui-la qu'il faut, et non `rate` qui exprime
@@ -454,7 +463,7 @@ async function corrigerCommandeImportee(
   env: Record<string, string | undefined>,
   deps: LiveWorkerDependencies,
   result: LiveWorkerResult,
-  refuse: (reason: string, category?: string) => Promise<void>,
+  refuse: (reason: string, category?: string, detail?: string) => Promise<void>,
 ): Promise<void> {
   const resolveOrderRef = deps.resolveOrderRef
 
@@ -497,7 +506,7 @@ async function corrigerCommandeImportee(
     return refuse(`order_lookup_${lookup.reason}`, lookup.reason === 'http_error' ? 'retryable' : 'non_retryable')
   }
   const order = lookup.order
-  if (!isCorrigible(order)) return refuse('order_not_corrigible')
+  if (!isCorrigible(order)) return refuse('order_not_corrigible', 'obsolete', statutCommande(order))
 
   // Le plan est recalcule sur la lecture FRAICHE. Deux consequences voulues :
   // la valeur corrigee porte sur l'adresse actuelle, et si quelqu'un a deja
@@ -811,11 +820,11 @@ export async function runAutoFixLiveWorker(
       if (!job) continue
       result.claimed += 1
 
-      const refuse = async (reason: string, category = 'non_retryable') => {
+      const refuse = async (reason: string, category = 'non_retryable', detail?: string) => {
         result.skipped += 1
         await client.rpc('fail_auto_fix_live', {
           p_job_id: job.id, p_worker_id: workerId,
-          p_error: { category, reason },
+          p_error: { category, reason, ...(detail ? { detail } : {}) },
         })
       }
 
