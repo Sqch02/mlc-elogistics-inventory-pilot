@@ -17,6 +17,7 @@ interface RawEvidence {
 const PATTERN_PRIORITY: AutoFixPattern[] = [
   'sender_eori_missing',
   'currency_chf',
+  'currency_unsupported',
   'address_too_long',
   'hs_code_missing',
   'weight_too_low',
@@ -171,6 +172,17 @@ function classifyEvidence(evidence: RawEvidence, raw: Record<string, unknown>): 
     (String(raw.total_order_value_currency ?? raw.currency ?? '').toUpperCase() === 'CHF' || countryCode(raw) === 'CH')
   ) {
     matches.push('currency_chf')
+  } else if (
+    /(devise|currency)/.test(combined) &&
+    // La formulation vient de NOTRE regle anticipee ("n'est pas prise en
+    // charge"), pas de Sendcloud ("non prise en charge"). Ecrit contre la
+    // seule phrase de Sendcloud, ce classement ne se declenchait jamais — le
+    // test l'a montre avant la mise en service.
+    /((?:non|pas) prise? en charge|not supported|not valid|invalide)/.test(combined)
+  ) {
+    // Toute autre devise non EUR. Sans cette branche elle tombait en « cause
+    // inconnue », ce qui n'apprend rien a qui doit la corriger.
+    matches.push('currency_unsupported')
   }
   if (
     // `name` et `company_name` sont bien des champs du bloc destinataire :

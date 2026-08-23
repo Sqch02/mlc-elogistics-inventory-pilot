@@ -212,6 +212,7 @@ function manualReason(plan: Json | null, pattern: AutoFixPattern, erreur: Json |
     if (warning) return warning
   }
   const reasons: Record<AutoFixPattern, string> = {
+    currency_unsupported: "Devise non prise en charge par le transporteur. La conversion automatique n'existe que pour le franc suisse : à convertir en euros à la main.",
     currency_chf: 'Conversion CHF bloquée tant que le taux et les arrondis ne sont pas validés.',
     address_too_long: 'Adresse à raccourcir avant annonce transporteur.',
     hs_code_missing: 'Configuration douanière incomplète.',

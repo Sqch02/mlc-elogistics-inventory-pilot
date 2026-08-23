@@ -1,6 +1,7 @@
 import type { AutoFixAction, AutoFixJobState, AutoFixPattern } from './types'
 
 export const AUTO_FIX_PATTERN_LABELS: Record<AutoFixPattern, string> = {
+  currency_unsupported: 'Devise non prise en charge',
   currency_chf: 'Devise CHF',
   address_too_long: 'Adresse trop longue',
   hs_code_missing: 'Code douanier manquant',

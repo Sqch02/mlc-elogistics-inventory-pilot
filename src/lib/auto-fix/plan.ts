@@ -107,7 +107,10 @@ function buildPlan(
     } else {
       action = 'manual_required'
       wouldEndState = 'pending_manual'
-      changes.push({ pattern: 'unknown', auto_fixable: false })
+      // On reporte le motif REEL, pas 'unknown'. Ecrire 'unknown' ici annulait
+      // le travail de classification : une cause nommee en amont redevenait
+      // anonyme dans le plan, donc sur le tableau de bord.
+      changes.push({ pattern, auto_fixable: false })
     }
   }
 

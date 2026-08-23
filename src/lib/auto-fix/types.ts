@@ -4,6 +4,12 @@ import type { ChfRateResolution } from './exchange-rate'
 
 export const AUTO_FIX_PATTERNS = [
   'currency_chf',
+  // Devise non EUR autre que le franc suisse. On ne la CONVERTIT pas : le
+  // convertisseur est adosse a une serie de taux propre au CHF, et une seule
+  // occurrence en un mois (contre 314 en CHF) ne justifie pas d'ouvrir le
+  // chemin de l'argent a une devise de plus. On la NOMME, pour que
+  // l'exploitation sache quoi faire.
+  'currency_unsupported',
   'address_too_long',
   'hs_code_missing',
   'weight_too_low',
