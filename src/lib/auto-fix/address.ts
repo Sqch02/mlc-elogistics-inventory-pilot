@@ -101,6 +101,51 @@ function trimTrailingConnector(value: string): string {
   return sortie
 }
 
+/** Compare deux mots sans se soucier de la casse, des accents ni de la ponctuation. */
+function memeMot(a: string, b: string): boolean {
+  const propre = (mot: string) =>
+    mot.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  const ga = propre(a)
+  return ga !== '' && ga === propre(b)
+}
+
+/**
+ * Retire une repetition litterale en fin de champ.
+ *
+ * Observe en production le 24/08, dans DEUX champs differents :
+ *   "60 rue des cigognes 60 Rue des Cigognes"   -> la voie entiere, deux fois
+ *   "Marolles sous lignieres sous lignieres"    -> la fin de la ville, deux fois
+ *
+ * C'est la seule reparation dont l'absence de perte se demontre au lieu de se
+ * plaider : si la fin d'un texte repete mot pour mot ce qui la precede, la
+ * repetition ne porte aucune information. Rien n'est arbitre, rien n'est
+ * choisi — on enleve un doublon.
+ *
+ * Elle vient donc AVANT toute autre reparation : il arrive qu'elle suffise, et
+ * elle evite alors un arbitrage humain sur une adresse qui n'avait aucun
+ * probleme reel.
+ *
+ * On exige au moins DEUX mots repetes. Un mot unique redouble peut etre
+ * legitime — un lieu-dit, un nom compose — et le gain ne vaut pas le risque de
+ * mutiler une adresse valable.
+ */
+export function retirerRepetitionFinale(value: string): { value: string; applied: string[] } {
+  const mots = tokenize(value)
+  const n = mots.length
+
+  for (let k = Math.floor(n / 2); k >= 2; k -= 1) {
+    const fin = mots.slice(n - k)
+    const avant = mots.slice(n - 2 * k, n - k)
+    if (fin.every((mot, i) => memeMot(mot, avant[i]))) {
+      const restant = mots.slice(0, n - k).join(' ')
+      if (restant.trim() === '') break
+      return { value: restant, applied: ['drop_repeated_tail'] }
+    }
+  }
+
+  return { value, applied: [] }
+}
+
 export function shortenAddressField(value: string, limit: number): ShortenResult {
   const applied: string[] = []
 
@@ -342,7 +387,11 @@ export function extractComplement(value: string): { address: string; complement:
   const parenthesis = trimmed.match(/^(.*\S)\s*\(([^()]{2,})\)\s*$/)
   if (parenthesis) return { address: parenthesis[1].trim(), complement: parenthesis[2].trim() }
 
-  const dash = trimmed.match(/^(.*\S)\s+[-–]\s+(\S.{1,})$/)
+  // L'espace est exige AVANT le tiret, facultatif apres : "Langevin -La
+  // Maliniere" designe bien un lieu-dit, tandis que "Jean-Jacques" n'a pas
+  // d'espace avant et reste donc intact. Releve le 24/08 sur la commande
+  // #553215, ou la troncature laissait un "-La" orphelin.
+  const dash = trimmed.match(/^(.*\S)\s+[-–]\s*(\S.{1,})$/)
   if (dash && tokenize(dash[1]).length >= 2) return { address: dash[1].trim(), complement: dash[2].trim() }
 
   // "IMM limbourg 69 rue Albert lamotte" -> complement en tete, voie ensuite.
@@ -761,7 +810,16 @@ export function shortenAddressWithContext(
   const applied: string[] = []
   let current = value
 
-  // La queue administrative d'abord : elle enleve souvent assez pour que rien
+  // La repetition litterale en premier : c'est la seule reparation dont
+  // l'absence de perte se demontre, et il arrive qu'elle suffise a elle seule.
+  const sansDoublon = retirerRepetitionFinale(current)
+  if (sansDoublon.value !== current) {
+    current = sansDoublon.value
+    applied.push(...sansDoublon.applied)
+    if (current.length <= limit) return { value: current, lossy: false, applied }
+  }
+
+  // La queue administrative ensuite : elle enleve souvent assez pour que rien
   // d'autre ne soit necessaire.
   const sansQueue = stripAdministrativeTail(current)
   if (sansQueue.value !== current) {
@@ -1080,6 +1138,14 @@ export function planAddressShortening(
     let queue = field === 'city' || field === 'address_2'
       ? stripAdministrativeTail(value)
       : { value, applied: [] as string[] }
+
+    // La repetition litterale touche la ville autant que la voie : releve le
+    // 24/08 sur "Marolles sous lignieres sous lignieres". Sans perte, donc
+    // avant tout le reste.
+    const doublon = retirerRepetitionFinale(queue.value)
+    if (doublon.value !== queue.value) {
+      queue = { value: doublon.value, applied: [...queue.applied, ...doublon.applied] }
+    }
 
     // Puis les doublons propres a la ville : code postal entre parentheses,
     // arrondissement deja porte par le code. Sans perte, donc avant toute
