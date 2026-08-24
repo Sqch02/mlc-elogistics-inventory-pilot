@@ -17,6 +17,7 @@ interface RawEvidence {
 const PATTERN_PRIORITY: AutoFixPattern[] = [
   'sender_eori_missing',
   'currency_chf',
+  'currency_unsupported',
   'address_too_long',
   'hs_code_missing',
   'weight_too_low',
@@ -171,6 +172,21 @@ function classifyEvidence(evidence: RawEvidence, raw: Record<string, unknown>): 
     (String(raw.total_order_value_currency ?? raw.currency ?? '').toUpperCase() === 'CHF' || countryCode(raw) === 'CH')
   ) {
     matches.push('currency_chf')
+  } else if (
+    /(devise|currency)/.test(combined) &&
+    // DEUX emetteurs, deux vocabulaires. Notre regle anticipee dit « n'est
+    // pas prise en charge » ; Sendcloud, lui, ecrit « Currency GBP is not
+    // allowed for this carrier. Please choose one of EUR. » — releve a
+    // l'ecran le 24/08 sur la commande #553155.
+    //
+    // La premiere version ne visait que « not supported » et rendait donc
+    // « cause inconnue » sur le message REEL. Septieme fois que ce piege se
+    // presente dans ce moteur : on teste l'IDEE du refus, pas ses tournures.
+    /(not allowed|not supported|not valid|invalid|choose one of|(?:non|pas) autorisee?|(?:non|pas) prise? en charge|invalide)/.test(combined)
+  ) {
+    // Toute autre devise non EUR. Sans cette branche elle tombait en « cause
+    // inconnue », ce qui n'apprend rien a qui doit la corriger.
+    matches.push('currency_unsupported')
   }
   if (
     // `name` et `company_name` sont bien des champs du bloc destinataire :
