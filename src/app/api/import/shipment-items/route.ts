@@ -3,6 +3,7 @@ import { getServerDb } from '@/lib/supabase/untyped'
 import { requireTenant, requireRole } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 import { parseCSV } from '@/lib/utils/csv'
+import { refuserFichierTropGros, refuserTropDeLignes } from '@/lib/api/upload-limits'
 import { shipmentItemsImportRowSchema, validateRows } from '@/lib/validations/import'
 
 export async function POST(request: NextRequest) {
@@ -21,9 +22,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Mesure AVANT lecture : lire pour mesurer ensuite, c'est deja subir.
+    const tropGros = refuserFichierTropGros(file)
+    if (tropGros) {
+      return NextResponse.json(
+        { success: false, message: tropGros.message },
+        { status: tropGros.status },
+      )
+    }
+
     const content = await file.text()
     const { data: rawData, errors: parseErrors } = await parseCSV<Record<string, string>>(content)
 
+
+    const tropDeLignes = refuserTropDeLignes(rawData.length)
+    if (tropDeLignes) {
+      return NextResponse.json(
+        { success: false, message: tropDeLignes.message },
+        { status: tropDeLignes.status },
+      )
+    }
     if (parseErrors.length > 0) {
       return NextResponse.json({
         success: false,

@@ -52,13 +52,17 @@ export async function GET() {
       { status: 200 },
     )
   } catch (e) {
+    // Cette route n'est pas authentifiee : n'importe qui peut l'interroger.
+    // Renvoyer le message d'erreur de la base, c'est publier des noms de
+    // tables, des details de connexion ou de configuration a qui les demande.
+    // Le moniteur externe n'a besoin que du signal ; le detail reste ici.
+    console.error('[health/sync] base injoignable:', e instanceof Error ? e.message : e)
     return NextResponse.json(
       {
         status: 'degraded',
         degraded: true,
         paused,
         db: 'unreachable',
-        error: e instanceof Error ? e.message : 'unknown',
         timestamp: new Date().toISOString(),
       },
       { status: 200 },

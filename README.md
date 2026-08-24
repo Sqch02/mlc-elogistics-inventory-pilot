@@ -6,8 +6,9 @@ Application de gestion d'inventaire pour MLC PROJECT (3PL) - Centralisation des 
 
 | Composant | Technologie |
 |-----------|-------------|
-| Framework | Next.js 14 (App Router) |
+| Framework | Next.js 16 (App Router) |
 | Langage | TypeScript |
+| Interface | React 19 |
 | Base de donnees | Supabase (Postgres) |
 | Styling | Tailwind CSS + shadcn/ui |
 | Tables | TanStack Table |
