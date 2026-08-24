@@ -81,6 +81,24 @@ describe('detectAutoFixCause', () => {
     expect(result?.primaryPattern).not.toBe('unknown')
   })
 
+  it('reconnait le refus tel que Sendcloud l ecrit, pas comme nous l ecrivons', () => {
+    // Releve a l'ecran le 24/08 sur la commande #553155 (Florna, Delivengo,
+    // livraison au Royaume-Uni). Le vocabulaire de Sendcloud (« is not
+    // allowed ») n'est pas le notre (« n'est pas prise en charge ») : la
+    // premiere version du classement rendait « cause inconnue » sur ce
+    // message-la, c'est-a-dire sur le seul qui compte vraiment.
+    const result = detectAutoFixCause({
+      id: 1, currency: 'GBP', country: { iso_2: 'GB' },
+      total_order_value: '46.60',
+      parcel_items: [{ quantity: 1, value: '44.00', weight: '0.270' }],
+      errors: {
+        total_order_currency: ['Currency GBP is not allowed for this carrier. Please choose one of EUR.'],
+      },
+    }, 'integration_shipment')
+
+    expect(result?.primaryPattern).toBe('currency_unsupported')
+  })
+
   it('does not swallow the Swiss franc, which has its own conversion', () => {
     const result = detectAutoFixCause({
       id: 78,

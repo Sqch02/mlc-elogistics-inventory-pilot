@@ -174,11 +174,15 @@ function classifyEvidence(evidence: RawEvidence, raw: Record<string, unknown>): 
     matches.push('currency_chf')
   } else if (
     /(devise|currency)/.test(combined) &&
-    // La formulation vient de NOTRE regle anticipee ("n'est pas prise en
-    // charge"), pas de Sendcloud ("non prise en charge"). Ecrit contre la
-    // seule phrase de Sendcloud, ce classement ne se declenchait jamais — le
-    // test l'a montre avant la mise en service.
-    /((?:non|pas) prise? en charge|not supported|not valid|invalide)/.test(combined)
+    // DEUX emetteurs, deux vocabulaires. Notre regle anticipee dit « n'est
+    // pas prise en charge » ; Sendcloud, lui, ecrit « Currency GBP is not
+    // allowed for this carrier. Please choose one of EUR. » — releve a
+    // l'ecran le 24/08 sur la commande #553155.
+    //
+    // La premiere version ne visait que « not supported » et rendait donc
+    // « cause inconnue » sur le message REEL. Septieme fois que ce piege se
+    // presente dans ce moteur : on teste l'IDEE du refus, pas ses tournures.
+    /(not allowed|not supported|not valid|invalid|choose one of|(?:non|pas) autorisee?|(?:non|pas) prise? en charge|invalide)/.test(combined)
   ) {
     // Toute autre devise non EUR. Sans cette branche elle tombait en « cause
     // inconnue », ce qui n'apprend rien a qui doit la corriger.
