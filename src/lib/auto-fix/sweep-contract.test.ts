@@ -14,6 +14,11 @@ const sql = readFileSync(
   'utf8',
 )
 
+const sqlModeBloque = readFileSync(
+  join(process.cwd(), 'supabase/migrations/00125_taches_bloquees_par_un_changement_de_mode.sql'),
+  'utf8',
+)
+
 const sqlIntrouvables = readFileSync(
   join(process.cwd(), 'supabase/migrations/00122_fermer_les_taches_sans_commande_identifiable.sql'),
   'utf8',
@@ -70,5 +75,28 @@ describe('balayage de la file manuelle', () => {
     // REVOKE sur anon seul est un no-op tant que PUBLIC garde le droit.
     expect(sqlIntrouvables).toContain('REVOKE ALL ON FUNCTION public.close_unidentifiable_auto_fix_jobs(integer) FROM PUBLIC')
     expect(sqlIntrouvables).toContain('GRANT EXECUTE ON FUNCTION public.close_unidentifiable_auto_fix_jobs(integer) TO service_role')
+  })
+
+  /**
+   * `claim_auto_fix_jobs` exige que le mode de la tache et celui du client
+   * coincident. Un client qui passe de `simulated` a `live` laisse donc
+   * derriere lui des taches qu'AUCUN travailleur ne peut plus reclamer : ni
+   * en echec, ni en attente manuelle, simplement hors d'atteinte. Quatre
+   * attendaient ainsi depuis un mois le 24/08.
+   */
+  it('referme une tache rendue inatteignable par un changement de mode', () => {
+    expect(sqlModeBloque).toContain('j.mode <> ts.auto_fix_mode')
+    expect(sqlModeBloque).toContain("j.state IN ('queued', 'retry_wait')")
+    expect(sqlModeBloque).toContain("'mode_changed_job_unreachable'")
+  })
+
+  it('laisse le temps a un basculement de mode de se terminer', () => {
+    // Sans ce delai, on refermerait des taches pendant le basculement lui-meme.
+    expect(sqlModeBloque).toContain("j.updated_at < now() - interval '24 hours'")
+  })
+
+  it('n ouvre pas la fonction de mode au public', () => {
+    expect(sqlModeBloque).toContain('REVOKE ALL ON FUNCTION public.close_mode_stranded_auto_fix_jobs(integer) FROM PUBLIC')
+    expect(sqlModeBloque).toContain('GRANT EXECUTE ON FUNCTION public.close_mode_stranded_auto_fix_jobs(integer) TO service_role')
   })
 })
