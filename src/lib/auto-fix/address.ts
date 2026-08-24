@@ -1157,6 +1157,24 @@ export function planAddressShortening(
       }
     }
 
+    // Le complement porte souvent une adresse entiere recopiee, code postal
+    // compris : "9 RUE DE L HOP ST JEAN DE DIEU 59520" alors que 59520 a deja
+    // son propre champ. Le retirer est sans perte et suffit souvent a tenir
+    // dans la limite — releve le 24/08 sur la commande #553270, ou le moteur
+    // tronquait a "9 RUE DE L HOP ST JEAN" en perdant "DE DIEU".
+    //
+    // La voie beneficiait deja de ce nettoyage ; le complement, non. On ne
+    // l'applique PAS a la ville : y retirer le nom de la ville la viderait.
+    if (field === 'address_2') {
+      const sansDoublons = stripRedundantLocality(queue.value, {
+        city: asText('city'),
+        postalCode: asText('postal_code'),
+      })
+      if (sansDoublons.applied.length > 0) {
+        queue = { value: sansDoublons.value, applied: [...queue.applied, ...sansDoublons.applied] }
+      }
+    }
+
     const result =
       field === 'address'
         ? shortenAddressWithContext(value, budget, {

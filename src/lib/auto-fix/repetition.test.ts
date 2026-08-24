@@ -116,3 +116,44 @@ describe('lieu-dit accroche par un tiret', () => {
     expect(extractComplement('8 place Franklin-Roosevelt')).toBeNull()
   })
 })
+
+/**
+ * Le complement porte souvent une adresse entiere recopiee, code postal
+ * compris. La voie beneficiait deja du nettoyage des doublons ; le complement,
+ * non — il etait donc tronque au mot le plus proche.
+ *
+ * Commande #553270, arrivee le 24/08 : le moteur proposait
+ * "9 RUE DE L HOP ST JEAN", perdant "DE DIEU", et demandait a un humain de
+ * valider cette perte. Retirer le code postal, deja porte par son champ, suffit
+ * a tenir dans la limite sans rien perdre.
+ */
+describe('code postal recopie dans le complement', () => {
+  it('#553270 se resout sans perte', () => {
+    const plan = planAddressShortening(
+      {
+        address: '9 Chemin du Gibet',
+        address_2: '9 RUE DE L HOP ST JEAN DE DIEU 59520',
+        house_number: '',
+        city: 'Marquette-lez-Lille', postal_code: '59520', country_code: 'FR',
+      },
+      [{ field: 'address_2', max: 30 }],
+    )
+
+    expect(plan.patch.address_2).toBe('9 RUE DE L HOP ST JEAN DE DIEU')
+    expect(plan.lossyFields).toEqual([])
+  })
+
+  it('ne vide jamais la ville de son propre nom', () => {
+    // Le meme nettoyage applique au champ VILLE le supprimerait : la ville y
+    // est evidemment "recopiee". On ne l'applique donc qu'au complement.
+    const plan = planAddressShortening(
+      {
+        address: '1 rue des Lilas', address_2: '', house_number: '',
+        city: 'Marquette-lez-Lille', postal_code: '59520', country_code: 'FR',
+      },
+      [{ field: 'city', max: 25 }],
+    )
+
+    expect(plan.patch.city ?? 'Marquette-lez-Lille').toContain('Marquette')
+  })
+})
