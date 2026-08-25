@@ -882,7 +882,7 @@ describe('tache dont la cause a disparu', () => {
       source_summary_json: { address_limits: [{ field: 'address_1', max: 32 }, { field: 'address_2', max: 30 }] },
       source_order_ref: '#540789',
     })] })
-    const patchOrder = vi.fn(async () => ({ ok: true, order: inversee }))
+    const patchOrder = vi.fn(async (..._args: unknown[]) => ({ ok: true, order: inversee }))
     const d = {
       credentials: async () => ({ apiKey: 'k', secret: 's' }),
       readParcel: vi.fn(async () => null),
@@ -900,5 +900,51 @@ describe('tache dont la cause a disparu', () => {
     expect(patch?.address_line_1).toBe('50 Route DE Cannes')
     const echec = calls.find((c) => c.name === 'fail_auto_fix_live')
     expect(echec).toBeUndefined()
+  })
+  it('laisse une trace quand le verrou expire avant l enregistrement du plan', async () => {
+    // Le 25/08, deux taches sont restees bloquees en 'claimed' pendant des
+    // heures : le verrou de 120 s expirait avant que le plan ne soit
+    // enregistre, et l'abandon ne laissait AUCUNE trace. La tache etait
+    // reprise au passage suivant, echouait pareil, quatre fois par heure —
+    // une boucle sans fin que rien ne signalait. Elle ne comptait ni comme
+    // echec, ni comme file manuelle : seulement comme "ecartee".
+    const commande = {
+      id: '841973152', order_number: '#540790',
+      shipping_address: {
+        // Repetition litterale : la reparation est SANS PERTE, donc le
+        // moteur va jusqu'a l'enregistrement du plan — c'est la qu'on veut
+        // l'attraper.
+        address_line_1: '12 rue des Lilas 12 rue des Lilas',
+        address_line_2: '', house_number: '', city: 'Nantes', postal_code: '44000',
+      },
+      order_details: { status: { code: 'on_hold' } },
+    }
+    const { client, calls } = makeClient({
+      claim: [job({
+        source_kind: 'integration_shipment',
+        source_summary_json: { address_limits: [{ field: 'address_1', max: 32 }] },
+        source_order_ref: '#540790',
+      })],
+      // Le verrou a expire : l'enregistrement du plan est refuse.
+      overrides: { plan_auto_fix_live: false },
+    })
+    const d = {
+      credentials: async () => ({ apiKey: 'k', secret: 's' }),
+      readParcel: vi.fn(async () => null),
+      writeParcel: vi.fn(async () => ({ ok: true as const, status: 200 })),
+      findOrder: vi.fn(async () => ({ ok: true, order: commande })),
+      patchOrder: vi.fn(),
+      verifyOrder: vi.fn(),
+    } as unknown as Parameters<typeof runAutoFixLiveWorker>[2]
+
+    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+
+    const echec = calls.find((c) => c.name === 'fail_auto_fix_live')
+    expect(echec).toBeDefined()
+    const erreur = echec?.args.p_error as { reason?: string; category?: string }
+    expect(erreur?.reason).toBe('lock_expired_before_plan')
+    // Reprenable : la tache repasse par une attente visible et bornee, pas
+    // par un silence.
+    expect(erreur?.category).toBe('retryable')
   })
 })

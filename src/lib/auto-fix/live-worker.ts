@@ -294,7 +294,12 @@ async function remplacerPointRelais(
   const planned = await rpc<boolean>(client, 'plan_auto_fix_live', {
     p_job_id: job.id, p_worker_id: workerId, p_plan: proposition,
   })
-  if (!planned) { result.skipped += 1; return }
+  // Le plan n'a pas pu etre enregistre : le verrou a expire entre la
+  // reclamation et ici. Sans trace, la tache resterait en 'claimed', serait
+  // reprise au passage suivant, echouerait pareil — une boucle sans fin que
+  // rien ne signale. On la marque reprenable : elle repasse par une attente
+  // visible et bornee.
+  if (!planned) return refuse('lock_expired_before_plan', 'retryable')
 
   if (!servicePointAutoApply(env)) {
     return refuse('service_point_proposal_awaiting_review')
@@ -306,7 +311,7 @@ async function remplacerPointRelais(
   const begun = await rpc<boolean>(client, 'begin_auto_fix_write', {
     p_job_id: job.id, p_worker_id: workerId, p_request_hash: requestHash,
   })
-  if (!begun) { result.skipped += 1; return }
+  if (!begun) return refuse('lock_expired_before_write', 'retryable')
 
   const ecrire = deps.patchServicePoint ?? patchOrderServicePoint
   const written = await ecrire(credentials, order, remplacant.point.id)
@@ -402,7 +407,12 @@ async function convertirDevise(
       patch,
     },
   })
-  if (!planned) { result.skipped += 1; return }
+  // Le plan n'a pas pu etre enregistre : le verrou a expire entre la
+  // reclamation et ici. Sans trace, la tache resterait en 'claimed', serait
+  // reprise au passage suivant, echouerait pareil — une boucle sans fin que
+  // rien ne signale. On la marque reprenable : elle repasse par une attente
+  // visible et bornee.
+  if (!planned) return refuse('lock_expired_before_plan', 'retryable')
 
   const requestHash = createHash('sha256')
     .update(JSON.stringify({ order_id: order.id, patch }))
@@ -410,7 +420,7 @@ async function convertirDevise(
   const begun = await rpc<boolean>(client, 'begin_auto_fix_write', {
     p_job_id: job.id, p_worker_id: workerId, p_request_hash: requestHash,
   })
-  if (!begun) { result.skipped += 1; return }
+  if (!begun) return refuse('lock_expired_before_write', 'retryable')
 
   const ecrire = deps.patchCurrency ?? patchOrderCurrency
   const written = await ecrire(credentials, order, brut)
@@ -585,7 +595,12 @@ async function corrigerCommandeImportee(
         : {}),
     },
   })
-  if (!planned) { result.skipped += 1; return }
+  // Le plan n'a pas pu etre enregistre : le verrou a expire entre la
+  // reclamation et ici. Sans trace, la tache resterait en 'claimed', serait
+  // reprise au passage suivant, echouerait pareil — une boucle sans fin que
+  // rien ne signale. On la marque reprenable : elle repasse par une attente
+  // visible et bornee.
+  if (!planned) return refuse('lock_expired_before_plan', 'retryable')
 
   const requestHash = createHash('sha256')
     .update(JSON.stringify({ order_id: order.id, patch }))
@@ -593,7 +608,7 @@ async function corrigerCommandeImportee(
   const begun = await rpc<boolean>(client, 'begin_auto_fix_write', {
     p_job_id: job.id, p_worker_id: workerId, p_request_hash: requestHash,
   })
-  if (!begun) { result.skipped += 1; return }
+  if (!begun) return refuse('lock_expired_before_write', 'retryable')
 
   const written = await patchOrder(credentials, order, patch)
   result.written += 1
@@ -830,7 +845,12 @@ export async function runAutoFixLiveWorker(
     const rawJobs = (await rpc<unknown[]>(client, 'claim_auto_fix_jobs', {
       p_tenant_id: tenant.tenant_id,
       p_limit: limit,
-      p_lock_seconds: 120,
+      // 120 s ne couvraient pas le travail reel : chaque tache demande
+      // plusieurs allers-retours Sendcloud (recherche, ecriture, relecture de
+      // controle), et le travailleur en enchaine plusieurs. Le 25/08, le
+      // verrou a expire AVANT l'enregistrement du plan, et les taches sont
+      // restees bloquees. 300 s est le maximum accepte par la reclamation.
+      p_lock_seconds: 300,
       p_worker_id: workerId,
       p_mode: 'live',
     })) ?? []
@@ -923,7 +943,7 @@ export async function runAutoFixLiveWorker(
           p_job_id: job.id, p_worker_id: workerId,
           p_plan: { action: 'put_update', patch: built.patch, audit: built.audit },
         })
-        if (!planned) { result.skipped += 1; continue }
+        if (!planned) { await refuse('lock_expired_before_plan', 'retryable'); continue }
 
         // LE point critique : l'intention est commitee avant l'octet envoye.
         const requestHash = createHash('sha256')
@@ -933,7 +953,7 @@ export async function runAutoFixLiveWorker(
           p_job_id: job.id, p_worker_id: workerId, p_request_hash: requestHash,
         })
         // Bail perdu ou job deja parti en ecriture : on n'ecrit pas.
-        if (!begun) { result.skipped += 1; continue }
+        if (!begun) { await refuse('lock_expired_before_write', 'retryable'); continue }
 
         const written = await write(credentials, {
           id: job.original_sendcloud_id,
