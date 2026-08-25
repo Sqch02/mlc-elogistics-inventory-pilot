@@ -663,6 +663,16 @@ export interface LiveWorkerResult {
   verified: number
   skipped: number
   failed: number
+  /**
+   * Refus qui n'ont pas pu etre enregistres.
+   *
+   * Sans ce champ, un refus qui echoue est invisible : la tache reste en
+   * 'claimed', le verrou expire, elle est reprise, elle echoue pareil. Le
+   * 25/08, deux taches ont tourne ainsi et le compte rendu affichait
+   * tranquillement `skipped: 2, failed: 0` — le mecanisme cense rendre les
+   * choses visibles avalait sa propre panne.
+   */
+  refusalErrors?: Array<{ jobId: string; reason: string; detail: string }>
 }
 
 type RpcClient = { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }> }
@@ -862,11 +872,29 @@ export async function runAutoFixLiveWorker(
       result.claimed += 1
 
       const refuse = async (reason: string, category = 'non_retryable', detail?: string) => {
-        result.skipped += 1
-        await client.rpc('fail_auto_fix_live', {
+        // Le resultat de CET appel est verifie. Il ne l'etait pas, et c'est
+        // ainsi qu'une tache pouvait rester bloquee indefiniment : on comptait
+        // un refus qui n'avait jamais ete enregistre.
+        const { data, error } = await client.rpc('fail_auto_fix_live', {
           p_job_id: job.id, p_worker_id: workerId,
           p_error: { category, reason, ...(detail ? { detail } : {}) },
         })
+
+        // `null` signifie que la fonction n'a trouve aucune ligne a mettre a
+        // jour — verrou repris par un autre travailleur, ou etat inattendu.
+        // C'est un echec au meme titre qu'une erreur.
+        if (error || data === null || data === undefined) {
+          result.failed += 1
+          const message = error
+            ? ((error as { message?: string }).message ?? 'erreur rpc')
+            : 'aucune ligne mise a jour'
+          result.refusalErrors = result.refusalErrors ?? []
+          result.refusalErrors.push({ jobId: job.id, reason, detail: message })
+          console.error(`[auto-fix] refus non enregistre job=${job.id} raison=${reason}: ${message}`)
+          return
+        }
+
+        result.skipped += 1
       }
 
       try {
