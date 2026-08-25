@@ -799,6 +799,69 @@ export interface AddressContextResult extends ShortenResult {
  * On ne deplace JAMAIS vers un `address_2` deja rempli : ecraser une precision
  * saisie par le destinataire serait une perte, pas un raccourcissement.
  */
+/** Abreviations courantes en plus des types de voie deja listes. */
+const TYPES_DE_VOIE_ABREGES = ['av', 'bd', 'rte', 'imp', 'pl', 'che', 'ch']
+
+/** Le libelle designe-t-il une voie : un numero en tete ET un type de voie ? */
+function ressembleAUneVoie(value: string): boolean {
+  const texte = normalizeLocality(value)
+  if (!/^\s*\d/.test(value.trim())) return false
+  const mots = tokenize(value).map((mot) => normalizeLocality(mot))
+  return mots.some((mot) =>
+    TYPES_DE_VOIE.includes(mot) || TYPES_DE_VOIE_ABREGES.includes(mot),
+  ) && texte.length > 0
+}
+
+/** Le libelle porte-t-il un type de voie, meme sans numero en tete ? */
+function porteUnTypeDeVoie(value: string): boolean {
+  const mots = tokenize(value).map((mot) => normalizeLocality(mot))
+  return mots.some((mot) =>
+    TYPES_DE_VOIE.includes(mot) || TYPES_DE_VOIE_ABREGES.includes(mot),
+  )
+}
+
+/**
+ * Redresse deux lignes d'adresse interverties.
+ *
+ * La forme la plus frequente relevee en production : le batiment ou
+ * l'appartement occupe le champ VOIE, et la vraie voie dort dans le
+ * complement.
+ *
+ *     voie       : "Appartement 2eme Etage Porte 21"
+ *     complement : "24 Rue Jean Mermoz"
+ *
+ * 346 cas sur 90 jours, dont 13 depassent la limite et bloquent.
+ *
+ * Sans redressement, le moteur raccourcit la VOIE — donc il abime le
+ * batiment ET laisse la vraie voie en seconde ligne. Apres redressement, la
+ * voie est intacte en premiere ligne et la troncature, s'il en faut une,
+ * tombe sur le batiment.
+ *
+ * Le redressement lui-meme ne perd RIEN : les deux valeurs echangent de
+ * place. Ce qui se decide, c'est OU tombera la perte ensuite — et Quentin a
+ * tranche le 25/08 : plutot sur le batiment que sur la voie.
+ *
+ * LA CONDITION EST VOLONTAIREMENT STRICTE. On exige que la seconde ligne soit
+ * SANS AMBIGUITE une voie (numero en tete ET type de voie) et que la premiere
+ * n'en soit pas une. Deux lignes qui ressemblent toutes deux a une voie ne
+ * sont jamais echangees : on ne saurait pas laquelle est la bonne.
+ */
+export function redresserLignesInversees(
+  address: string | undefined,
+  address2: string | undefined,
+): { address: string; address_2: string } | null {
+  const voie = (address ?? '').trim()
+  const complement = (address2 ?? '').trim()
+  if (!voie || !complement) return null
+
+  // La seconde ligne doit etre une voie evidente...
+  if (!ressembleAUneVoie(complement)) return null
+  // ...et la premiere ne doit pas pouvoir l'etre.
+  if (ressembleAUneVoie(voie) || porteUnTypeDeVoie(voie)) return null
+
+  return { address: complement, address_2: voie }
+}
+
 export function shortenAddressWithContext(
   value: string,
   limit: number,
@@ -916,9 +979,12 @@ function canonicalField(field: string): AddressField | null {
 }
 
 export function planAddressShortening(
-  raw: Record<string, unknown>,
+  rawEntrant: Record<string, unknown>,
   limits: AddressLimit[],
 ): AddressShorteningPlan {
+  // Copie de travail : certaines reparations corrigent un champ AVANT que les
+  // suivantes ne le lisent, et l'objet de l'appelant ne doit pas bouger.
+  const raw: Record<string, unknown> = { ...rawEntrant }
   // Un meme champ peut etre signale plusieurs fois : on retient la contrainte
   // la plus stricte, sinon on produirait une valeur encore refusee.
   const strictest = new Map<AddressField, number>()
@@ -953,6 +1019,33 @@ export function planAddressShortening(
       after_length: codePropre.postal_code.length,
       limit: 0,
       applied: ['drop_country_prefix_in_postal_code'],
+      lossy: false,
+    })
+  }
+
+  // Deux lignes interverties : le batiment dans le champ voie, la vraie voie
+  // dans le complement. On redresse AVANT tout raccourcissement, sinon la
+  // coupe porte sur la voie reelle restee en seconde ligne — le moteur abimait
+  // le batiment ET laissait l'adresse mal formee.
+  //
+  // L'echange lui-meme ne perd rien. Ce qui se decide, c'est ou tombera la
+  // perte ensuite, et Quentin a tranche le 25/08 : plutot sur le batiment que
+  // sur la voie, parce que c'est la voie qui fait arriver le colis.
+  const voieAvantRedressement = asText('address') ?? ''
+  const redresse = redresserLignesInversees(asText('address'), asText('address_2'))
+  if (redresse) {
+    patch.address = redresse.address
+    patch.address_2 = redresse.address_2
+    raw.address = redresse.address
+    raw.address_2 = redresse.address_2
+    audit.push({
+      field: 'address',
+      // Mesure prise AVANT l'echange : la relire ensuite renverrait la
+      // nouvelle valeur et l'audit dirait n'importe quoi.
+      before_length: voieAvantRedressement.length,
+      after_length: redresse.address.length,
+      limit: 0,
+      applied: ['swap_address_lines'],
       lossy: false,
     })
   }

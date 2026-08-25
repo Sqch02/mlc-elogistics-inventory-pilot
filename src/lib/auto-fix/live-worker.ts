@@ -520,9 +520,30 @@ async function corrigerCommandeImportee(
   // l'adresse coupee ne sert alors pas a l'acheminement. Restreint a la SEULE
   // raison "perte d'information" — tout autre motif de refus reste un refus.
   const versPointRelais = Boolean(order.service_point_details?.id)
-  const perteAcceptable = plan.reason === 'lossy_shortening_requires_review'
-    && versPointRelais
+  const pointRelaisAutorise = versPointRelais
     && lossyAutoApplyOnServicePoint(env, deps.lossyOnServicePoint)
+
+  // Deuxieme cas de perte acceptee, tranche par Quentin le 25/08.
+  //
+  // Quand les deux lignes d'adresse sont interverties — batiment dans le champ
+  // voie, vraie voie dans le complement — le moteur les redresse. La voie
+  // revient alors intacte en premiere ligne, et s'il faut encore raccourcir,
+  // la coupe tombe sur le batiment.
+  //
+  // C'est strictement meilleur que l'ancien comportement, qui abimait la voie
+  // ET laissait l'adresse mal formee. La question posee etait : perdre des
+  // caracteres sur le batiment plutot que sur la voie ? Reponse : oui, parce
+  // que c'est la voie qui fait arriver le colis.
+  //
+  // La condition est etroite a dessein : il faut que le redressement ait eu
+  // lieu ET que la perte se limite au complement. Une coupe qui toucherait
+  // encore la voie ou la ville reste un arbitrage humain.
+  const voieRestauree = plan.audit.some((entree) => entree.applied.includes('swap_address_lines'))
+    && plan.lossyFields.length > 0
+    && plan.lossyFields.every((champ) => champ === 'address_2')
+
+  const perteAcceptable = plan.reason === 'lossy_shortening_requires_review'
+    && (pointRelaisAutorise || voieRestauree)
 
   if (!plan.ready && !perteAcceptable) {
     // On refuse d'appliquer, mais on enregistre CE QU'ON AURAIT FAIT. Sans
