@@ -30,12 +30,28 @@ describe('tout abandon laisse une trace', () => {
     // fail_auto_fix_live.
     expect(incrementations).toHaveLength(1)
 
-    const refuse = source.slice(
-      source.indexOf('const refuse = async'),
-      source.indexOf('const refuse = async') + 400,
-    )
+    // On delimite la fonction par son ouverture et sa fermeture plutot que
+    // par un nombre de caracteres : une fenetre fixe casse des qu'on ajoute
+    // une ligne, et casse pour une mauvaise raison.
+    const debut = source.indexOf('const refuse = async')
+    const refuse = source.slice(debut, source.indexOf('\n      }', debut))
     expect(refuse).toContain('result.skipped += 1')
     expect(refuse).toContain('fail_auto_fix_live')
+  })
+
+  it('refuse() verifie que le refus a bien ete enregistre', () => {
+    // Le mecanisme cense rendre les choses visibles avalait sa propre panne :
+    // il comptait un refus sans verifier qu'il avait pris. Deux taches sont
+    // restees bloquees des heures avec un compte rendu affichant
+    // tranquillement `skipped: 2, failed: 0`.
+    const debut = source.indexOf('const refuse = async')
+    const refuse = source.slice(debut, source.indexOf('\n      }', debut))
+    expect(refuse).toContain('const { data, error } = await client.rpc')
+    // Une fonction qui ne trouve aucune ligne a mettre a jour renvoie null :
+    // c'est un echec, pas un succes silencieux.
+    expect(refuse).toContain('data === null')
+    expect(refuse).toContain('result.failed += 1')
+    expect(refuse).toContain('refusalErrors')
   })
 
   it('un verrou perdu est signale comme reprenable', () => {
