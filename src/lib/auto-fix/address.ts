@@ -933,7 +933,7 @@ export interface AddressShorteningPlan {
   patch: Partial<Record<AddressField, string>>
   lossyFields: AddressField[]
   audit: AddressAuditEntry[]
-  reason: 'ok' | 'nothing_to_shorten' | 'lossy_shortening_requires_review'
+  reason: 'ok' | 'nothing_to_shorten' | 'no_repair_available' | 'lossy_shortening_requires_review'
 }
 
 function isAddressField(field: string): field is AddressField {
@@ -976,6 +976,36 @@ export function canonicalAddressField(field: string): AddressField | null {
 
 function canonicalField(field: string): AddressField | null {
   return canonicalAddressField(field)
+}
+
+/**
+ * Ce que Sendcloud mesure REELLEMENT pour un champ donne.
+ *
+ * L'API v3 ne renvoie pas toujours l'adresse decoupee comme l'interface
+ * l'affiche. Sur la commande #553869, l'ecran montrait deux champs :
+ *
+ *     Nom de la rue     : "de la blanchonne"
+ *     Numero de la voie : "401chemin"          <- refuse, 9 caracteres
+ *
+ * ...alors que l'API renvoyait tout dans un seul champ :
+ *
+ *     address_line_1 : "401chemin de la blanchonne"
+ *     house_number   : null
+ *
+ * Sendcloud decoupe la ligne combinee au PREMIER ESPACE pour en tirer le
+ * numero. Le moteur, lui, regardait un champ vide, concluait qu'il n'y avait
+ * rien a raccourcir, et refermait la tache comme resolue — alors que l'erreur
+ * restait affichee a l'ecran.
+ *
+ * On mesure donc la ou Sendcloud mesure.
+ */
+function valeurMesuree(field: AddressField, raw: Record<string, unknown>): string {
+  const brut = typeof raw[field] === 'string' ? (raw[field] as string) : ''
+  if (field === 'house_number' && brut.trim() === '') {
+    const rue = typeof raw.address === 'string' ? raw.address : ''
+    return tokenize(rue)[0] ?? ''
+  }
+  return brut
 }
 
 export function planAddressShortening(
@@ -1147,11 +1177,19 @@ export function planAddressShortening(
   // d'adresse, le rendre a sa place peut suffire a resoudre le depassement de
   // la voie elle-meme, et il n'y a alors plus rien a raccourcir.
   const limiteNumero = strictest.get('house_number')
-  const numeroBrut = asText('house_number')
+  // Quand le champ est vide, le numero refuse se trouve en tete du libelle de
+  // rue : c'est la que Sendcloud le lit.
+  const numeroBrut = valeurMesuree('house_number', raw)
+  const numeroDansLaRue = (asText('house_number') ?? '').trim() === '' && numeroBrut !== ''
   if (limiteNumero !== undefined && numeroBrut && numeroBrut.length > limiteNumero) {
     // Type de voie colle au numero : il appartient au DEBUT du libelle de rue,
     // pas au complement. Traite en premier, c'est le seul cas sans perte.
-    const colle = separerTypeDeVoieColle(numeroBrut, asText('address'))
+    // Si le numero dort en tete de la rue, on passe a la fonction de
+    // decoupage le RESTE du libelle : sinon le jeton serait recopie deux fois.
+    const resteDeLaRue = numeroDansLaRue
+      ? tokenize(asText('address') ?? '').slice(1).join(' ')
+      : (asText('address') ?? '')
+    const colle = separerTypeDeVoieColle(numeroBrut, resteDeLaRue)
     if (colle && colle.houseNumber.length <= limiteNumero) {
       patch.house_number = colle.houseNumber
       patch.address = colle.address
@@ -1297,7 +1335,21 @@ export function planAddressShortening(
   }
 
   if (audit.length === 0) {
-    return { ready: false, patch: {}, lossyFields: [], audit: [], reason: 'nothing_to_shorten' }
+    // « Je ne trouve rien a raccourcir » N'EST PAS « c'est deja resolu ».
+    //
+    // La confusion des deux a referme a tort la tache de la commande #553869,
+    // definitivement : la cle d'operation empeche d'en recreer une, et la
+    // detection continuait de voir l'erreur a chaque synchro sans pouvoir agir.
+    //
+    // On regarde donc si les champs contraints respectent VRAIMENT leur limite.
+    // S'ils la depassent encore, le moteur n'a pas repare : il a renonce, et il
+    // doit le dire.
+    const encoreTropLong = [...strictest.entries()].some(
+      ([champ, max]) => valeurMesuree(champ, raw).length > max,
+    )
+    return encoreTropLong
+      ? { ready: false, patch: {}, lossyFields: [], audit: [], reason: 'no_repair_available' }
+      : { ready: false, patch: {}, lossyFields: [], audit: [], reason: 'nothing_to_shorten' }
   }
 
   // Le patch est calcule meme quand il est refuse : l'operateur doit pouvoir
