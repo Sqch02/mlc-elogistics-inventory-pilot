@@ -312,14 +312,24 @@ describe('numero de voie manquant', () => {
     expect(recoverHouseNumber('', '')).toBeNull()
   })
 
-  it('laisse le complement intact', () => {
-    // "22 Rue Des Carrieres" reste imprime sur l'etiquette : c'est lui qui
-    // permet au facteur de trouver.
+  it('remet la voie en premiere ligne quand les deux champs sont intervertis', () => {
+    // "22 Rue Des Carrieres" doit rester imprime sur l'etiquette : c'est lui
+    // qui permet au facteur de trouver.
+    //
+    // ATTENDU MODIFIE LE 25/08. Ce test exigeait auparavant qu'on ne touche a
+    // rien : le complement restait en seconde ligne et on se contentait d'en
+    // extraire le numero. C'etait une protection, pas une correction — le
+    // champ voie gardait "Rez De Chausse", qui ne mene nulle part.
+    //
+    // Le moteur redresse desormais les deux lignes. La voie remonte en
+    // premiere ligne, l'etage passe en seconde, et RIEN n'est perdu : c'est
+    // strictement mieux au regard de l'intention d'origine.
     const plan = planAddressShortening(
       { address: 'Rez De Chaussé', house_number: '', address_2: '22 Rue Des Carrieres', city: 'Luxembourg' },
       [{ field: 'address_1', max: 32 }],
     )
-    expect(plan.patch.house_number).toBe('22')
-    expect(plan.patch.address_2).toBeUndefined()
+    expect(plan.patch.address).toBe('22 Rue Des Carrieres')
+    expect(plan.patch.address_2).toBe('Rez De Chaussé')
+    expect(plan.lossyFields).toEqual([])
   })
 })

@@ -865,4 +865,40 @@ describe('tache dont la cause a disparu', () => {
     // Le statut lu est consigne, sinon la fermeture ne se relit pas.
     expect(erreur?.detail).toBe('fulfilled')
   })
+  it('applique seul un redressement dont la perte se limite au batiment', async () => {
+    // Decision de Quentin du 25/08 : entre abimer la voie et abimer le
+    // batiment, on abime le batiment — c'est la voie qui fait arriver le colis.
+    const inversee = {
+      id: '841973151', order_number: '#540789',
+      shipping_address: {
+        address_line_1: 'Les Fleurs de Grasse Apt 61 BAt Lilas',
+        address_line_2: '50 Route DE Cannes',
+        house_number: '', city: 'Grasse', postal_code: '06130',
+      },
+      order_details: { status: { code: 'on_hold' } },
+    }
+    const { client, calls } = makeClient({ claim: [job({
+      source_kind: 'integration_shipment',
+      source_summary_json: { address_limits: [{ field: 'address_1', max: 32 }, { field: 'address_2', max: 30 }] },
+      source_order_ref: '#540789',
+    })] })
+    const patchOrder = vi.fn(async () => ({ ok: true, order: inversee }))
+    const d = {
+      credentials: async () => ({ apiKey: 'k', secret: 's' }),
+      readParcel: vi.fn(async () => null),
+      writeParcel: vi.fn(async () => ({ ok: true as const, status: 200 })),
+      findOrder: vi.fn(async () => ({ ok: true, order: inversee })),
+      patchOrder,
+      verifyOrder: vi.fn(async () => ({ ok: true })),
+    } as unknown as Parameters<typeof runAutoFixLiveWorker>[2]
+
+    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+
+    // Le moteur ecrit au lieu d'escalader.
+    expect(patchOrder).toHaveBeenCalled()
+    const patch = patchOrder.mock.calls[0]?.[2] as Record<string, string> | undefined
+    expect(patch?.address_line_1).toBe('50 Route DE Cannes')
+    const echec = calls.find((c) => c.name === 'fail_auto_fix_live')
+    expect(echec).toBeUndefined()
+  })
 })
