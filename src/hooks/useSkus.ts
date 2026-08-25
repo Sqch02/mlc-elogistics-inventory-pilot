@@ -140,21 +140,30 @@ export function useAdjustStock() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ id, qty_current, adjustment, reason, movement_type }: {
+    mutationFn: async ({ id, qty_current, adjustment, expected_qty, reason, movement_type }: {
       id: string
       qty_current?: number
       adjustment?: number
+      /**
+       * Le stock sur lequel l'ajustement a ete calcule, c'est-a-dire celui que
+       * l'ecran affichait. Le serveur refuse si la valeur a bouge depuis :
+       * sans cela, un ajustement saisi devant une page perimee s'applique a
+       * autre chose que ce que l'apercu annoncait.
+       */
+      expected_qty?: number
       reason?: string
       movement_type?: 'manual' | 'restock' | 'correction' | 'import'
     }) => {
       const response = await fetch(`/api/skus/${id}/stock`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ qty_current, adjustment, reason, movement_type }),
+        body: JSON.stringify({ qty_current, adjustment, expected_qty, reason, movement_type }),
       })
       if (!response.ok) {
         const error = await response.json()
-        throw new Error(error.error || 'Erreur lors de l\'ajustement')
+        // Le detail porte l'explication utile — quel chiffre a change et quoi
+        // faire. Le message generique seul laisserait l'operateur sans issue.
+        throw new Error(error.detail || error.error || 'Erreur lors de l\'ajustement')
       }
       return response.json()
     },

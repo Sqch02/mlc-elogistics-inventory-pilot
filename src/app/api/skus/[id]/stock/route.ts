@@ -18,7 +18,7 @@ export async function PATCH(
     const { id } = await params
     const body = await request.json()
 
-    const { qty_current, adjustment, reason, movement_type } = body
+    const { qty_current, adjustment, expected_qty, reason, movement_type } = body
 
     // Verify SKU belongs to tenant
     const { data: sku } = await supabase
@@ -45,8 +45,39 @@ export async function PATCH(
       // Absolute value set
       newQty = qty_current
     } else if (adjustment !== undefined) {
-      // Relative adjustment (+/-)
-      newQty = (currentStock?.qty_current || 0) + adjustment
+      // Un ajustement RELATIF n'a de sens que rapporte a la valeur sur
+      // laquelle l'operateur l'a calcule.
+      //
+      // Le 25/08, un arrivage de 100 flacons a ete accepte pendant qu'une page
+      // Produits ouverte affichait encore 0. L'operateur a saisi +99 en voyant
+      // l'apercu annoncer "Nouveau stock: 99" — ce qu'il voulait. Le serveur a
+      // applique ces 99 au stock reel, deja passe a 100 : 199 au lieu de 99.
+      // Cent unites d'ecart, sans le moindre message.
+      //
+      // L'appelant declare donc ce qu'il croyait etre le stock. Si la valeur a
+      // bouge entre-temps, on REFUSE plutot que d'appliquer un calcul dont on
+      // sait qu'il repose sur autre chose que la realite.
+      if (expected_qty === undefined || expected_qty === null) {
+        return NextResponse.json(
+          { error: 'expected_qty requis avec adjustment : un ajustement relatif doit dire sur quelle valeur il a ete calcule' },
+          { status: 400 }
+        )
+      }
+
+      const liveQty = currentStock?.qty_current || 0
+      if (liveQty !== expected_qty) {
+        return NextResponse.json(
+          {
+            error: 'Le stock a change pendant votre saisie',
+            detail: `Vous avez calcule cet ajustement sur ${expected_qty} unites, le stock est maintenant a ${liveQty}. Rechargez la page et refaites l'ajustement.`,
+            expected_qty,
+            current_qty: liveQty,
+          },
+          { status: 409 }
+        )
+      }
+
+      newQty = liveQty + adjustment
     } else {
       return NextResponse.json(
         { error: 'qty_current ou adjustment requis' },
