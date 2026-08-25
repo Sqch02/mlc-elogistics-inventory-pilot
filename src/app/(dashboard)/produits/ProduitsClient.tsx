@@ -278,6 +278,12 @@ export function ProduitsClient() {
     await adjustStockMutation.mutateAsync({
       id: selectedSku.id,
       adjustment: stockAdjustment.qty,
+      // Le chiffre affiche par la boite de dialogue, donc celui sur lequel
+      // l'apercu "Nouveau stock" a ete calcule. Le serveur refuse si le stock
+      // a bouge entre-temps plutot que d'appliquer l'ajustement a une autre
+      // base — un arrivage accepte pendant la saisie a deja produit cent
+      // unites d'ecart en silence.
+      expected_qty: selectedSku.qty_current ?? 0,
       reason: stockAdjustment.reason || undefined,
     })
     setStockOpen(false)

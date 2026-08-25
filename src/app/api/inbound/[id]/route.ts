@@ -10,11 +10,6 @@ interface InboundRestockEntry {
   note: string | null
 }
 
-interface StockSnapshot {
-  id: string
-  qty_current: number
-}
-
 // PATCH: Update inbound restock (accept/reject/receive)
 export async function PATCH(
   request: NextRequest,
@@ -71,31 +66,42 @@ export async function PATCH(
 
       if (updateError) throw updateError
 
-      // Update stock_snapshots
-      const { data: snapshotData } = await adminClient
-        .from('stock_snapshots')
-        .select('id, qty_current')
-        .eq('sku_id', entry.sku_id)
-        .eq('tenant_id', tenantId)
-        .single()
-      const snapshot = snapshotData as unknown as StockSnapshot | null
+      // Le stock passe par apply_stock_delta, comme tout le reste.
+      //
+      // L'ecriture directe qui se trouvait ici avait trois defauts, tous
+      // constates le 25/08 sur un arrivage de 100 flacons :
+      //
+      //   1. AUCUNE trace. Le registre des mouvements ne recevait rien : le
+      //      stock passait de 0 a 100 sans qu'on puisse dire d'ou venait
+      //      l'ecart. C'est precisement ce qu'on regarde quand un comptage ne
+      //      tombe pas juste.
+      //   2. Lecture puis ecriture SANS verrou : une expedition traitee entre
+      //      les deux etait perdue.
+      //   3. Un arrivage declare sur un LOT creditait le lot lui-meme au lieu
+      //      de ses composants. apply_stock_delta decompose.
+      const { error: stockError } = await adminClient.rpc('apply_stock_delta', {
+        p_tenant_id: tenantId,
+        p_sku_id: entry.sku_id,
+        p_delta: finalQty,
+        p_reason: `Arrivage accepte (${finalQty} unites)`,
+        p_reference_id: id,
+        p_reference_type: 'inbound_restock',
+        p_user_id: user?.id ?? undefined,
+        p_movement_type: 'restock',
+      })
 
-      if (snapshot) {
-        await adminClient
-          .from('stock_snapshots')
-          .update({
-            qty_current: (snapshot.qty_current || 0) + finalQty,
-          } as never)
-          .eq('id', snapshot.id)
-      } else {
-        await adminClient
-          .from('stock_snapshots')
-          .insert({
-            tenant_id: tenantId,
-            sku_id: entry.sku_id,
-            qty_current: finalQty,
-            qty_initial: finalQty,
-          } as never)
+      if (stockError) throw stockError
+
+      // Sans ce rafraichissement, le stock est bien credite mais la page
+      // Produits continue d'afficher l'ancien chiffre jusqu'au passage suivant
+      // du cron. C'est ce qui a fait dire "j'ai declare un arrivage et le stock
+      // n'apparait pas" — et, pire, ce qui a conduit a saisir un ajustement
+      // calcule sur une valeur perimee. Toutes les autres routes qui touchent
+      // au stock le font deja ; celle-ci etait la seule a ne pas le faire.
+      try {
+        await adminClient.rpc('refresh_sku_metrics')
+      } catch (refreshError) {
+        console.error('[inbound] refresh_sku_metrics failed:', refreshError)
       }
 
       return NextResponse.json({
