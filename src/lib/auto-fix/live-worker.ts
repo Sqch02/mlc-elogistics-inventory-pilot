@@ -199,6 +199,17 @@ function ordreVersAdresse(order: OrderV3): Record<string, unknown> {
     house_number: a.house_number ?? '',
     city: a.city ?? '',
     postal_code: a.postal_code ?? '',
+    // Le pays manquait, et sans lui le nettoyage du code postal REFUSE d'agir.
+    //
+    // C'est deliberé de sa part : il ne retire un prefixe pays que si ce
+    // prefixe correspond au pays declare, pour ne jamais amputer un code
+    // legitime. Prive du pays, il ne peut rien conclure et s'abstient.
+    //
+    // Consequence sur la commande #554363 (Luxembourg, "L3552") : aucune
+    // reparation, plan vide, et la tache refermee comme « deja resolue » alors
+    // que l'erreur restait affichee. La reparation existait et fonctionnait —
+    // il lui manquait une donnee que personne ne lui transmettait.
+    country_code: a.country_code ?? '',
   }
 }
 

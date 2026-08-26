@@ -947,4 +947,40 @@ describe('tache dont la cause a disparu', () => {
     // par un silence.
     expect(erreur?.category).toBe('retryable')
   })
+  it('transmet le pays au planificateur, sans quoi le code postal n est pas reparable', async () => {
+    // Commande #554363 (Luxembourg, "L3552"). Le nettoyage du code postal
+    // REFUSE d'agir sans le pays : il ne retire un prefixe que s'il correspond
+    // au pays declare. La conversion commande -> adresse ne le transmettait
+    // pas, si bien que la reparation n'etait jamais atteinte et que la tache
+    // se refermait comme « deja resolue ».
+    const luxembourgeoise = {
+      id: '841973153', order_number: '#540791',
+      shipping_address: {
+        address_line_1: 'rue Nic Conrady', address_line_2: '',
+        house_number: '12', city: 'Dudelange',
+        postal_code: 'L3552', country_code: 'LU',
+      },
+      order_details: { status: { code: 'on_hold' } },
+    }
+    const { client } = makeClient({ claim: [job({
+      source_kind: 'integration_shipment',
+      source_summary_json: { address_limits: [] },
+      source_order_ref: '#540791',
+    })] })
+    const patchOrder = vi.fn(async (..._args: unknown[]) => ({ ok: true, order: luxembourgeoise }))
+    const d = {
+      credentials: async () => ({ apiKey: 'k', secret: 's' }),
+      readParcel: vi.fn(async () => null),
+      writeParcel: vi.fn(async () => ({ ok: true as const, status: 200 })),
+      findOrder: vi.fn(async () => ({ ok: true, order: luxembourgeoise })),
+      patchOrder,
+      verifyOrder: vi.fn(async () => ({ ok: true })),
+    } as unknown as Parameters<typeof runAutoFixLiveWorker>[2]
+
+    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+
+    expect(patchOrder).toHaveBeenCalled()
+    const patch = patchOrder.mock.calls[0]?.[2] as Record<string, string> | undefined
+    expect(patch?.postal_code).toBe('3552')
+  })
 })

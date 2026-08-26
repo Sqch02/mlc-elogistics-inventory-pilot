@@ -1043,6 +1043,11 @@ export function planAddressShortening(
   const codePropre = nettoyerCodePostal(asText('postal_code'), asText('country_code'))
   if (codePropre) {
     patch.postal_code = codePropre.postal_code
+    // On repercute la valeur nettoyee sur la copie de travail, sinon la boucle
+    // de raccourcissement relit l'ORIGINALE et la tronque par-dessus.
+    // "L3552" deviendrait alors "L355" : un code postal qui n'existe nulle
+    // part, ecrit a la place de la reparation correcte.
+    raw.postal_code = codePropre.postal_code
     audit.push({
       field: 'postal_code',
       before_length: (asText('postal_code') ?? '').length,
