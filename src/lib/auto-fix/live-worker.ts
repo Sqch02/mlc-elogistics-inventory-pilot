@@ -227,6 +227,18 @@ function ordreVersAdresse(order: OrderV3): Record<string, unknown> {
   }
 }
 
+/**
+ * Le chemin du RETOUR, et il a exactement le meme defaut que l'aller.
+ *
+ * Le 27/08, j'ai complete `ordreVersAdresse` et ecrit un test pour elle... sans
+ * regarder cette fonction-ci. La reparation du nom etait donc calculee
+ * correctement, puis PERDUE au moment de construire la charge utile : Sendcloud
+ * recevait un objet vide et le moteur renoncait avec « aucun champ a corriger ».
+ *
+ * Meme faute, meme journee, sens inverse. Le test couvre desormais les DEUX
+ * directions : un champ que le planificateur sait corriger doit pouvoir
+ * arriver jusqu'a Sendcloud.
+ */
 function adresseVersOrdre(patch: Partial<Record<string, string>>): OrderV3ShippingAddress {
   const sortie: OrderV3ShippingAddress = {}
   if (patch.address !== undefined) sortie.address_line_1 = patch.address
@@ -234,6 +246,8 @@ function adresseVersOrdre(patch: Partial<Record<string, string>>): OrderV3Shippi
   if (patch.house_number !== undefined) sortie.house_number = patch.house_number
   if (patch.city !== undefined) sortie.city = patch.city
   if (patch.postal_code !== undefined) sortie.postal_code = patch.postal_code
+  if (patch.name !== undefined) sortie.name = patch.name
+  if (patch.company_name !== undefined) sortie.company_name = patch.company_name
   return sortie
 }
 

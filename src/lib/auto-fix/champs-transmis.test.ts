@@ -32,6 +32,17 @@ const conversion = source.slice(
   source.indexOf('function adresseVersOrdre'),
 )
 
+/**
+ * Le chemin du RETOUR. Le 27/08, j'ai complete l'aller et ecrit un test pour
+ * lui sans regarder celui-ci : la reparation du nom etait calculee puis PERDUE
+ * au moment de construire la charge utile, et Sendcloud recevait un objet vide.
+ * Meme faute, meme journee, sens inverse.
+ */
+const retour = source.slice(
+  source.indexOf('function adresseVersOrdre'),
+  source.indexOf('function adresseVersOrdre') + 1200,
+)
+
 describe('champs transmis au planificateur', () => {
   it('retrouve bien la conversion', () => {
     // Sans cette garde, une fonction renommee rendrait le test vide donc vert.
@@ -54,5 +65,15 @@ describe('champs transmis au planificateur', () => {
     // si un e-mail recopie dans le nom fait double emploi.
     expect(conversion).toMatch(/^\s*country_code:/m)
     expect(conversion).toMatch(/^\s*email:/m)
+  })
+
+  it('sait renvoyer a Sendcloud chaque champ qu il sait corriger', () => {
+    // Une reparation calculee mais non transmise est pire qu'une absence de
+    // reparation : le moteur croit avoir agi.
+    const attendus = ADDRESS_FIELDS_PUBLIC.filter((champ) => champ !== 'address_1')
+    const manquants = attendus.filter(
+      (champ) => !new RegExp(`patch\\.${champ} !== undefined`).test(retour),
+    )
+    expect(manquants).toEqual([])
   })
 })
