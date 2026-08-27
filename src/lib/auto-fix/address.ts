@@ -29,6 +29,13 @@ const ADDRESS_FIELDS = [
 
 export type AddressField = (typeof ADDRESS_FIELDS)[number]
 
+/**
+ * Meme liste, exposee pour que le moteur puisse verifier qu'il transmet bien
+ * tout ce que le planificateur sait traiter. Trois commandes ont echoue faute
+ * de cette verification — cf `champs-transmis.test.ts`.
+ */
+export const ADDRESS_FIELDS_PUBLIC: readonly AddressField[] = ADDRESS_FIELDS
+
 // Abreviations postales usuelles, sans perte de sens. L'ordre compte : on
 // traite les formes les plus longues d'abord pour eviter qu'une abreviation
 // partielle n'empeche la suivante.
@@ -587,6 +594,44 @@ export function recoverHouseNumberFromStreet(
  * deja imprime par ailleurs. Meme principe que pour le libelle de voie, ou
  * l'on retire le code postal et la ville deja portes par leurs champs.
  */
+/**
+ * Retire du champ NOM une adresse e-mail qui s'y est glissee.
+ *
+ * Observe sur la commande #554551 : le nom valait
+ * "murielh.hernandez@laposte.net Hernandez" — 39 caracteres pour 32. Le
+ * raccourcissement ordinaire coupait au mot le plus proche et gardait
+ * l'e-mail en JETANT le patronyme : la pire des issues.
+ *
+ * Une adresse e-mail n'est pas un nom et n'a rien a faire sur une etiquette.
+ * Mesure sur 90 jours : 8 commandes concernees, dont 5 bloquantes, et dans
+ * TOUS les cas il restait un vrai nom apres retrait (Dominique, Hernandez,
+ * Grella, Bianchi...). Le champ n'est jamais vide.
+ *
+ * SANS PERTE OU NON, selon le cas : 6 des 8 portaient exactement l'e-mail
+ * deja present dans le champ prevu — le retirer ne perd alors rien, comme
+ * pour une entreprise dupliquee. Les 2 autres portaient une adresse
+ * DIFFERENTE : l'information disparait vraiment, et un humain doit trancher.
+ */
+export function retirerEmailDuNom(
+  name: string | undefined,
+  emailContact: string | undefined,
+): { name: string; lossy: boolean } | null {
+  const valeur = (name ?? '').trim()
+  if (valeur === '') return null
+
+  const motifEmail = /[^\s]+@[^\s]+\.[a-z]{2,}/i
+  const trouve = valeur.match(motifEmail)
+  if (!trouve) return null
+
+  const restant = valeur.replace(motifEmail, ' ').replace(/\s+/g, ' ').trim()
+  // Un nom vide serait pire que trop long : le colis n'aurait plus de
+  // destinataire.
+  if (restant === '') return null
+
+  const memeAdresse = (emailContact ?? '').trim().toLowerCase() === trouve[0].toLowerCase()
+  return { name: restant, lossy: !memeAdresse }
+}
+
 export function retirerEntrepriseDupliquee(
   nom: string | undefined,
   entreprise: string | undefined,
@@ -1142,10 +1187,29 @@ export function planAddressShortening(
       strictest.delete('name')
     }
 
+    // 0. Adresse e-mail glissee dans le nom. Traitee en PREMIER : sans elle,
+    //    la troncature ordinaire garde l'e-mail et jette le patronyme.
+    const sansEmail = retirerEmailDuNom(asText('name'), asText('email'))
+    if (sansEmail && sansEmail.name.length <= limiteNom) {
+      patch.name = sansEmail.name
+      if (sansEmail.lossy) lossyFields.push('name')
+      audit.push({
+        field: 'name',
+        before_length: (asText('name') ?? '').length,
+        after_length: sansEmail.name.length,
+        limit: limiteNom,
+        applied: ['drop_email_in_name'],
+        lossy: sansEmail.lossy,
+      })
+      strictest.delete('name')
+    }
+
     // 1. Doublon exact de l'entreprise en tete du nom : motif le plus frequent,
     //    et le seul totalement sans perte puisque l'information reste imprimee
     //    par son propre champ.
-    const degroupe = retirerEntrepriseDupliquee(asText('name'), asText('company_name'))
+    const degroupe = strictest.has('name')
+      ? retirerEntrepriseDupliquee(asText('name'), asText('company_name'))
+      : null
     if (degroupe && degroupe.name.length <= limiteNom) {
       patch.name = degroupe.name
       audit.push({

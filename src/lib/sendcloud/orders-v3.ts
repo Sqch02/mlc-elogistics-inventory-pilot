@@ -28,12 +28,21 @@ const ORDERS_V3_URL = 'https://panel.sendcloud.sc/api/v3/orders'
 const CORRIGIBLE_STATUS = new Set(['on_hold', 'unfulfilled'])
 
 export interface OrderV3ShippingAddress {
+  /**
+   * Le nom du destinataire fait partie de l'adresse d'expedition chez
+   * Sendcloud, et il porte sa propre limite de longueur. Il manquait ici, donc
+   * le moteur ne le voyait jamais — cf `ordreVersAdresse`.
+   */
+  name?: string | null
+  company_name?: string | null
   address_line_1?: string | null
   address_line_2?: string | null
   house_number?: string | null
   city?: string | null
   postal_code?: string | null
   country_code?: string | null
+  /** Sert a reconnaitre un e-mail recopie dans le champ nom. */
+  email?: string | null
 }
 
 export interface OrderV3 {
