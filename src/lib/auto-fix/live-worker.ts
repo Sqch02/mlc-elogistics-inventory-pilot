@@ -210,6 +210,20 @@ function ordreVersAdresse(order: OrderV3): Record<string, unknown> {
     // que l'erreur restait affichee. La reparation existait et fonctionnait —
     // il lui manquait une donnee que personne ne lui transmettait.
     country_code: a.country_code ?? '',
+    // Le nom et la raison sociale manquaient AUSSI, et le planificateur sait
+    // pourtant les traiter : il porte des reparations dediees a chacun.
+    //
+    // Trois commandes en trois jours ont echoue par ce meme trou — un champ
+    // que la conversion ne transmettait pas : le numero de voie, puis le pays,
+    // puis le nom. J'ai corrige les deux premiers un par un sans regarder ce
+    // qui manquait d'autre. Le test `champs-transmis.test.ts` verrouille
+    // desormais la correspondance ENTIERE avec ce que le planificateur sait
+    // traiter, pour que le prochain champ ajoute ne se perde pas ici.
+    name: a.name ?? '',
+    company_name: a.company_name ?? '',
+    // Pas un champ d'adresse : sert a reconnaitre un e-mail recopie dans le
+    // champ nom, et a savoir si le retirer perd quelque chose.
+    email: a.email ?? '',
   }
 }
 
