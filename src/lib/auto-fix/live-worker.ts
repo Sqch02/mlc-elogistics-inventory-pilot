@@ -11,6 +11,7 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { planAddressShortening, type AddressLimit } from './address'
+import { findLatentErrors, OBSERVED_RULES } from './validate'
 import { buildDigitalItemsPlan, digitalItemsPlanToJson } from './digital-items'
 import { buildChfToEurConversion } from './currency'
 import type { Json } from '@/types/database'
@@ -189,6 +190,21 @@ export interface LiveWorkerDependencies {
  */
 function statutCommande(order: OrderV3): string {
   return order.order_details?.status?.code ?? 'statut inconnu'
+}
+
+/**
+ * Les regles evaluables sur la SEULE vue adresse.
+ *
+ * On desactive celles qui portent sur le contenu du colis. La vue transmise au
+ * planificateur ne contient ni articles ni devise : rejouer ces regles-la
+ * dessus reclamerait des articles absents par construction, et ferait escalader
+ * des commandes reellement resolues. Un test l'a montre avant la mise en
+ * service, sur une adresse parfaitement propre.
+ */
+const REGLES_ADRESSE = {
+  ...OBSERVED_RULES,
+  requireParcelItems: false,
+  acceptedCurrencies: null,
 }
 
 function ordreVersAdresse(order: OrderV3): Record<string, unknown> {
@@ -561,9 +577,37 @@ async function corrigerCommandeImportee(
   // la valeur corrigee porte sur l'adresse actuelle, et si quelqu'un a deja
   // corrige a la main, il n'y a plus rien a raccourcir et on s'arrete.
   const limits = (job.source_summary_json.address_limits ?? []) as AddressLimit[]
-  const plan = planAddressShortening(ordreVersAdresse(order), limits)
-  // Cause disparue, pas un echec : etat terminal, jamais la file manuelle.
-  if (plan.reason === 'nothing_to_shorten') return refuse('already_resolved', 'resolved')
+  const adresse = ordreVersAdresse(order)
+  const plan = planAddressShortening(adresse, limits)
+
+  if (plan.reason === 'nothing_to_shorten') {
+    // « Je n'ai rien repare » n'autorise pas a conclure « c'est resolu ».
+    //
+    // Trois commandes ont ete refermees a tort cette semaine sur cette seule
+    // deduction — et DEFINITIVEMENT, la cle d'operation empechant d'en recreer
+    // une. La detection continuait de voir l'erreur a chaque synchronisation
+    // sans pouvoir agir, pendant que l'exploitation la regardait a l'ecran.
+    //
+    // Une premiere garde comparait les champs a leurs limites, mais elle ne
+    // couvrait que les refus de LONGUEUR : sur #554363, le refus portait sur la
+    // validite du code postal, la tache ne portait aucune limite, et la garde
+    // n'avait rien a mesurer.
+    //
+    // On verifie donc POSITIVEMENT que la cause a disparu, en rejouant les
+    // regles de validation sur la commande telle qu'elle est maintenant. Si
+    // elles trouvent encore quelque chose, le moteur a renonce — il ne doit
+    // pas acquitter.
+    const restant = findLatentErrors(adresse, REGLES_ADRESSE)
+    if (restant.length > 0) {
+      return refuse(
+        'no_repair_available',
+        'non_retryable',
+        `defaut encore present : ${restant.map((e) => e.field).join(', ')}`,
+      )
+    }
+    // Cause reellement disparue : etat terminal, jamais la file manuelle.
+    return refuse('already_resolved', 'resolved')
+  }
 
   // Une coupe avec perte devient acceptable si le colis part en point relais :
   // l'adresse coupee ne sert alors pas a l'acheminement. Restreint a la SEULE
