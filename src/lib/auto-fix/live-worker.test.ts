@@ -983,4 +983,44 @@ describe('tache dont la cause a disparu', () => {
     const patch = patchOrder.mock.calls[0]?.[2] as Record<string, string> | undefined
     expect(patch?.postal_code).toBe('3552')
   })
+  it('n acquitte pas une commande dont le defaut est encore la', async () => {
+    // Trois commandes ont ete refermees a tort cette semaine sur la seule
+    // deduction « je n'ai rien repare, donc c'est resolu » — et
+    // DEFINITIVEMENT, la cle d'operation empechant d'en recreer une.
+    //
+    // Ici le code postal luxembourgeois porte encore son prefixe pays. Aucune
+    // limite de longueur n'accompagne la tache : le refus visait la validite.
+    // La premiere garde n'avait donc rien a mesurer.
+    const defectueuse = {
+      id: '841973154', order_number: '#540792',
+      shipping_address: {
+        name: 'Francoise Reuter', address_line_1: 'rue Nic Conrady',
+        address_line_2: '', house_number: '12', city: 'Dudelange',
+        postal_code: 'L3552', country_code: 'LU',
+      },
+      order_details: { status: { code: 'on_hold' } },
+    }
+    const { client, calls } = makeClient({ claim: [job({
+      source_kind: 'integration_shipment',
+      source_summary_json: { address_limits: [] },
+      source_order_ref: '#540792',
+    })] })
+    const d = {
+      credentials: async () => ({ apiKey: 'k', secret: 's' }),
+      readParcel: vi.fn(async () => null),
+      writeParcel: vi.fn(async () => ({ ok: true as const, status: 200 })),
+      findOrder: vi.fn(async () => ({ ok: true, order: defectueuse })),
+      patchOrder: vi.fn(async (..._args: unknown[]) => ({ ok: true, order: defectueuse })),
+      verifyOrder: vi.fn(async () => ({ ok: true })),
+    } as unknown as Parameters<typeof runAutoFixLiveWorker>[2]
+
+    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+
+    const echec = calls.find((c) => c.name === 'fail_auto_fix_live')
+    const erreur = echec?.args.p_error as { reason?: string; category?: string } | undefined
+    // Si une reparation s'applique, tant mieux : ce qui est interdit, c'est
+    // d'acquitter alors que le defaut est encore la.
+    expect(erreur?.reason).not.toBe('already_resolved')
+    expect(erreur?.category).not.toBe('resolved')
+  })
 })
