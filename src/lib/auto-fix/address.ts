@@ -1079,11 +1079,30 @@ export function completerAdresseEnPointRelais(
   const patch: Partial<Record<AddressField, string>> = {}
   const applied: string[] = []
 
-  if (texte('address') === '') {
+  // On raisonne sur ce que SENDCLOUD analyse, pas sur les champs bruts.
+  //
+  // Quand `house_number` est vide, l'API renvoie tout dans la ligne de voie et
+  // Sendcloud la decoupe au premier espace : le premier mot devient le numero,
+  // le reste devient le nom de rue.
+  //
+  // Sans cette lecture, la commande #555868 — dont l'adresse ne contenait que
+  // « 20 » — recevait un numero « 0 » alors que c'est le NOM DE RUE qui
+  // manquait. Le champ brut n'etait pas vide, il valait « 20 ». Meme piege que
+  // celui deja corrige pour le numero de voie le 25/08.
+  const numeroBrut = texte('house_number')
+  const ligneVoie = texte('address')
+  const mots = ligneVoie.split(/\s+/).filter(Boolean)
+
+  const numeroMesure = numeroBrut !== '' ? numeroBrut : (mots[0] ?? '')
+  const rueMesuree = numeroBrut !== '' ? ligneVoie : mots.slice(1).join(' ')
+
+  if (rueMesuree === '') {
     patch.address = 'rue'
     applied.push('fill_street_for_service_point')
+    // Le numero lu dans la ligne de voie ne doit pas disparaitre avec elle.
+    if (numeroBrut === '' && numeroMesure !== '') patch.house_number = numeroMesure
   }
-  if (texte('house_number') === '') {
+  if (numeroMesure === '') {
     patch.house_number = '0'
     applied.push('fill_house_number_for_service_point')
   }
