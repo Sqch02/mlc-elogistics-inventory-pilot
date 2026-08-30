@@ -23,11 +23,37 @@ describe('completement d adresse en point relais', () => {
     expect(resultat?.applied).toContain('fill_street_for_service_point')
   })
 
-  it('remplit le numero de voie absent', () => {
+  it('remplit les deux quand tout manque', () => {
     const resultat = completerAdresseEnPointRelais({
-      address: 'rue des Lilas', house_number: '', service_point_present: true,
+      address: '', house_number: '', service_point_present: true,
     })
+    expect(resultat?.patch.address).toBe('rue')
     expect(resultat?.patch.house_number).toBe('0')
+  })
+
+  /**
+   * #555868 : l'adresse ne contenait que « 20 ». Le champ brut n'etant pas
+   * vide, ma premiere version remplissait le NUMERO avec « 0 » — alors que
+   * c'est le nom de rue qui manquait, et que « 20 » etait le numero.
+   *
+   * Sendcloud decoupe la ligne au premier espace quand le champ numero est
+   * vide. Il faut donc raisonner sur ce qu'il ANALYSE, pas sur les champs
+   * bruts. Meme piege que celui deja corrige pour le numero de voie le 25/08.
+   */
+  it('#555868 : rend le numero a sa place au lieu de le remplacer', () => {
+    const resultat = completerAdresseEnPointRelais({
+      address: '20', house_number: '', service_point_present: true,
+    })
+    expect(resultat?.patch.address).toBe('rue')
+    expect(resultat?.patch.house_number).toBe('20')
+    // Surtout pas « 0 » : le numero existait, il etait juste au mauvais endroit.
+    expect(resultat?.patch.house_number).not.toBe('0')
+  })
+
+  it('ne touche pas une ligne combinee deja complete', () => {
+    expect(completerAdresseEnPointRelais({
+      address: '12 rue des Lilas', house_number: '', service_point_present: true,
+    })).toBeNull()
   })
 
   it('NE TOUCHE JAMAIS a une livraison a domicile', () => {
@@ -47,7 +73,7 @@ describe('completement d adresse en point relais', () => {
     })).toBeNull()
   })
 
-  it('#555868 : la commande reelle se corrige sans perte', () => {
+  it('la commande reelle se corrige sans perte', () => {
     // Rue vide, numero present, livraison en point relais.
     const plan = planAddressShortening(
       {
