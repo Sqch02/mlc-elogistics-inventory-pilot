@@ -94,7 +94,17 @@ describe('runAutoFixLiveWorker — garde-fous', () => {
   })
 
   it('n arme que les patterns reellement traitables', () => {
-    expect(ARMED_LIVE_PATTERNS).toEqual(['address_too_long', 'service_point_missing', 'currency_chf'])
+    // `address_missing` ajoute le 30/08, a la demande de Quentin. La
+    // reparation ne s'applique QU'EN point relais, ou c'est le code du point
+    // qui achemine et non l'adresse du domicile. Ailleurs, le planificateur ne
+    // produit rien et la verification de cause refuse d'acquitter : la tache
+    // part en revue humaine.
+    //
+    // Cette liste est gelee volontairement : l'armement d'un motif est une
+    // decision, pas un effet de bord.
+    expect(ARMED_LIVE_PATTERNS).toEqual([
+      'address_too_long', 'service_point_missing', 'currency_chf', 'address_missing',
+    ])
   })
 
   it('le point relais ne s applique pas sans son propre interrupteur', () => {

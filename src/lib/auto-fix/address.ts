@@ -1053,6 +1053,44 @@ function valeurMesuree(field: AddressField, raw: Record<string, unknown>): strin
   return brut
 }
 
+/**
+ * Complete une adresse incomplete quand la livraison se fait en point relais.
+ *
+ * Demande de Quentin le 30/08, et c'est exactement ce qu'il fait a la main :
+ * un « 0 » quand le numero de voie manque, « rue » quand le nom de rue manque.
+ *
+ * POURQUOI C'EST ACCEPTABLE ICI, ET NULLE PART AILLEURS
+ * En point relais ou en casier, c'est le code du point qui achemine le colis.
+ * L'adresse du domicile figure sur l'etiquette mais ne sert pas a la
+ * livraison. Le principe est deja admis pour les COUPES d'adresse en point
+ * relais ; remplir un champ VIDE detruit encore moins : rien n'est perdu,
+ * puisqu'il n'y avait rien.
+ *
+ * En livraison a domicile, la meme operation produirait une etiquette
+ * inlivrable. La condition est donc stricte et sans exception.
+ */
+export function completerAdresseEnPointRelais(
+  raw: Record<string, unknown>,
+): { patch: Partial<Record<AddressField, string>>; applied: string[] } | null {
+  const versPointRelais = raw.service_point_present === true
+  if (!versPointRelais) return null
+
+  const texte = (cle: string) => (typeof raw[cle] === 'string' ? (raw[cle] as string).trim() : '')
+  const patch: Partial<Record<AddressField, string>> = {}
+  const applied: string[] = []
+
+  if (texte('address') === '') {
+    patch.address = 'rue'
+    applied.push('fill_street_for_service_point')
+  }
+  if (texte('house_number') === '') {
+    patch.house_number = '0'
+    applied.push('fill_house_number_for_service_point')
+  }
+
+  return applied.length > 0 ? { patch, applied } : null
+}
+
 export function planAddressShortening(
   rawEntrant: Record<string, unknown>,
   limits: AddressLimit[],
@@ -1111,6 +1149,25 @@ export function planAddressShortening(
   // L'echange lui-meme ne perd rien. Ce qui se decide, c'est ou tombera la
   // perte ensuite, et Quentin a tranche le 25/08 : plutot sur le batiment que
   // sur la voie, parce que c'est la voie qui fait arriver le colis.
+  // Completement en point relais AVANT tout le reste : un champ vide ne se
+  // raccourcit pas, et les reparations suivantes travaillent sur une adresse
+  // enfin complete.
+  const complete = completerAdresseEnPointRelais(raw)
+  if (complete) {
+    for (const [champ, valeur] of Object.entries(complete.patch)) {
+      patch[champ as AddressField] = valeur
+      raw[champ] = valeur
+    }
+    audit.push({
+      field: complete.patch.address !== undefined ? 'address' : 'house_number',
+      before_length: 0,
+      after_length: (complete.patch.address ?? complete.patch.house_number ?? '').length,
+      limit: 0,
+      applied: complete.applied,
+      lossy: false,
+    })
+  }
+
   const voieAvantRedressement = asText('address') ?? ''
   const redresse = redresserLignesInversees(asText('address'), asText('address_2'))
   if (redresse) {
