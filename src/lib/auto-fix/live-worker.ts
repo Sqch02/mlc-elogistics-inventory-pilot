@@ -42,7 +42,10 @@ import type { SendcloudCredentials } from '@/lib/sendcloud/types'
  * bloque chez Sendcloud, et reellement observe (2 cas sur 60 jours ; le CHF
  * n'en a produit aucun — cf 2026-07-25-auto-fix-volume-reel.md).
  */
-export const ARMED_LIVE_PATTERNS = ['address_too_long', 'service_point_missing', 'currency_chf'] as const
+// `address_missing` est arme, mais la reparation ne s'applique QU'EN point
+// relais : ailleurs le planificateur ne produit rien, et la verification de
+// cause refuse alors d'acquitter — la tache part en revue humaine.
+export const ARMED_LIVE_PATTERNS = ['address_too_long', 'service_point_missing', 'currency_chf', 'address_missing'] as const
 
 /**
  * Le remplacement de point relais est CALCULE mais pas applique, tant que
@@ -240,6 +243,9 @@ function ordreVersAdresse(order: OrderV3): Record<string, unknown> {
     // Pas un champ d'adresse : sert a reconnaitre un e-mail recopie dans le
     // champ nom, et a savoir si le retirer perd quelque chose.
     email: a.email ?? '',
+    // Conditionne le completement d'une adresse incomplete : en point relais,
+    // c'est le code du point qui achemine, pas l'adresse du domicile.
+    service_point_present: Boolean(order.service_point_details?.id),
   }
 }
 
