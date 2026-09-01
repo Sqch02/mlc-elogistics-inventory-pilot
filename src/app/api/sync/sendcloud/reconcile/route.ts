@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminDb } from '@/lib/supabase/untyped'
-import { reconcileTenant, type ReconcileResult } from '@/lib/sendcloud/reconcile'
+import {
+  reconcileTenant,
+  reconcileStaleParcelStatuses,
+  type ReconcileResult,
+} from '@/lib/sendcloud/reconcile'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
 import { createSyncCorrelationId, createSyncLogger } from '@/lib/sendcloud/sync-logger'
 import { safeEqual } from '@/lib/utils/safe-compare'
@@ -32,6 +36,17 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(500, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10) || 50))
   const tenantFilter = url.searchParams.get('tenant')
 
+  // Deux reconciliations distinctes, deliberement separees.
+  //
+  //   defaut   les COMMANDES bloquees « On Hold » sans colis
+  //   statuts  les COLIS dont le statut s'est fige chez nous alors que
+  //            Sendcloud l'a fait evoluer
+  //
+  // La seconde n'est PAS branchee sur le cron des 5 minutes : elle rappelle
+  // l'API colis par colis, et l'incident de saturation du 13/07 invite a la
+  // declencher explicitement tant qu'on n'a pas observe son cout reel.
+  const mode = url.searchParams.get('mode') === 'statuts' ? 'statuts' : 'on_hold'
+
   const adminClient = getAdminDb()
 
   let tenantQuery = adminClient.from('tenants').select('id')
@@ -59,14 +74,13 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-      const res = await reconcileTenant(
-        adminClient,
-        tenant.id,
-        credentials,
-        limit,
-        dryRun,
-        correlationId,
-      )
+      const res = mode === 'statuts'
+        ? await reconcileStaleParcelStatuses(
+            adminClient, tenant.id, credentials, limit, dryRun, correlationId,
+          )
+        : await reconcileTenant(
+            adminClient, tenant.id, credentials, limit, dryRun, correlationId,
+          )
       if (res.changed) anyChange = true
       results.push(res)
     } catch (err) {
