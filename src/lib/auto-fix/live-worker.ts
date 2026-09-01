@@ -603,12 +603,28 @@ async function corrigerCommandeImportee(
     // regles de validation sur la commande telle qu'elle est maintenant. Si
     // elles trouvent encore quelque chose, le moteur a renonce — il ne doit
     // pas acquitter.
+    // Deuxieme lecture, plus precise : les champs que Sendcloud a REELLEMENT
+    // refuses. Un champ refuse qui est encore VIDE ne peut pas avoir cesse de
+    // poser probleme — quelle que soit la regle qui l'a fait refuser.
+    //
+    // Cette lecture-la etait indispensable : sur #556739, le refus portait sur
+    // un numero de voie obligatoire. Aucune regle generale ne peut l'exprimer
+    // — des milliers de commandes ont un numero vide sans que cela gene, cela
+    // depend du transporteur. La verification par les regles ne voyait donc
+    // rien, et la tache a ete acquittee alors que l'erreur restait a l'ecran.
+    const champsRefuses = (job.source_summary_json.error_fields ?? []) as string[]
+    const encoreVides = champsRefuses.filter((champ) => {
+      const cle = champ === 'address_1' ? 'address' : champ
+      const valeur = adresse[cle]
+      return typeof valeur === 'string' && valeur.trim() === ''
+    })
+
     const restant = findLatentErrors(adresse, REGLES_ADRESSE)
-    if (restant.length > 0) {
+    if (restant.length > 0 || encoreVides.length > 0) {
       return refuse(
         'no_repair_available',
         'non_retryable',
-        `defaut encore present : ${restant.map((e) => e.field).join(', ')}`,
+        `defaut encore present : ${[...new Set([...restant.map((e) => e.field), ...encoreVides])].join(', ')}`,
       )
     }
     // Cause reellement disparue : etat terminal, jamais la file manuelle.

@@ -1033,4 +1033,44 @@ describe('tache dont la cause a disparu', () => {
     expect(erreur?.reason).not.toBe('already_resolved')
     expect(erreur?.category).not.toBe('resolved')
   })
+  it('n acquitte pas quand un champ REFUSE est encore vide', async () => {
+    // #556739 : Sendcloud reclamait un numero de voie obligatoire. Aucune
+    // regle generale ne peut exprimer cela — des milliers de commandes ont un
+    // numero vide sans que cela gene, cela depend du transporteur. La
+    // verification par les regles ne voyait donc rien, et la tache a ete
+    // acquittee alors que l'erreur restait affichee.
+    //
+    // On regarde donc AUSSI les champs que Sendcloud a reellement refuses : un
+    // champ refuse encore vide ne peut pas avoir cesse de poser probleme.
+    const sansNumero = {
+      id: '841973155', order_number: '#540793',
+      shipping_address: {
+        name: 'Chrystelle Feron',
+        address_line_1: 'rue des Volontaires de Guerre', address_line_2: '',
+        house_number: '', city: 'Sambreville', postal_code: '5060',
+        country_code: 'BE',
+      },
+      order_details: { status: { code: 'on_hold' } },
+    }
+    const { client, calls } = makeClient({ claim: [job({
+      source_kind: 'integration_shipment',
+      source_summary_json: { address_limits: [], error_fields: ['house_number'] },
+      source_order_ref: '#540793',
+    })] })
+    const d = {
+      credentials: async () => ({ apiKey: 'k', secret: 's' }),
+      readParcel: vi.fn(async () => null),
+      writeParcel: vi.fn(async () => ({ ok: true as const, status: 200 })),
+      findOrder: vi.fn(async () => ({ ok: true, order: sansNumero })),
+      patchOrder: vi.fn(async (..._args: unknown[]) => ({ ok: true, order: sansNumero })),
+      verifyOrder: vi.fn(async () => ({ ok: true })),
+    } as unknown as Parameters<typeof runAutoFixLiveWorker>[2]
+
+    await runAutoFixLiveWorker(client, LIVE_ENV, d)
+
+    const echec = calls.find((c) => c.name === 'fail_auto_fix_live')
+    const erreur = echec?.args.p_error as { reason?: string; category?: string } | undefined
+    expect(erreur?.reason).not.toBe('already_resolved')
+    expect(erreur?.category).not.toBe('resolved')
+  })
 })
