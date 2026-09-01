@@ -108,6 +108,39 @@ function trimTrailingConnector(value: string): string {
   return sortie
 }
 
+/**
+ * Ce que Sendcloud lit comme NUMERO DE VOIE dans une ligne d'adresse.
+ *
+ * Quand le champ numero est vide, l'API renvoie tout dans la ligne de voie.
+ * Sendcloud n'en tire un numero que si le premier mot COMMENCE PAR UN CHIFFRE.
+ * Sinon il considere le champ comme absent et le reclame.
+ *
+ * Le modele se lit sur trois commandes reelles, et il les explique toutes :
+ *
+ *   #553869  "401chemin de la blanchonne"      -> numero "401chemin", refuse trop long
+ *   #555868  "20"                              -> numero "20", nom de rue absent
+ *   #556739  "rue des Volontaires de Guerre"   -> numero absent, reclame
+ *
+ * Ma premiere version prenait le premier mot sans condition : elle voyait donc
+ * un numero « rue » dans le troisieme cas et concluait qu'il ne manquait rien.
+ */
+export function decouperLigneDeVoie(
+  ligneVoie: string,
+  numeroBrut: string,
+): { numero: string; rue: string } {
+  if (numeroBrut.trim() !== '') {
+    return { numero: numeroBrut.trim(), rue: ligneVoie.trim() }
+  }
+  const mots = ligneVoie.trim().split(/\s+/).filter(Boolean)
+  const premier = mots[0] ?? ''
+  // Un numero de voie commence par un chiffre. « rue », « chemin », « place »
+  // n'en sont pas, et Sendcloud ne les lit pas comme tels.
+  if (!/^\d/.test(premier)) {
+    return { numero: '', rue: ligneVoie.trim() }
+  }
+  return { numero: premier, rue: mots.slice(1).join(' ') }
+}
+
 /** Compare deux mots sans se soucier de la casse, des accents ni de la ponctuation. */
 function memeMot(a: string, b: string): boolean {
   const propre = (mot: string) =>
@@ -1048,7 +1081,7 @@ function valeurMesuree(field: AddressField, raw: Record<string, unknown>): strin
   const brut = typeof raw[field] === 'string' ? (raw[field] as string) : ''
   if (field === 'house_number' && brut.trim() === '') {
     const rue = typeof raw.address === 'string' ? raw.address : ''
-    return tokenize(rue)[0] ?? ''
+    return decouperLigneDeVoie(rue, '').numero
   }
   return brut
 }
@@ -1090,11 +1123,10 @@ export function completerAdresseEnPointRelais(
   // manquait. Le champ brut n'etait pas vide, il valait « 20 ». Meme piege que
   // celui deja corrige pour le numero de voie le 25/08.
   const numeroBrut = texte('house_number')
-  const ligneVoie = texte('address')
-  const mots = ligneVoie.split(/\s+/).filter(Boolean)
-
-  const numeroMesure = numeroBrut !== '' ? numeroBrut : (mots[0] ?? '')
-  const rueMesuree = numeroBrut !== '' ? ligneVoie : mots.slice(1).join(' ')
+  const { numero: numeroMesure, rue: rueMesuree } = decouperLigneDeVoie(
+    texte('address'),
+    numeroBrut,
+  )
 
   if (rueMesuree === '') {
     patch.address = 'rue'

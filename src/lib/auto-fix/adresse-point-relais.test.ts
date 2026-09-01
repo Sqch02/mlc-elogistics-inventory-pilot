@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { completerAdresseEnPointRelais, planAddressShortening } from './address'
+import { completerAdresseEnPointRelais, planAddressShortening, decouperLigneDeVoie } from './address'
 
 /**
  * Demande de Quentin le 30/08 : quand la livraison se fait en point relais ou
@@ -101,5 +101,63 @@ describe('completement d adresse en point relais', () => {
 
     expect(plan.patch.address).toBeUndefined()
     expect(plan.ready).toBe(false)
+  })
+})
+
+/**
+ * Ce que Sendcloud lit comme numero de voie dans une ligne d'adresse.
+ *
+ * Il n'en tire un numero que si le premier mot COMMENCE PAR UN CHIFFRE ; sinon
+ * il considere le champ absent et le reclame. Le modele se verifie sur quatre
+ * commandes reelles, et il les explique toutes.
+ *
+ * Ma premiere version prenait le premier mot sans condition : elle lisait donc
+ * un numero « rue » sur #556739 et concluait qu'il ne manquait rien.
+ */
+describe('decoupage de la ligne de voie, tel que Sendcloud le fait', () => {
+  it.each([
+    ['401chemin de la blanchonne', '401chemin', 'de la blanchonne', '#553869, refuse trop long'],
+    ['20', '20', '', '#555868, nom de rue absent'],
+    ['rue des Volontaires de Guerre', '', 'rue des Volontaires de Guerre', '#556739, numero reclame'],
+    ['9 Chemin De Rapin', '9', 'Chemin De Rapin', 'ligne complete'],
+  ])('%s', (ligne, numero, rue) => {
+    expect(decouperLigneDeVoie(ligne, '')).toEqual({ numero, rue })
+  })
+
+  it('respecte le champ numero quand il est renseigne', () => {
+    expect(decouperLigneDeVoie('rue des Lilas', '12')).toEqual({
+      numero: '12', rue: 'rue des Lilas',
+    })
+  })
+})
+
+describe('#556739 : numero de voie reclame en casier', () => {
+  it('remplit le numero sans toucher au nom de rue', () => {
+    const plan = planAddressShortening(
+      {
+        address: 'rue des Volontaires de Guerre', address_2: '', house_number: '',
+        city: 'Sambreville', postal_code: '5060', country_code: 'BE',
+        service_point_present: true,
+      },
+      [{ field: 'house_number', max: 8 }],
+    )
+
+    expect(plan.patch.house_number).toBe('0')
+    // La rue est reelle et complete : on n'y touche pas.
+    expect(plan.patch.address).toBeUndefined()
+    expect(plan.lossyFields).toEqual([])
+  })
+
+  it('la meme commande a domicile reste un travail humain', () => {
+    const plan = planAddressShortening(
+      {
+        address: 'rue des Volontaires de Guerre', address_2: '', house_number: '',
+        city: 'Sambreville', postal_code: '5060', country_code: 'BE',
+        service_point_present: false,
+      },
+      [{ field: 'house_number', max: 8 }],
+    )
+
+    expect(plan.patch.house_number).toBeUndefined()
   })
 })
