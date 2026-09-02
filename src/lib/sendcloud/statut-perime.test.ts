@@ -58,7 +58,6 @@ describe('rattrapage des statuts perimes', () => {
     expect(bloc).toContain('status_id: colis.status_id')
     expect(bloc).toContain('status_message: colis.status_message')
   })
-}
 
   it('un echec de lecture des candidats compte comme un echec, pas comme zero candidat', () => {
     // Le 02/09, Florna affichait « 0 examine, 0 erreur » alors que 200 colis
