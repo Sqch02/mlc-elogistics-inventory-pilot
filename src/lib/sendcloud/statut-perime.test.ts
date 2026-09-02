@@ -58,4 +58,27 @@ describe('rattrapage des statuts perimes', () => {
     expect(bloc).toContain('status_id: colis.status_id')
     expect(bloc).toContain('status_message: colis.status_message')
   })
+
+  it('un echec de lecture des candidats compte comme un echec, pas comme zero candidat', () => {
+    // Le 02/09, Florna affichait « 0 examine, 0 erreur » alors que 200 colis
+    // attendaient : la lecture echouait et l'erreur etait avalee par un
+    // `candidates || []`. Meme defaut que celui corrige dans refuse() la
+    // semaine precedente.
+    const bloc = source.slice(source.indexOf('reconcileStaleParcelStatuses'))
+    expect(bloc).toContain('error: erreurCandidats')
+    expect(bloc).toContain('if (erreurCandidats)')
+    expect(bloc).toContain('res.errors++')
+  })
+
+  it('le predicat de la recherche est materialise dans un index partiel', () => {
+    // 2,8 s sans index pour 50 lignes (29 238 colis filtres) ; 0,1 s avec,
+    // pour 200 lignes. Sous le delai de 8 s de PostgREST, l'ecart est celui
+    // entre un rattrapage qui tourne et un rattrapage qui echoue en silence.
+    const index = readFileSync(
+      join(process.cwd(), 'supabase/migrations/00129_index_partiel_statuts_figes.sql'),
+      'utf8',
+    )
+    expect(index).toContain('WHERE status_id = 1000 AND is_return = false')
+    expect(index).toContain('ON public.shipments (tenant_id, shipped_at DESC)')
+  })
 })

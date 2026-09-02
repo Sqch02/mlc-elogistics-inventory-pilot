@@ -180,10 +180,19 @@ export async function reconcileStaleParcelStatuses(
   // generes. La conversion est volontaire et locale a cet appel, comme ailleurs
   // dans le projet.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: candidates } = await (adminClient as any).rpc('stale_parcel_status_candidates', {
-    p_tenant_id: tenantId,
-    p_limit: limit,
-  })
+  const { data: candidates, error: erreurCandidats } = await (adminClient as any).rpc(
+    'stale_parcel_status_candidates',
+    { p_tenant_id: tenantId, p_limit: limit },
+  )
+  // Le retour de cet appel est verifie. Sans cela, un delai depasse ou un
+  // droit manquant se lisait « zero candidat » — le 02/09, Florna affichait
+  // 0 examine, 0 erreur, alors que 200 colis attendaient. Un echec compte
+  // comme un echec, et il se voit dans le compte rendu.
+  if (erreurCandidats) {
+    logger.error(`Lecture des candidats impossible pour ${tenantId}:`, erreurCandidats.message ?? erreurCandidats)
+    res.errors++
+    return res
+  }
   const aTraiter = (candidates || []) as StuckRow[]
   res.scanned = aTraiter.length
   if (aTraiter.length === 0) return res
