@@ -6,11 +6,9 @@
 -- 100 lectures de commande par client, sur les seules taches manuelles de
 -- plus de 24 h. En regime courant, quelques lectures par heure.
 --
--- POURQUOI 24 H
--- Une tache en attente manuelle de moins d'un jour est du travail que
--- l'exploitant n'a pas encore vu : la fermer trop tot, c'est lui cacher une
--- correction a faire. Passe un jour, si la commande est partie, c'est qu'il
--- l'a traitee lui-meme ; la tache ne decrit plus rien.
+-- DELAI AVANT RELECTURE
+-- 24 h a l'origine, ramene a 1 h par la migration 00132 : une commande
+-- partie a ete traitee par definition, l'attente ne protegeait de rien.
 --
 -- Le creneau :15 est libre des autres taches planifiees.
 
