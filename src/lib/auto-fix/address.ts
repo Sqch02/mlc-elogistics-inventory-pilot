@@ -468,6 +468,18 @@ export function extractComplement(value: string): { address: string; complement:
   // Maliniere" designe bien un lieu-dit, tandis que "Jean-Jacques" n'a pas
   // d'espace avant et reste donc intact. Releve le 24/08 sur la commande
   // #553215, ou la troncature laissait un "-La" orphelin.
+  // Plusieurs tirets : "90 Route du Val de Gorbio - Azur Parc - Le Thuya".
+  // Couper au dernier laissait "Azur Parc" dans la voie, trop longue encore.
+  // On prefere le PREMIER tiret dont la tete est deja une voie (numero en
+  // tete ou mot de voie) ; sinon, le dernier, comme avant.
+  const tirets = [...trimmed.matchAll(/\s+[-–]\s*/g)]
+  for (const t of tirets) {
+    const tete = trimmed.slice(0, t.index).trim()
+    const reste = trimmed.slice(t.index! + t[0].length).trim()
+    if (tokenize(tete).length >= 2 && reste.length >= 2 && teteEstUneVoie(tete)) {
+      return { address: tete, complement: reste }
+    }
+  }
   const dash = trimmed.match(/^(.*\S)\s+[-–]\s*(\S.{1,})$/)
   if (dash && tokenize(dash[1]).length >= 2) return { address: dash[1].trim(), complement: dash[2].trim() }
 
@@ -520,6 +532,40 @@ export function extractComplement(value: string): { address: string; complement:
     }
   }
 
+  // "10 All. de l'Impératrice res leia", "2 route de l'étang lieu-dit
+  // Fléchat", "620 AV de lattre de tassigny villa 3" : une voie complete,
+  // puis un complement introduit par un mot-cle. Releve le 03/09 sur 90
+  // jours : 181 voies trop longues avec un complement LIBRE, ce motif en
+  // couvre le quart.
+  //
+  // Le mot-cle ne vaut que s'il ne fait pas partie du nom de la voie :
+  // "avenue du Parc", "rue Hameau du Parc" restent entiers (mot-cle precede
+  // d'un article ou d'un mot de voie). La tete doit deja etre une voie.
+  const finParMotCle = trouverComplementFinal(trimmed)
+  if (finParMotCle) return finParMotCle
+
+  return null
+}
+
+const MOTS_DE_VOIE = /\b(?:rue|r|avenue|av|bd|boulevard|chemin|ch|chem|route|rte|all[ée]e|all|impasse|imp|place|pl|quai|cours|voie|mail|square|sentier|passage|lotissement|lot|hameau|domaine|r[ée]sidence|res|r[ée]s)\.?$/i
+
+function teteEstUneVoie(tete: string): boolean {
+  return /^\d/.test(tete) || /\b(?:rue|avenue|av|bd|boulevard|chemin|ch|chem|route|rte|all[ée]e|all|impasse|imp|place|quai|cours|voie|mail)\b/i.test(tete)
+}
+
+function trouverComplementFinal(valeur: string): { address: string; complement: string } | null {
+  const motCle = /(?:^|\s)((?:r[ée]sidence|residance|res|r[ée]s|lieu-?\s?dit|villa|parc|imm|immeuble|app?t?|apt|appart(?:ement)?|bat|b[âa]t(?:iment)?|domaine|lot|entr[ée]e|ent|esc|escalier|[ée]tage|maison|logement|porte|bloc|tour|hameau|\d{1,2}\s*(?:e|er|eme|ème)\s*[ée]tage)\.?\d*\b)/gi
+  for (const m of valeur.matchAll(motCle)) {
+    const debut = m.index! + (m[0].length - m[1].length)
+    const tete = valeur.slice(0, debut).replace(/[\s,;.]+$/, '').trim()
+    const complement = valeur.slice(debut).trim()
+    if (tokenize(tete).length < 3 || tokenize(complement).length < 2) continue
+    if (!teteEstUneVoie(tete)) continue
+    // Mot-cle precede d'un article ou d'un mot de voie : il nomme la voie.
+    const dernierMot = tokenize(tete).at(-1) ?? ''
+    if (/^(?:du|de|des|la|le|les|l'|d'|au|aux|d’|l’)$/i.test(dernierMot) || MOTS_DE_VOIE.test(dernierMot)) continue
+    return { address: tete, complement }
+  }
   return null
 }
 
