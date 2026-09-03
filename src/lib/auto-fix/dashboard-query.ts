@@ -186,7 +186,28 @@ function refusLisible(erreur: Json | null): string | null {
   const raison = typeof erreur.reason === 'string' ? erreur.reason : null
   if (!raison) return null
 
+  // Chaque raison que le moteur peut emettre a son libelle. Sans lui, la ligne
+  // retombe sur le message generique du motif — « Adresse a raccourcir » —
+  // qui laisse croire a une coupe a faire la ou le moteur a RENONCE. Un test
+  // verrouille la correspondance entiere avec les raisons du moteur.
   const messages: Record<string, string> = {
+    no_repair_available: "Le moteur ne sait pas réparer cette adresse : le champ refusé dépasse encore sa limite. À corriger à la main.",
+    lossy_shortening_requires_review: "Raccourcir ferait perdre une information utile à la livraison : la proposition est à valider ou à corriger.",
+    already_resolved: "La cause a disparu : la commande a été corrigée par ailleurs.",
+    pattern_not_armed: "Cause identifiée mais correction non armée : à traiter à la main.",
+    lock_expired_before_plan: "Le moteur a manqué de temps avant d'enregistrer sa correction ; il réessaiera au passage suivant.",
+    lock_expired_before_write: "Le moteur a manqué de temps avant d'écrire ; il réessaiera au passage suivant.",
+    source_changed_since_detection: "La commande a changé depuis la détection : le moteur la réexaminera.",
+    credentials_missing: "Identifiants Sendcloud absents pour ce client : à configurer.",
+    exchange_rate_unavailable: "Taux de change indisponible : la conversion attendra le prochain passage.",
+    parcel_not_found: "Colis introuvable côté Sendcloud, probablement supprimé.",
+    service_point_absent: "Aucun point relais sur la commande : impossible de le remplacer.",
+    service_point_proposal_awaiting_review: "Point relais de remplacement proposé, à valider avant application.",
+    service_point_read_failed: "Le point relais n'a pas pu être relu côté Sendcloud ; nouvel essai au prochain passage.",
+    service_point_search_failed: "La recherche de points relais a échoué côté Sendcloud ; nouvel essai au prochain passage.",
+    service_point_unknown_carrier: "Transporteur inconnu du moteur : remplacement de point relais impossible.",
+    order_lookup_ambiguous: "Plusieurs commandes portent ce numéro côté Sendcloud : rapprochement impossible.",
+    order_lookup_http_error: "Sendcloud n'a pas répondu ; nouvel essai au prochain passage.",
     parcel_not_editable: 'Colis déjà créé : le moteur ne peut pas le modifier, à corriger dans Sendcloud.',
     order_not_corrigible: 'Commande déjà traitée par le transporteur, elle ne peut plus être modifiée.',
     order_lookup_not_found: 'Commande introuvable côté Sendcloud, probablement déjà expédiée.',

@@ -317,6 +317,21 @@ export function nettoyerVille(
   let ville = value.trim()
   const cp = (postalCode ?? '').trim()
 
+  // 0. Code postal recopie EN TETE, suivi d'un separateur : "17340 -
+  //    Châtelaillon-Plage", "79370 - FRESSINES". Releve le 03/09 : 137 villes
+  //    sur 90 jours, 6 refusees pour longueur alors que la ville seule tient.
+  //
+  //    On exige le code postal EXACT de la commande ET un separateur : un
+  //    nombre en tete sans separateur peut faire partie du nom.
+  if (cp) {
+    const cpEchappe = cp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const sansTete = ville.replace(new RegExp(`^\\s*${cpEchappe}\\s*[-–,]\\s*`), '')
+    if (sansTete !== ville && sansTete.trim().length >= 2) {
+      ville = sansTete.trim()
+      applied.push('drop_leading_postal_code_in_city')
+    }
+  }
+
   // 1. Code postal recopie entre parentheses. On exige la correspondance
   //    exacte : "(Sud)" ou "(Haute-Ville)" ne sont pas des doublons.
   if (cp) {
@@ -368,10 +383,32 @@ export function nettoyerVille(
  */
 export function stripRedundantLocality(
   value: string,
-  context: { city?: string; postalCode?: string },
+  context: { city?: string; postalCode?: string; street?: string },
 ): { value: string; applied: string[] } {
   const applied: string[] = []
   let tokens = tokenize(value)
+
+  // 0. Voie recopiee EN TETE du complement : "201allée des Ondines. Adelinde
+  //    3. Entrée B." alors que la voie a deja son champ. Releve le 03/09 :
+  //    165 complements sur 90 jours, 6 refuses pour longueur alors que le
+  //    complement seul tient.
+  //
+  //    Comparaison sur la forme normalisee, mot a mot : le numero colle a la
+  //    voie ("201allée") et la ponctuation ("Ondines.") ne font pas obstacle.
+  //    On ne retire qu'en TETE et on garde au moins un mot : si tout le
+  //    complement est la voie, c'est au vidage de le dire, pas a nous.
+  const street = (context.street ?? '').trim()
+  if (street.length >= 5) {
+    const target = normalizeLocality(street)
+    for (let take = Math.min(8, tokens.length - 1); take >= 2; take--) {
+      const head = tokens.slice(0, take)
+      if (normalizeLocality(head.join(' ')) === target) {
+        tokens = tokens.slice(take)
+        applied.push('drop_street_repeated_in_complement')
+        break
+      }
+    }
+  }
 
   // 1. Code postal recopie. Exige au moins 4 caracteres pour ne jamais
   //    confondre avec un numero de voie.
@@ -1477,6 +1514,7 @@ export function planAddressShortening(
       const sansDoublons = stripRedundantLocality(queue.value, {
         city: asText('city'),
         postalCode: asText('postal_code'),
+        street: [asText('house_number'), asText('address')].filter(Boolean).join(' '),
       })
       if (sansDoublons.applied.length > 0) {
         queue = { value: sansDoublons.value, applied: [...queue.applied, ...sansDoublons.applied] }
