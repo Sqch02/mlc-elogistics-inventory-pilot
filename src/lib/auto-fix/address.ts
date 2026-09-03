@@ -498,6 +498,28 @@ export function extractComplement(value: string): { address: string; complement:
     }
   }
 
+  // "Les Pervenches esc2 bt2 552avenue de Parades" : le complement en tete
+  // porte lui-meme un chiffre (escalier, batiment, "n9") et le numero de voie
+  // est colle au mot de voie. La regle precedente exige un complement sans
+  // chiffre et un espace apres le numero : elle passe a cote. Releve le 03/09
+  // sur la commande #557904 ; 41 voies de cette forme en 90 jours, 21 trop
+  // longues pour le transporteur.
+  //
+  // On coupe a la DERNIERE occurrence « numero + mot de voie » : ce qui
+  // precede est le complement, ce qui suit est la voie. Le mot de voie est
+  // exige juste apres le numero : "rue du 8 mai" n'a pas de mot de voie apres
+  // le 8 et reste entier.
+  const numeroPuisVoie = trimmed.match(
+    /^(.*\S)[\s,;-]+(\d{1,5})\s*((?:rue|avenue|av|bd|boulevard|chemin|ch|route|rte|all[ée]e|impasse|place|quai|cours)\b\s+\S.*)$/i,
+  )
+  if (numeroPuisVoie) {
+    const tete = numeroPuisVoie[1].replace(/[\s,;-]+$/, '').trim()
+    const voie = `${numeroPuisVoie[2]} ${numeroPuisVoie[3].trim()}`
+    if (tokenize(tete).length >= 2 && tokenize(voie).length >= 3) {
+      return { address: voie, complement: tete }
+    }
+  }
+
   return null
 }
 
@@ -1278,6 +1300,7 @@ export function planAddressShortening(
   const recupere = recoverHouseNumber(asText('house_number'), asText('address_2'))
   if (recupere) {
     patch.house_number = recupere.houseNumber
+    raw.house_number = recupere.houseNumber
     audit.push({
       field: 'house_number',
       before_length: 0,
