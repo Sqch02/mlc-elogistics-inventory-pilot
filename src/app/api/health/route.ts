@@ -28,6 +28,10 @@ export async function GET() {
       dbLatencyMs,
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
+      // Empreinte du commit deploye, fournie par Render. C'est le seul moyen
+      // de VERIFIER qu'un deploiement est actif depuis l'exterieur : la
+      // duree de vie du processus ne dit pas quel code tourne.
+      commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? null,
     },
     {
       headers: {

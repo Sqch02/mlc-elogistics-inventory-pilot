@@ -27,4 +27,15 @@ describe('GET /api/health', () => {
     expect(data.timestamp >= before).toBe(true)
     expect(data.timestamp <= after).toBe(true)
   })
+  it('expose l empreinte du commit deploye quand Render la fournit', async () => {
+    const avant = process.env.RENDER_GIT_COMMIT
+    process.env.RENDER_GIT_COMMIT = 'a217b2e0123456789'
+    try {
+      const data = await (await GET()).json()
+      expect(data.commit).toBe('a217b2e')
+    } finally {
+      if (avant === undefined) delete process.env.RENDER_GIT_COMMIT
+      else process.env.RENDER_GIT_COMMIT = avant
+    }
+  })
 })
