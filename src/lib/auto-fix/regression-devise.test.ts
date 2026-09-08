@@ -20,7 +20,10 @@ function commande(devise: string, statut: string) {
   }
 }
 
-function client(candidats: Array<{ id: string; source_order_ref: string }>, erreur: unknown = null) {
+function client(
+  candidats: Array<{ id: string; source_order_ref: string; parcel_blocked?: boolean }>,
+  erreur: unknown = null,
+) {
   const appels: Array<{ nom: string; args: Record<string, unknown> }> = []
   return {
     appels,
@@ -44,9 +47,26 @@ describe('detection des conversions de devise defaites', () => {
     expect(c.appels.map((a) => a.nom)).toContain('flag_auto_fix_currency_regression')
   })
 
+  it('signale une commande dont le COLIS est bloque, meme si elle n est plus corrigeable', async () => {
+    // Les onze colis Delivengo des 07 et 08/09 : conversion marquee verifiee,
+    // commande plus corrigeable parce qu'un colis existe, et pourtant le colis
+    // n'est jamais parti. Le franc revenu est ce que le transporteur refuse.
+    // C'etaient les cas les plus graves, et les seuls que la detection ecartait.
+    const c = client([{ id: 'j1', source_order_ref: '#559113', parcel_blocked: true }])
+    const res = await detecterRegressionsDevise(c, 't', identifiants, 10, false, {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      findOrder: (async () => commande('CHF', 'fulfilled')) as any,
+    })
+    expect(res.reverted).toBe(1)
+    expect(res.blockedParcels).toBe(1)
+    expect(res.revertedButShipped).toBe(0)
+    expect(res.samples[0].status).toContain('colis bloque')
+    expect(c.appels.map((a) => a.nom)).toContain('flag_auto_fix_currency_regression')
+  })
+
   it('ne signale pas une commande revenue en francs mais deja partie', async () => {
     // La conversion avait tenu le temps de faire l'etiquette : rien a dire.
-    const c = client([{ id: 'j1', source_order_ref: '#559852' }])
+    const c = client([{ id: 'j1', source_order_ref: '#559852', parcel_blocked: false }])
     const res = await detecterRegressionsDevise(c, 't', identifiants, 10, false, {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       findOrder: (async () => commande('CHF', 'fulfilled')) as any,
@@ -110,5 +130,14 @@ describe('detection des conversions de devise defaites', () => {
       'utf8',
     )
     expect(sql).toContain('ORDER BY j.verified_at DESC')
+  })
+
+  it('le candidat porte l etat du colis, statut 1002 compris', () => {
+    const sql = readFileSync(
+      join(process.cwd(), 'supabase/migrations/00136_un_colis_en_echec_d_annonce_n_est_pas_parti.sql'),
+      'utf8',
+    )
+    expect(sql).toContain('parcel_blocked')
+    expect(sql).toContain('s.status_id = 1002')
   })
 })

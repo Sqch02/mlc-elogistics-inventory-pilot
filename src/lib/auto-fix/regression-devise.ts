@@ -28,8 +28,10 @@ export interface CurrencyRegressionResult {
   scanned: number
   /** Revenues en francs ET encore ouvertes : signalees. */
   reverted: number
-  /** Revenues en francs mais deja parties : sans consequence. */
+  /** Revenues en francs mais reellement parties : sans consequence. */
   revertedButShipped: number
+  /** Parmi les signalees, celles dont le colis est bloque en echec d'annonce. */
+  blockedParcels: number
   /** Toujours en euros : la correction tient. */
   stillConverted: number
   notFound: number
@@ -41,7 +43,12 @@ type RpcClient = {
   rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>
 }
 
-interface Candidate { id: string; source_order_ref: string }
+interface Candidate {
+  id: string
+  source_order_ref: string
+  /** Un colis existe pour cette commande et son annonce a ECHOUE. */
+  parcel_blocked?: boolean
+}
 
 const MONEY_KEYS = [
   'subtotal_price', 'estimated_shipping_price', 'estimated_tax_price',
@@ -72,7 +79,7 @@ export async function detecterRegressionsDevise(
   deps: { findOrder?: typeof findOrderByNumber } = {},
 ): Promise<CurrencyRegressionResult> {
   const res: CurrencyRegressionResult = {
-    tenantId, scanned: 0, reverted: 0, revertedButShipped: 0,
+    tenantId, scanned: 0, reverted: 0, revertedButShipped: 0, blockedParcels: 0,
     stillConverted: 0, notFound: 0, errors: 0, samples: [],
   }
 
@@ -107,17 +114,26 @@ export async function detecterRegressionsDevise(
       continue
     }
 
-    // Revenue en francs, mais le colis est parti : la conversion avait tenu
-    // le temps qu'il fallait. Rien a signaler, et on ne la relit plus.
-    if (!isCorrigible(order)) {
+    // Un colis en echec d'annonce n'est PAS parti. Les onze colis Delivengo
+    // bloques les 07 et 08/09 avaient tous une conversion marquee verifiee :
+    // la commande n'etait plus corrigeable parce qu'un colis existait, mais
+    // ce colis n'est jamais parti, et le franc revenu est justement ce que le
+    // transporteur refuse. C'etaient les cas les plus graves, et c'etaient
+    // les seuls que la detection ecartait.
+    if (!isCorrigible(order) && !candidate.parcel_blocked) {
       res.revertedButShipped += 1
       if (!dryRun) await client.rpc('touch_auto_fix_job_verified', { p_job_id: candidate.id })
       continue
     }
 
     res.reverted += 1
+    if (candidate.parcel_blocked) res.blockedParcels += 1
     if (res.samples.length < 25) {
-      res.samples.push({ order_ref: candidate.source_order_ref, status: statut, currencies: devises })
+      res.samples.push({
+        order_ref: candidate.source_order_ref,
+        status: candidate.parcel_blocked ? `${statut} / colis bloque` : statut,
+        currencies: devises,
+      })
     }
     if (!dryRun) {
       await client.rpc('flag_auto_fix_currency_regression', {
