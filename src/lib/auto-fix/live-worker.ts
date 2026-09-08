@@ -453,9 +453,23 @@ async function convertirDevise(
     return refuse('exchange_rate_unavailable', 'retryable')
   }
 
-  const { patch, converted } = convertPaymentDetails(order.payment_details, brut)
+  const { patch, converted, ignores } = convertPaymentDetails(order.payment_details, brut)
   // Cause disparue, pas un echec : etat terminal, jamais la file manuelle.
   if (converted === 0) return refuse('already_resolved', 'resolved')
+
+  // Tout ou rien. Convertir une partie des montants laisse le document en
+  // contradiction avec lui-meme, et la relecture ne le voit pas : elle
+  // controle la devise, pas l'accord des montants. Le 08/09, la commande
+  // #560292 est ressortie avec un sous-total de 91,44 EUR et un total de 86,
+  // soit 6 % de moins sur la valeur declaree a la douane. Mieux vaut une
+  // tache a la main qu'une valeur fausse sur un document officiel.
+  if (ignores.length > 0) {
+    return refuse(
+      'currency_partial_conversion',
+      'non_retryable',
+      `montants non convertibles : ${ignores.join(', ')}`,
+    )
+  }
 
   const planned = await rpc<boolean>(client, 'plan_auto_fix_live', {
     p_job_id: job.id, p_worker_id: workerId,

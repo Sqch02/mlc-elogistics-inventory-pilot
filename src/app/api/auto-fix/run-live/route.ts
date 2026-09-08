@@ -125,45 +125,22 @@ export async function POST(request: NextRequest) {
      * une decision explicite.
      */
     async chfRate() {
-      const { resolveChfToEurRate } = await import('@/lib/auto-fix/exchange-rate')
+      const { resolveChfToEurRate, createSupabaseExchangeRateRepository } =
+        await import('@/lib/auto-fix/exchange-rate')
+      // Le depot partage, et surtout PAS une copie locale.
+      //
+      // Il y en avait une ici. Elle oubliait `expires_at`, que la table exige
+      // des qu'un taux est renseigne, et elle ne regardait pas l'erreur de
+      // l'ecriture. Resultat le 08/09 : le cache est reste VIDE depuis sa
+      // creation, chaque commande en francs suisses rappelait la BCE, et le
+      // premier appel reseau qui hoquetait refusait la commande. C'est ce qui
+      // est arrive a #560292. Un cache qui n'ecrit rien ne se voit pas ; un
+      // cache dont l'ecriture est ignoree ne se voit jamais.
+      //
+      // La reservation du rafraichissement redevient celle de la base : deux
+      // travailleurs tournent en parallele, le simule et le reel.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const untyped = db as any
-      return resolveChfToEurRate({
-        async read(base: string, cible: string) {
-          const { data } = await untyped
-            .from('exchange_rates_cache')
-            .select('*')
-            .eq('base_currency', base)
-            .eq('target_currency', cible)
-            .order('rate_date', { ascending: false })
-            .limit(1)
-            .maybeSingle()
-          return data ?? null
-        },
-        // La reservation evite que deux workers appellent la BCE en meme
-        // temps. Ici un seul worker tourne : on accorde toujours.
-        async claimRefresh() { return true },
-        async save(rate: unknown) {
-          // La table est en snake_case, le type en camelCase : sans cette
-          // traduction l'insertion echoue et le cache reste vide — ce qui
-          // s'est produit, et se voyait uniquement par un taux jamais
-          // disponible.
-          const r = rate as {
-            baseCurrency: string; targetCurrency: string; rate: string; rateDate: string
-            provider: string; providerQuote: { rate: string }
-            fetchedAt?: string; expiresAt?: string
-          }
-          await untyped.from('exchange_rates_cache').upsert({
-            base_currency: r.baseCurrency,
-            target_currency: r.targetCurrency,
-            rate: r.rate,
-            rate_date: r.rateDate,
-            provider: r.provider,
-            provider_quote: r.providerQuote?.rate ?? null,
-            fetched_at: new Date().toISOString(),
-          })
-        },
-      })
+      return resolveChfToEurRate(createSupabaseExchangeRateRepository(db as any))
     },
 
     /**
