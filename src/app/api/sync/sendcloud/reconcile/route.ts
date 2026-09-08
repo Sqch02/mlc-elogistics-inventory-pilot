@@ -6,6 +6,7 @@ import {
   type ReconcileResult,
 } from '@/lib/sendcloud/reconcile'
 import { closeFulfilledOrders, type CloseFulfilledResult } from '@/lib/auto-fix/close-fulfilled'
+import { detecterRegressionsDevise, type CurrencyRegressionResult } from '@/lib/auto-fix/regression-devise'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
 import { createSyncCorrelationId, createSyncLogger } from '@/lib/sendcloud/sync-logger'
 import { safeEqual } from '@/lib/utils/safe-compare'
@@ -50,8 +51,12 @@ export async function GET(request: NextRequest) {
   //              (40 des 44 en attente le 03/09 : du travail deja fait,
   //              affiche comme restant)
   const modeParam = url.searchParams.get('mode')
+  //   devises    les conversions de devise DEFAITES apres coup (08/09 : 55
+  //              sur 60 revenues en francs, dont 13 encore ouvertes). Ce mode
+  //              ne reecrit RIEN chez Sendcloud : il signale.
   const mode = modeParam === 'statuts' ? 'statuts'
     : modeParam === 'commandes' ? 'commandes'
+    : modeParam === 'devises' ? 'devises'
     : 'on_hold'
 
   const adminClient = getAdminDb()
@@ -65,6 +70,7 @@ export async function GET(request: NextRequest) {
 
   const results: ReconcileResult[] = []
   const fermetures: CloseFulfilledResult[] = []
+  const regressions: CurrencyRegressionResult[] = []
   let anyChange = false
 
   for (const tenant of tenants as Array<{ id: string }>) {
@@ -82,6 +88,14 @@ export async function GET(request: NextRequest) {
     }
 
     try {
+      if (mode === 'devises') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rpcClient = adminClient as any
+        regressions.push(
+          await detecterRegressionsDevise(rpcClient, tenant.id, credentials, limit, dryRun),
+        )
+        continue
+      }
       if (mode === 'commandes') {
         // Aucune vue a rafraichir : on ne touche pas aux expeditions, seulement
         // aux taches. Le client typé n'expose que les RPC declarees, d'ou la
@@ -129,6 +143,7 @@ export async function GET(request: NextRequest) {
     success: true,
     mode,
     fermetures: mode === 'commandes' ? fermetures : undefined,
+    regressions: mode === 'devises' ? regressions : undefined,
     correlationId,
     dryRun,
     limit,
