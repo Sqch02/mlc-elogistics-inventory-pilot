@@ -143,6 +143,27 @@ export function buildEmailBody(message: OutboxMessage): string {
     ].join('\n')
   }
 
+  if (message.event_type === 'blocked_announcements') {
+    // Alerte interne. Un colis en echec d'annonce est cree mais n'est jamais
+    // parti : personne ne le voit tant qu'on ne le cherche pas. Le 07 et le
+    // 08/09, 23 colis sont restes ainsi, dont 11 a cause d'une devise revenue
+    // en francs apres une correction que le moteur croyait reussie.
+    return [
+      'Bonjour,',
+      '',
+      `${String(p.parcels ?? '?')} colis sont bloques en echec d'annonce chez le transporteur `
+        + `sur les ${String(p.window_hours ?? 48)} dernieres heures (seuil : ${String(p.threshold ?? 3)}).`,
+      '',
+      `Transporteurs concernes : ${String(p.carriers ?? 'non precises')}`,
+      '',
+      "Le colis est cree mais l'annonce a ete refusee : rien ne part tant que",
+      "personne ne la relance dans Sendcloud. Le detail est dans Expeditions,",
+      "en filtrant sur le statut Announcement failed.",
+      '',
+      "L'equipe HOMEMADE eLogistics",
+    ].join('\n')
+  }
+
   if (message.event_type === 'inbound_received') {
     return [
       'Bonjour,',
