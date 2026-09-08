@@ -54,6 +54,25 @@ describe('alerte des colis bloques en echec d annonce', () => {
     expect(migration).toContain('ON CONFLICT (idempotency_key) DO NOTHING')
   })
 
+  it('un echec suivi d un succes n est pas un blocage', () => {
+    // L'alerte a sonne le 08/09 pour 23 colis. L'exploitant a verifie : les
+    // 23 commandes etaient parties. Chez Sendcloud, les 20 commandes
+    // concernees avaient TOUTES un colis expedie avec son numero de suivi.
+    // La plateforme cree un colis, l'annonce echoue, elle en recree un
+    // aussitot et celui-la part. Le premier reste affiche en echec : c'est un
+    // residu, pas un probleme. Une alerte qui se trompe apprend a etre
+    // ignoree.
+    const correctif = readFileSync(
+      join(process.cwd(), 'supabase/migrations/00138_un_echec_suivi_d_un_succes_n_est_pas_un_blocage.sql'),
+      'utf8',
+    )
+    expect(correctif).toContain('NOT EXISTS')
+    expect(correctif).toContain('jumeau.order_ref = s.order_ref')
+    expect(correctif).toContain('jumeau.status_id <> 1002')
+    // Le jumeau doit etre un AUTRE colis, sinon la condition s'annule elle-meme.
+    expect(correctif).toContain('jumeau.id <> s.id')
+  })
+
   it('la fonction est reservee au service technique', () => {
     expect(migration).toContain('REVOKE ALL ON FUNCTION public.alert_blocked_announcements(integer, interval) FROM PUBLIC')
     expect(migration).toContain('GRANT EXECUTE ON FUNCTION public.alert_blocked_announcements(integer, interval) TO service_role')
