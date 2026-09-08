@@ -100,4 +100,15 @@ describe('detection des conversions de devise defaites', () => {
     expect(sql).toMatch(/WHERE id = p_job_id\s+AND state = 'verified'/)
     expect(sql).toContain('REVOKE ALL ON FUNCTION public.flag_auto_fix_currency_regression(uuid, text) FROM PUBLIC')
   })
+
+  it('les conversions les plus recentes sont relues en premier', () => {
+    // Trier par la plus ancienne faisait travailler le balayage sur des
+    // commandes parties depuis longtemps : 100 candidates, 100 sans interet.
+    // Ce sont les recentes, encore ouvertes, qu'il faut rattraper.
+    const sql = readFileSync(
+      join(process.cwd(), 'supabase/migrations/00134_relire_les_conversions_les_plus_recentes_d_abord.sql'),
+      'utf8',
+    )
+    expect(sql).toContain('ORDER BY j.verified_at DESC')
+  })
 })
