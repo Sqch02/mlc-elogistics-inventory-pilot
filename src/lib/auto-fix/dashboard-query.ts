@@ -191,6 +191,7 @@ function refusLisible(erreur: Json | null): string | null {
   // qui laisse croire a une coupe a faire la ou le moteur a RENONCE. Un test
   // verrouille la correspondance entiere avec les raisons du moteur.
   const messages: Record<string, string> = {
+    currency_partial_conversion: "Une partie seulement des montants est convertible : le total et le sous-total ne s'accorderaient plus. À reprendre à la main.",
     no_repair_available: "Le moteur ne sait pas réparer cette adresse : le champ refusé dépasse encore sa limite. À corriger à la main.",
     lossy_shortening_requires_review: "Raccourcir ferait perdre une information utile à la livraison : la proposition est à valider ou à corriger.",
     already_resolved: "La cause a disparu : la commande a été corrigée par ailleurs.",

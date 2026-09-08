@@ -90,22 +90,31 @@ function isMoney(value: unknown): value is MoneyV3 {
 export function convertPaymentDetails(
   paymentDetails: Record<string, unknown> | null | undefined,
   chfPerEur: number,
-): { patch: Record<string, MoneyV3>; converted: number } {
+): { patch: Record<string, MoneyV3>; converted: number; ignores: string[] } {
   const patch: Record<string, MoneyV3> = {}
+  const ignores: string[] = []
   if (!paymentDetails || !Number.isFinite(chfPerEur) || chfPerEur <= 0) {
-    return { patch, converted: 0 }
+    return { patch, converted: 0, ignores }
   }
 
   for (const champ of MONEY_FIELDS) {
     const montant = paymentDetails[champ]
-    if (!isMoney(montant) || montant.currency.toUpperCase() !== 'CHF') continue
+    if (montant === undefined || montant === null) continue
+    if (!isMoney(montant) || montant.currency.toUpperCase() !== 'CHF') {
+      // Present mais non convertible : soit deja dans une autre devise, soit
+      // d'une forme qu'on ne sait pas lire. On le RETIENT au lieu de
+      // l'ignorer en silence, parce que le laisser tel quel pendant qu'on
+      // convertit ses voisins casse la coherence du document.
+      ignores.push(champ)
+      continue
+    }
     patch[champ] = {
       value: Math.round((montant.value / chfPerEur) * 100) / 100,
       currency: 'EUR',
     }
   }
 
-  return { patch, converted: Object.keys(patch).length }
+  return { patch, converted: Object.keys(patch).length, ignores }
 }
 
 export type OrderLookup =
@@ -114,7 +123,7 @@ export type OrderLookup =
 
 export type OrderPatchResult =
   | { ok: true; order: OrderV3 }
-  | { ok: false; reason: 'not_corrigible' | 'http_error' | 'unchanged'; detail?: string }
+  | { ok: false; reason: 'not_corrigible' | 'http_error' | 'unchanged' | 'partial_conversion'; detail?: string }
 
 function authHeader(credentials: SendcloudCredentials): string {
   return 'Basic ' + Buffer.from(`${credentials.apiKey}:${credentials.secret}`).toString('base64')
@@ -303,9 +312,22 @@ export async function patchOrderCurrency(
     return { ok: false, reason: 'not_corrigible', detail: statusCode(order) || 'statut inconnu' }
   }
 
-  const { patch, converted } = convertPaymentDetails(order.payment_details, chfPerEur)
+  const { patch, converted, ignores } = convertPaymentDetails(order.payment_details, chfPerEur)
   if (converted === 0) {
     return { ok: false, reason: 'unchanged', detail: 'aucun montant en CHF a convertir' }
+  }
+  // Convertir une PARTIE des montants produit un document qui se contredit.
+  // Constate le 08/09 sur la commande #560292 : le sous-total est passe a
+  // 91,44 EUR, le total est reste a 86 — la valeur en francs, reetiquetee en
+  // euros. La relecture n'y voyait rien : elle verifiait que plus rien
+  // n'etait en devise etrangere, pas que les montants s'accordaient. Sur une
+  // declaration douaniere, c'est une valeur sous-estimee de 6 %.
+  if (ignores.length > 0) {
+    return {
+      ok: false,
+      reason: 'partial_conversion',
+      detail: `montants non convertibles : ${ignores.join(', ')}`,
+    }
   }
 
   const response = await fetchImpl(`${ORDERS_V3_URL}/${encodeURIComponent(order.id)}`, {
