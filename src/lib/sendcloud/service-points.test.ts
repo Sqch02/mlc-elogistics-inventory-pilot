@@ -67,11 +67,16 @@ describe('recherche d un remplacant', () => {
   it('ecarte un point d un AUTRE transporteur meme si l API en renvoie un', async () => {
     // Le filtre de l'API est fiable, mais on ne remet pas a un service tiers
     // une decision qui engage une livraison et un contrat.
+    //
+    // Depuis le 10/09 : aucun point DU transporteur demande, c'est un
+    // catalogue vide, pas une commande sans candidat. Le 10/09 au matin
+    // l'API ne renvoyait plus un seul point Mondial Relay en France ; 272
+    // commandes sont parties en file manuelle pour rien.
     const f = vi.fn(async () => reponse([point({ id: 2, carrier: 'colissimo' })]))
     const r = await findReplacementServicePoint(credentials, {
       carrier: 'mondial_relay', country: 'FR', postalCode: '11000', radii: [5000],
     }, f as never)
-    expect(r).toMatchObject({ ok: false, reason: 'no_candidate' })
+    expect(r).toMatchObject({ ok: false, reason: 'carrier_catalogue_empty' })
   })
 
   it('ecarte un point ferme', async () => {
