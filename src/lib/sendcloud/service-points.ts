@@ -43,7 +43,7 @@ export type ServicePointLookup =
 
 export type ReplacementResult =
   | { ok: true; point: ServicePoint; radius: number; distanceKm: number | null; alternatives: number }
-  | { ok: false; reason: 'no_candidate' | 'http_error' | 'unavailable'; detail?: string }
+  | { ok: false; reason: 'no_candidate' | 'carrier_catalogue_empty' | 'http_error' | 'unavailable'; detail?: string }
 
 function authHeader(credentials: SendcloudCredentials): string {
   return 'Basic ' + Buffer.from(`${credentials.apiKey}:${credentials.secret}`).toString('base64')
@@ -126,6 +126,10 @@ export async function findReplacementServicePoint(
   fetchImpl: typeof fetch = fetch,
 ): Promise<ReplacementResult> {
   const radii = input.radii ?? DEFAULT_RADII
+  // Points du transporteur renvoyes par l'API, actifs ou non, tous rayons
+  // confondus. Zero au terme de la recherche ne veut pas dire « aucun point
+  // convenable » mais « le catalogue de ce transporteur est vide ».
+  let pointsDuTransporteur = 0
 
   for (const radius of radii) {
     const url = `${SERVICE_POINTS_URL}/?country=${encodeURIComponent(input.country)}`
@@ -146,6 +150,7 @@ export async function findReplacementServicePoint(
     if (!response.ok) return { ok: false, reason: 'http_error', detail: `HTTP ${response.status}` }
 
     const points = (await response.json()) as ServicePoint[]
+    pointsDuTransporteur += points.filter((p) => p.carrier === input.carrier).length
 
     const candidats = points.filter((p) =>
       p.is_active === true
@@ -177,5 +182,19 @@ export async function findReplacementServicePoint(
     }
   }
 
+  // Le 10/09 au matin, l'API n'a renvoye AUCUN point Mondial Relay, nulle
+  // part en France, alors que Colis Prive et Chronopost repondaient
+  // normalement : 272 commandes detectees d'un coup, et « aucun remplacant »
+  // pour chacune. Ce n'etait pas un probleme de commande, c'etait le
+  // catalogue du transporteur qui avait disparu. Le dire ainsi permet au
+  // moteur d'attendre son retour au lieu de renvoyer 272 taches a
+  // l'exploitant, qui ne peut rien en faire non plus.
+  if (pointsDuTransporteur === 0) {
+    return {
+      ok: false,
+      reason: 'carrier_catalogue_empty',
+      detail: `aucun point ${input.carrier} renvoye par l'API autour de ${input.postalCode}, tous rayons confondus`,
+    }
+  }
   return { ok: false, reason: 'no_candidate' }
 }

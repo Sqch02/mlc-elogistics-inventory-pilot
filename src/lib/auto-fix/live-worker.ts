@@ -331,6 +331,12 @@ async function remplacerPointRelais(
   if (!remplacant.ok) {
     if (remplacant.reason === 'unavailable') return refuse('service_points_not_activated', 'configuration')
     if (remplacant.reason === 'http_error') return refuse('service_point_search_failed', 'retryable')
+    // Catalogue du transporteur vide : une panne cote Sendcloud, pas une
+    // commande a corriger. On reessaie plus tard, on n'encombre pas la file
+    // manuelle avec des taches que personne ne peut traiter.
+    if (remplacant.reason === 'carrier_catalogue_empty') {
+      return refuse('service_point_network_unavailable', 'outage', remplacant.detail)
+    }
     return refuse('no_replacement_service_point')
   }
 

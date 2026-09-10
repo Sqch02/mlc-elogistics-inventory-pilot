@@ -203,6 +203,7 @@ function refusLisible(erreur: Json | null): string | null {
     credentials_missing: "Identifiants Sendcloud absents pour ce client : à configurer.",
     exchange_rate_unavailable: "Taux de change indisponible : la conversion attendra le prochain passage.",
     parcel_not_found: "Colis introuvable côté Sendcloud, probablement supprimé.",
+    service_point_network_unavailable: "Le catalogue de points relais de ce transporteur est vide chez Sendcloud : panne côté transporteur, réexamen automatique plus tard.",
     service_point_absent: "Aucun point relais sur la commande : impossible de le remplacer.",
     service_point_proposal_awaiting_review: "Point relais de remplacement proposé, à valider avant application.",
     service_point_read_failed: "Le point relais n'a pas pu être relu côté Sendcloud ; nouvel essai au prochain passage.",
