@@ -76,3 +76,14 @@ describe('la panne ne consomme pas de tentative', () => {
     expect(moteur).toContain("refuse('service_point_network_unavailable', 'outage'")
   })
 })
+
+describe('un point redevenu actif clot la tache', () => {
+  it('service_point_still_active est un etat terminal, pas une tache manuelle', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const moteur = readFileSync(join(process.cwd(), 'src/lib/auto-fix/live-worker.ts'), 'utf8')
+    // Le 10/09, 48 commandes sont arrivees dans la liste de l'exploitant avec
+    // pour seul message « le point fonctionne a nouveau ».
+    expect(moteur).toMatch(/refuse\(\s*'service_point_still_active',\s*'resolved'/)
+  })
+})
