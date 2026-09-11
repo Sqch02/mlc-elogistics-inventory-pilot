@@ -316,9 +316,13 @@ async function remplacerPointRelais(
     return refuse('service_point_unknown_carrier')
   }
 
-  // Le point fonctionne encore : il n'y a rien a corriger, et l'erreur venait
-  // d'ailleurs. Mieux vaut le dire que de deplacer un colis sans raison.
-  if (actuel.point.is_active) return refuse('service_point_still_active')
+  // Le point fonctionne : la cause a disparu, il n'y a rien a corriger.
+  // C'est un etat terminal, pas une tache pour l'exploitant. Le 10/09, apres
+  // le retour du catalogue Mondial Relay, 48 commandes se sont retrouvees
+  // dans sa liste avec ce seul message : « le point fonctionne a nouveau ».
+  if (actuel.point.is_active) {
+    return refuse('service_point_still_active', 'resolved', 'point actif a la relecture')
+  }
 
   const remplacant = await chercherRemplacant(credentials, {
     carrier: actuel.point.carrier,
