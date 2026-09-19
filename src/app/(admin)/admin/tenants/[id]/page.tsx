@@ -696,13 +696,18 @@ export default function TenantDetailPage() {
                     <div className="text-sm text-muted-foreground space-y-1">
                       <p><strong>Instructions:</strong></p>
                       <ol className="list-decimal list-inside space-y-1 ml-2">
-                        <li>Connectez-vous a votre compte Sendcloud</li>
-                        <li>Allez dans Settings &rarr; Integrations &rarr; Webhooks</li>
-                        <li>Activez &quot;Webhook Feedback&quot;</li>
-                        <li>Collez l&apos;URL ci-dessus</li>
-                        <li>Selectionnez les events: parcel_status_changed, parcel_created</li>
-                        <li>Copiez le webhook secret et collez-le ci-dessous</li>
+                        <li>Dans Sendcloud : Reglages &rarr; Boutiques connectees &rarr; Sendcloud API</li>
+                        <li>Nommez l&apos;integration, cochez &quot;Feedback des Webhooks&quot;</li>
+                        <li>Collez l&apos;URL ci-dessus dans &quot;Webhook url&quot;</li>
+                        <li>Enregistrez : Sendcloud genere alors la cle publique et la cle confidentielle</li>
+                        <li>Copiez ces deux cles dans &quot;Credentials API&quot; ci-dessous, puis enregistrez</li>
+                        <li>Events a cocher s&apos;ils sont proposes : parcel_created, parcel_status_changed et parcel_cancelled</li>
                       </ol>
+                      <p className="mt-2">
+                        A l&apos;enregistrement dans Sendcloud, une erreur 500 sur l&apos;URL est <strong>normale</strong> tant
+                        que les cles ne sont pas saisies ici : l&apos;application refuse un webhook qu&apos;elle ne peut pas
+                        authentifier. Elle disparait des que les credentials sont enregistres.
+                      </p>
                     </div>
                   </>
                 ) : (
