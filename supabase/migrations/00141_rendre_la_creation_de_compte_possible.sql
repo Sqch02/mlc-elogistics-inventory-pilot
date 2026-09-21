@@ -1,0 +1,26 @@
+-- Rendre la creation de compte possible a nouveau.
+--
+-- Depuis la migration 00079 (13/07), plus AUCUN utilisateur ne pouvait etre
+-- cree. L'administration affichait « Database error creating new user », un
+-- message generique qui ne designait rien.
+--
+-- 00079 a retire l'execution de `handle_new_user` a PUBLIC, pour fermer les
+-- RPC ouvertes a anon. Mais ce declencheur n'est pas une RPC : il est
+-- declenche par l'INSERT dans auth.users, et l'insertion est faite par le
+-- role du service d'authentification, `supabase_auth_admin`. Celui-ci
+-- executait la fonction par le droit PUBLIC. En le retirant, on a coupe
+-- l'unique chemin de creation de compte.
+--
+--   avant : proacl = {postgres=X/postgres, service_role=X/postgres}
+--   il manquait supabase_auth_admin, seul role qui en a reellement besoin
+--
+-- On ne rouvre PAS a PUBLIC : on nomme le role qui en a besoin. La fonction
+-- reste SECURITY DEFINER, donc l'acces aux tables se fait au nom de son
+-- proprietaire et ne dependra jamais des droits de l'appelant.
+--
+-- Lecon : une revocation en masse sur une liste de noms de fonctions ne
+-- distingue pas une RPC d'un declencheur. Un declencheur a besoin du droit
+-- d'execution pour le role qui declenche l'ecriture, pas pour celui qui
+-- appelle une API.
+
+GRANT EXECUTE ON FUNCTION public.handle_new_user() TO supabase_auth_admin;
