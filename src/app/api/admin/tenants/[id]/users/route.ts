@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { requireRole } from '@/lib/supabase/auth'
+import { requireRole, getCurrentUser } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 
 /**
@@ -14,7 +14,17 @@ import { handleAuthError } from '@/lib/api/errors'
  * Le chemin avec mot de passe explicite reste accepte pour ne pas casser le
  * process en place, mais il donne a l'administrateur un acces au compte qu'il
  * cree. A eviter pour un compte client.
+ *
+ * L'INVITATION EST CREEE AVANT LE COMPTE, et ce n'est pas un detail. Un
+ * declencheur sur auth.users refuse tout compte dont l'email n'a pas
+ * d'invitation ouverte : c'est ce qui empeche quelqu'un de s'inscrire seul et
+ * d'obtenir un profil. Sans elle, la creation echouait sur un « Database error
+ * creating new user » que rien n'expliquait, et aucun utilisateur ne pouvait
+ * etre ajoute depuis l'administration. Constate le 21/09 sur VITALIENCE.
  */
+
+/** Roles qu'une invitation accepte. `super_admin` ne s'attribue jamais ainsi. */
+const ROLES_INVITABLES = ['admin', 'ops', 'sav', 'client'] as const
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -41,6 +51,33 @@ export async function POST(
       )
     }
 
+    const roleDemande = role || 'ops'
+    if (!(ROLES_INVITABLES as readonly string[]).includes(roleDemande)) {
+      return NextResponse.json(
+        { error: `Role invalide : ${roleDemande}. Valeurs acceptees : ${ROLES_INVITABLES.join(', ')}` },
+        { status: 400 }
+      )
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const dbInvit = supabase as any
+    const utilisateurCourant = await getCurrentUser().catch(() => null)
+
+    const { data: invitation, error: invitationError } = await dbInvit
+      .from('tenant_invitations')
+      .insert({
+        email,
+        tenant_id: tenantId,
+        role: roleDemande,
+        invited_by: utilisateurCourant?.id ?? null,
+      })
+      .select('id')
+      .single()
+
+    if (invitationError || !invitation) {
+      throw invitationError || new Error("Creation de l'invitation impossible")
+    }
+
     // Sans mot de passe : compte cree, puis lien d'invitation.
     const { data: authData, error: authError } = await supabase.auth.admin.createUser(
       password
@@ -49,7 +86,14 @@ export async function POST(
     )
 
     if (authError) {
-      throw authError
+      // L'invitation ne doit pas rester ouverte derriere un compte qui n'existe
+      // pas : elle autoriserait une inscription que personne n'a demandee.
+      await dbInvit.from('tenant_invitations').delete().eq('id', invitation.id)
+
+      const message = /already|exist|registered/i.test(authError.message)
+        ? `Un compte existe deja pour ${email}`
+        : authError.message
+      return NextResponse.json({ error: message }, { status: 409 })
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -66,6 +110,7 @@ export async function POST(
     if (profileError) {
       // Rollback: delete auth user
       await supabase.auth.admin.deleteUser(authData.user.id)
+      await dbInvit.from('tenant_invitations').delete().eq('id', invitation.id)
       throw profileError
     }
 
