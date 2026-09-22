@@ -308,6 +308,41 @@ export default function TenantDetailPage() {
     }
   }
 
+  // Lien de reinitialisation, par utilisateur. La route existait depuis
+  // longtemps mais n'etait branchee nulle part : il n'y avait aucun moyen de
+  // faire choisir son mot de passe a un compte deja cree.
+  const [resetLink, setResetLink] = useState<{ email: string; link: string } | null>(null)
+  const [resettingId, setResettingId] = useState<string | null>(null)
+
+  async function handleResetLink(userId: string) {
+    setResettingId(userId)
+    setResetLink(null)
+    try {
+      const response = await fetch(`/api/admin/users/${userId}/reset-link`, { method: 'POST' })
+      const data = await response.json()
+      if (data.success && data.reset_link) {
+        setResetLink({ email: data.email, link: data.reset_link })
+        toast.success('Lien genere, transmettez-le au client')
+      } else {
+        toast.error(data.error || 'Impossible de generer le lien')
+      }
+    } catch {
+      toast.error('Le serveur n a pas repondu')
+    } finally {
+      setResettingId(null)
+    }
+  }
+
+  const copyResetLink = async () => {
+    if (!resetLink) return
+    try {
+      await navigator.clipboard.writeText(resetLink.link)
+      toast.success('Lien copie dans le presse-papier')
+    } catch {
+      toast.error('Erreur lors de la copie')
+    }
+  }
+
   const copyInviteLink = async () => {
     if (!inviteLink) return
     try {
@@ -984,6 +1019,7 @@ export default function TenantDetailPage() {
                     <TableRow>
                       <TableHead>Email</TableHead>
                       <TableHead>Role</TableHead>
+                      <TableHead className="text-right">Mot de passe</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -995,10 +1031,37 @@ export default function TenantDetailPage() {
                             {roleLabels[user.role] || user.role}
                           </Badge>
                         </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={resettingId === user.id}
+                            onClick={() => handleResetLink(user.id)}
+                          >
+                            {resettingId === user.id ? 'Generation...' : 'Lien de reinitialisation'}
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
+              )}
+              {resetLink && (
+                <div className="mt-4 space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                  <p className="text-sm font-medium text-emerald-900">
+                    Lien de reinitialisation pour {resetLink.email}
+                  </p>
+                  <div className="flex gap-2">
+                    <Input readOnly value={resetLink.link} className="font-mono text-xs" />
+                    <Button type="button" variant="outline" size="icon" onClick={copyResetLink}>
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <p className="text-xs text-emerald-800">
+                    Transmettez-le au client : il choisira lui-meme son mot de passe, et vous
+                    ne le connaitrez pas. Copiez-le maintenant, il ne sera plus affiche.
+                  </p>
+                </div>
               )}
             </CardContent>
           </Card>
