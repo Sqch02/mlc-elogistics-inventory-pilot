@@ -142,6 +142,9 @@ export default function TenantDetailPage() {
 
   // Create user dialog
   const [createUserOpen, setCreateUserOpen] = useState(false)
+  // Lien d'invitation renvoye par la creation sans mot de passe. Il n'est
+  // affiche qu'une fois : on garde donc la boite ouverte tant qu'il est la.
+  const [inviteLink, setInviteLink] = useState<string | null>(null)
   const [newUserEmail, setNewUserEmail] = useState('')
   const [newUserPassword, setNewUserPassword] = useState('')
   const [newUserRole, setNewUserRole] = useState('ops')
@@ -252,33 +255,66 @@ export default function TenantDetailPage() {
   }
 
   async function handleCreateUser() {
-    if (!newUserEmail || !newUserPassword) return
+    // Le mot de passe est FACULTATIF, et l'omettre est le bon chemin : le
+    // client choisit le sien via le lien d'invitation, et l'exploitant n'y a
+    // jamais acces.
+    //
+    // La condition d'avant exigeait les deux et sortait EN SILENCE : le
+    // bouton ne faisait rien, sans message. Constate le 22/09, l'exploitant a
+    // fini par saisir lui-meme les mots de passe de trois comptes client.
+    if (!newUserEmail.trim()) {
+      toast.error("L'email est obligatoire")
+      return
+    }
+    if (newUserPassword && newUserPassword.length < 8) {
+      toast.error('Le mot de passe doit contenir au moins 8 caracteres')
+      return
+    }
     setCreatingUser(true)
     try {
       const response = await fetch(`/api/admin/tenants/${tenantId}/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: newUserEmail,
-          password: newUserPassword,
+          email: newUserEmail.trim(),
+          // N'envoyer la cle que si elle est remplie : une chaine vide
+          // declencherait la validation de longueur cote serveur.
+          ...(newUserPassword ? { password: newUserPassword } : {}),
           role: newUserRole,
         }),
       })
       const data = await response.json()
       if (data.success) {
-        setCreateUserOpen(false)
         setNewUserEmail('')
         setNewUserPassword('')
         setNewUserRole('ops')
         fetchTenant()
-        toast.success('Utilisateur cree')
+        if (data.invite_link) {
+          // Le lien ne se reaffiche pas : on garde la boite ouverte le temps
+          // de le copier.
+          setInviteLink(data.invite_link)
+          toast.success('Utilisateur cree, transmettez le lien ci-dessous')
+        } else {
+          setCreateUserOpen(false)
+          toast.success('Utilisateur cree')
+        }
       } else {
         toast.error(data.error || 'Erreur lors de la creation')
       }
     } catch {
-      // handled silently
+      toast.error('Le serveur n a pas repondu')
     } finally {
       setCreatingUser(false)
+    }
+  }
+
+  const copyInviteLink = async () => {
+    if (!inviteLink) return
+    try {
+      await navigator.clipboard.writeText(inviteLink)
+      toast.success('Lien copie dans le presse-papier')
+    } catch {
+      toast.error('Erreur lors de la copie')
     }
   }
 
@@ -874,14 +910,20 @@ export default function TenantDetailPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="user_password">Mot de passe</Label>
+                      <Label htmlFor="user_password">
+                        Mot de passe <span className="text-muted-foreground font-normal">(facultatif)</span>
+                      </Label>
                       <Input
                         id="user_password"
                         type="password"
                         value={newUserPassword}
                         onChange={(e) => setNewUserPassword(e.target.value)}
-                        placeholder="Minimum 8 caracteres"
+                        placeholder="Laissez vide : le client choisira le sien"
                       />
+                      <p className="text-xs text-muted-foreground">
+                        Laissez vide et vous recevrez un lien d&apos;invitation a transmettre :
+                        le client choisit son mot de passe, vous ne le connaissez jamais.
+                      </p>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="user_role">Role</Label>
@@ -897,13 +939,35 @@ export default function TenantDetailPage() {
                         </SelectContent>
                       </Select>
                     </div>
+                    {inviteLink && (
+                      <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                        <p className="text-sm font-medium text-emerald-900">
+                          Lien d&apos;invitation a transmettre au client
+                        </p>
+                        <div className="flex gap-2">
+                          <Input readOnly value={inviteLink} className="font-mono text-xs" />
+                          <Button type="button" variant="outline" size="icon" onClick={copyInviteLink}>
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <p className="text-xs text-emerald-800">
+                          Copiez-le maintenant : il ne sera plus affiche.
+                        </p>
+                      </div>
+                    )}
                   </div>
                   <DialogFooter>
-                    <Button variant="outline" onClick={() => setCreateUserOpen(false)}>
-                      Annuler
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setInviteLink(null)
+                        setCreateUserOpen(false)
+                      }}
+                    >
+                      {inviteLink ? 'Fermer' : 'Annuler'}
                     </Button>
                     <Button onClick={handleCreateUser} disabled={creatingUser}>
-                      {creatingUser ? 'Creation...' : 'Creer'}
+                      {creatingUser ? 'Creation...' : inviteLink ? 'Creer un autre' : 'Creer'}
                     </Button>
                   </DialogFooter>
                 </DialogContent>
