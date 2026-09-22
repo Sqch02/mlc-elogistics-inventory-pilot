@@ -62,3 +62,32 @@ describe('creation d utilisateur depuis la fiche client', () => {
     expect(page).toContain('navigator.clipboard.writeText(inviteLink)')
   })
 })
+
+/**
+ * La route qui genere un lien de reinitialisation existait depuis longtemps,
+ * mais n'etait branchee nulle part. Il n'y avait donc aucun moyen de faire
+ * choisir son mot de passe a un compte deja cree — ce qui etait precisement
+ * la situation des trois comptes VITALIENCE du 22/09.
+ */
+describe('lien de reinitialisation depuis la fiche client', () => {
+  it('chaque utilisateur a son bouton', () => {
+    expect(page).toContain('handleResetLink(user.id)')
+    expect(page).toContain('Lien de reinitialisation')
+  })
+
+  it('appelle la route existante, sans la reecrire', () => {
+    expect(page).toContain('/api/admin/users/${userId}/reset-link')
+    expect(page).toContain("method: 'POST'")
+  })
+
+  it('affiche le lien avec le compte concerne, et permet de le copier', () => {
+    // Afficher un lien sans dire a qui il appartient invite a le transmettre
+    // a la mauvaise personne.
+    expect(page).toContain('Lien de reinitialisation pour {resetLink.email}')
+    expect(page).toContain('navigator.clipboard.writeText(resetLink.link)')
+  })
+
+  it('dit pourquoi ce chemin est preferable', () => {
+    expect(page).toContain('il choisira lui-meme son mot de passe')
+  })
+})
