@@ -37,7 +37,9 @@ export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname
 
   // Public routes that don't require authentication
-  const publicRoutes = ['/login', '/auth/callback']
+  // Les deux pages de mot de passe s'ouvrent SANS session : on y arrive
+  // justement parce qu'on ne peut plus se connecter.
+  const publicRoutes = ['/login', '/auth/callback', '/mot-de-passe-oublie', '/nouveau-mot-de-passe']
   const isPublicRoute = publicRoutes.some((route) => path.startsWith(route))
 
   // If user is not authenticated and trying to access protected route

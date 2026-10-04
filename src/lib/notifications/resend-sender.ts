@@ -164,6 +164,25 @@ export function buildEmailBody(message: OutboxMessage): string {
     ].join('\n')
   }
 
+  if (message.event_type === 'password_reset') {
+    // Jamais stocke en file : le lien vaut un mot de passe le temps de sa
+    // validite. Le message est construit et envoye dans la meme requete.
+    return [
+      'Bonjour,',
+      '',
+      'Vous avez demandé à choisir un nouveau mot de passe pour votre espace HME Logistics.',
+      '',
+      'Pour le définir, ouvrez ce lien :',
+      String(p.link ?? ''),
+      '',
+      "Ce lien ne fonctionne qu'une seule fois et pour une durée limitée.",
+      "Si vous n'êtes pas à l'origine de cette demande, ignorez simplement ce message :",
+      'votre mot de passe actuel reste inchangé.',
+      '',
+      "L'équipe HOMEMADE eLogistics",
+    ].join('\n')
+  }
+
   if (message.event_type === 'inbound_received') {
     return [
       'Bonjour,',

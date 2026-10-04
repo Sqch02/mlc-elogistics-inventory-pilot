@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireRole, getCurrentUser } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
+import { genererLienMotDePasse } from '@/lib/auth/lien-mot-de-passe'
 
 /**
  * Cree un utilisateur pour un tenant.
@@ -114,18 +115,17 @@ export async function POST(
       throw profileError
     }
 
+    // Le lien d'invitation n'a JAMAIS pu etre genere avec le type « invite » :
+    // Supabase le refuse pour un compte qui existe deja, et le compte vient
+    // d'etre cree. Constate le 04/10. Le lien mene desormais a la page ou le
+    // client choisit son mot de passe.
     let inviteLink: string | null = null
     if (!password) {
-      const { data: link, error: linkError } = await supabase.auth.admin.generateLink({
-        type: 'invite',
-        email,
-      })
-      if (linkError || !link?.properties?.action_link) {
+      inviteLink = await genererLienMotDePasse(supabase, email, request.headers.get('origin') ?? request.nextUrl.origin)
+      if (!inviteLink) {
         // Le compte existe : on ne le supprime pas pour autant, le lien peut
-        // etre regenere via la route de reinitialisation.
-        console.error('[AdminCreateUser] generateLink failed:', linkError)
-      } else {
-        inviteLink = link.properties.action_link
+        // etre regenere depuis la liste des utilisateurs.
+        console.error('[AdminCreateUser] generation du lien impossible pour un compte cree')
       }
     }
 

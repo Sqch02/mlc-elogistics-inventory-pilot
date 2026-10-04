@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireRole, getCurrentUser } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 import { logAudit } from '@/lib/audit'
+import { genererLienMotDePasse } from '@/lib/auth/lien-mot-de-passe'
 
 /**
  * Genere un lien de reinitialisation de mot de passe pour un utilisateur.
@@ -49,13 +50,17 @@ export async function POST(
       )
     }
 
-    const { data, error } = await supabase.auth.admin.generateLink({
-      type: 'recovery',
-      email: profile.email,
-    })
+    // Le lien brut de Supabase ramenait le client connecte sans jamais lui
+    // faire choisir de mot de passe : aucune page ne le lui demandait. Il mene
+    // desormais a `/nouveau-mot-de-passe`. Constate le 04/10.
+    const lien = await genererLienMotDePasse(
+      supabase,
+      profile.email,
+      request.headers.get('origin') ?? request.nextUrl.origin,
+    )
 
-    if (error || !data?.properties?.action_link) {
-      console.error('[AdminResetLink] generateLink failed:', error)
+    if (!lien) {
+      console.error('[AdminResetLink] generation du lien impossible')
       return NextResponse.json(
         { error: 'Impossible de generer le lien de reinitialisation' },
         { status: 500 }
@@ -77,7 +82,7 @@ export async function POST(
     return NextResponse.json({
       success: true,
       email: profile.email,
-      reset_link: data.properties.action_link,
+      reset_link: lien,
     })
   } catch (error) {
     const authResponse = handleAuthError(error)

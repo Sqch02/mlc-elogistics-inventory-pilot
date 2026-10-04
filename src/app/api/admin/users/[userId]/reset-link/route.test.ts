@@ -14,7 +14,12 @@ function adminClient(profile: Record<string, unknown> | null = {
   id: 'user-1', email: 'client@example.test', tenant_id: 'tenant-1', role: 'client',
 }) {
   const generateLink = vi.fn().mockResolvedValue({
-    data: { properties: { action_link: 'https://project.supabase.co/auth/v1/verify?token=abc' } },
+    data: {
+      properties: {
+        action_link: 'https://project.supabase.co/auth/v1/verify?token=abc',
+        hashed_token: 'jeton-hache-abc',
+      },
+    },
     error: null,
   })
   return {
@@ -53,6 +58,10 @@ describe('POST /api/admin/users/[userId]/reset-link', () => {
 
     const body = await response.json()
     expect(body.reset_link).toContain('https://')
+    // Le lien mene a la page ou le client CHOISIT son mot de passe, et non au
+    // lien brut de Supabase, qui le connectait sans jamais le lui demander.
+    expect(body.reset_link).toBe('https://app.homemade-elogistics.com/nouveau-mot-de-passe?token_hash=jeton-hache-abc')
+    expect(body.reset_link).not.toContain('supabase.co')
     expect(body.email).toBe('client@example.test')
     // Le mot de passe ne doit apparaitre nulle part : c'est tout l'interet du lien.
     expect(JSON.stringify(body).toLowerCase()).not.toContain('password')
