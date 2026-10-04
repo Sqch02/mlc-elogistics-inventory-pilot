@@ -13,6 +13,10 @@ import { traiterDemande } from '@/lib/auth/mot-de-passe-oublie'
  * - Reponse identique que l'adresse existe ou non, et renvoyee AVANT tout
  *   traitement : ni le contenu ni le delai ne revelent si un compte existe.
  * - Limite : 3 demandes par adresse et 10 par adresse IP, par heure.
+ *   Quelqu'un qui epuise les 3 demandes d'un client ne le prive pas de
+ *   connexion : ces demandes lui ont envoye le lien, et le dernier recu reste
+ *   valable (une demande refusee n'en genere pas de nouveau). L'admin peut en
+ *   outre emettre un lien depuis la fiche client, hors limite.
  * - Le lien n'est ni journalise ni stocke : il vaut un mot de passe.
  */
 
