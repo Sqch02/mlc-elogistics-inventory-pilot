@@ -22,6 +22,16 @@ const REPONSE = {
     "Si un compte existe pour cette adresse, vous allez recevoir un email avec un lien pour choisir un nouveau mot de passe. Pensez à vérifier vos courriers indésirables.",
 }
 
+/**
+ * Limite par IP : un garde-fou d'appoint, pas une garantie. Render ne nettoie
+ * pas `x-forwarded-for` (il ajoute a la suite), donc le premier element est
+ * celui qu'envoie l'appelant et peut etre invente. On le garde quand meme :
+ * prendre le dernier risquerait de mettre tous les clients derriere la meme
+ * adresse de proxy, et 10 demandes suffiraient a bloquer tout le monde.
+ * La garantie, c'est la limite PAR ADRESSE EMAIL : elle ne depend d'aucun
+ * en-tete, l'adresse est mise en minuscules avant l'empreinte, et un envoi ne
+ * part que vers le titulaire du compte.
+ */
 function adresseIp(request: NextRequest): string {
   return (request.headers.get('x-forwarded-for') ?? '').split(',')[0]?.trim() || 'inconnue'
 }

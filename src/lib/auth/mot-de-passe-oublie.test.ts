@@ -38,6 +38,16 @@ describe('origine du lien', () => {
     expect(origineDuLien(null)).toBe(ORIGINE_PAR_DEFAUT)
   })
 
+  it('refuse localhost en production : le lien partirait vers le poste du client', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    try {
+      expect(origineDuLien('http://localhost:3000')).toBe(ORIGINE_PAR_DEFAUT)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+    expect(origineDuLien('http://localhost:3000')).toBe('http://localhost:3000')
+  })
+
   it('mene a la page de choix du mot de passe, avec le jeton hache', () => {
     expect(construireLien('https://app.homemade-elogistics.com', 'a+b/c'))
       .toBe('https://app.homemade-elogistics.com/nouveau-mot-de-passe?token_hash=a%2Bb%2Fc')
@@ -140,6 +150,19 @@ describe('protections du parcours', () => {
     const sql = lire('supabase/migrations/00144_demandes_de_reinitialisation.sql')
     expect(sql).toContain('ENABLE ROW LEVEL SECURITY')
     expect(sql).toContain('REVOKE ALL ON TABLE public.password_reset_requests FROM PUBLIC, anon, authenticated')
+    expect(sql).toMatch(/v_par_adresse < 3 AND v_par_ip < 10/)
+  })
+
+  it('la limite compte sous verrou : des demandes simultanees ne passent pas ensemble', () => {
+    // Mesure le 04/10 sans verrou : 20 appels en parallele, 6 acceptes au lieu de 3.
+    const sql = lire('supabase/migrations/00145_limite_reinitialisation_sous_verrou.sql')
+    const verrouAdresse = sql.indexOf("pg_advisory_xact_lock(hashtext('password_reset:email:'")
+    const verrouIp = sql.indexOf("pg_advisory_xact_lock(hashtext('password_reset:ip:'")
+    const comptage = sql.indexOf('SELECT count(*) INTO v_par_adresse')
+    expect(verrouAdresse).toBeGreaterThan(-1)
+    // Toujours adresse puis IP : un ordre fixe exclut l'interblocage.
+    expect(verrouIp).toBeGreaterThan(verrouAdresse)
+    expect(comptage).toBeGreaterThan(verrouIp)
     expect(sql).toMatch(/v_par_adresse < 3 AND v_par_ip < 10/)
   })
 })

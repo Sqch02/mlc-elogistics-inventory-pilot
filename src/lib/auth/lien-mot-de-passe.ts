@@ -26,8 +26,15 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 export const ORIGINES_AUTORISEES = [
   'https://app.homemade-elogistics.com',
   'https://mlc-elogistics-inventory-pilot.onrender.com',
-  'http://localhost:3000',
 ] as const
+
+/**
+ * Accepte seulement hors production. En production, une requete forgee avec
+ * `Origin: http://localhost:3000` enverrait au client un lien vers son propre
+ * poste : le jeton finirait dans le journal de n'importe quel outil qui y
+ * tourne.
+ */
+const ORIGINE_LOCALE = 'http://localhost:3000'
 
 export const ORIGINE_PAR_DEFAUT = 'https://app.homemade-elogistics.com'
 
@@ -38,7 +45,9 @@ export const ORIGINE_PAR_DEFAUT = 'https://app.homemade-elogistics.com'
  */
 export function origineDuLien(origineDemandee: string | null | undefined): string {
   const candidate = (origineDemandee ?? '').replace(/\/+$/, '')
-  return (ORIGINES_AUTORISEES as readonly string[]).includes(candidate) ? candidate : ORIGINE_PAR_DEFAUT
+  if ((ORIGINES_AUTORISEES as readonly string[]).includes(candidate)) return candidate
+  if (candidate === ORIGINE_LOCALE && process.env.NODE_ENV !== 'production') return candidate
+  return ORIGINE_PAR_DEFAUT
 }
 
 export function construireLien(origine: string, jetonHache: string): string {
