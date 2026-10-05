@@ -455,12 +455,19 @@ async function convertirDevise(
   // vaut un euro. C'est celui-la qu'il faut, et non `rate` qui exprime
   // l'inverse — les confondre donnerait un montant errone d'environ 15 %.
   const resolution = await deps.chfRate().catch(() => null) as
-    { ok?: boolean; rate?: { rateDate?: string; providerQuote?: { rate?: string } } } | null
+    { ok?: boolean; reason?: string; rate?: { rateDate?: string; providerQuote?: { rate?: string } } } | null
   const brut = resolution?.ok ? Number(resolution.rate?.providerQuote?.rate) : NaN
   if (!Number.isFinite(brut) || brut <= 0) {
     // Sans taux fiable on ne convertit RIEN : un montant errone sur une
     // declaration douaniere est pire qu'un colis en attente.
-    return refuse('exchange_rate_unavailable', 'retryable')
+    //
+    // `outage` et non `retryable` : l'absence de taux vient de la BCE ou du
+    // cache, pas de la commande. En `retryable`, trois essais en quarante
+    // minutes suffisaient a jeter la tache en echec definitif, un etat que
+    // personne ne regarde (#570030 et #570038, 05/10). En `outage`, elle
+    // attend le retour du taux sans user ses essais. La cause reelle est
+    // gardee : elle etait perdue.
+    return refuse('exchange_rate_unavailable', 'outage', resolution?.reason ?? 'taux introuvable')
   }
 
   const { patch, converted, ignores } = convertPaymentDetails(order.payment_details, brut)

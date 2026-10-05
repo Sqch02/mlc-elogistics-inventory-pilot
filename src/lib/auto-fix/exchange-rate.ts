@@ -28,7 +28,8 @@ export interface ChfToEurRate {
   }
   fetchedAt: string
   expiresAt: string
-  cacheStatus: 'hit' | 'refreshed'
+  /** `stale` : cache expire, repris faute de pouvoir le rafraichir. */
+  cacheStatus: 'hit' | 'refreshed' | 'stale'
 }
 
 export type ChfRateUnavailableReason =
@@ -127,13 +128,22 @@ function rateDateIsAcceptable(rateDate: string, now: Date): boolean {
   return age >= 0 && age <= MAX_RATE_AGE_MS
 }
 
-function fromCache(row: CachedRateRow | null, now: Date): ChfToEurRate | null {
+/**
+ * `accepterExpire` : reprendre un taux dont le cache a expire, tant que sa
+ * DATE BCE reste dans la limite d'age. L'expiration a 24 h dit quand
+ * rafraichir, pas quand un taux cesse d'etre valable : la BCE ne publie ni le
+ * week-end ni les jours feries, un taux du vendredi sert donc normalement le
+ * lundi matin.
+ */
+function fromCache(row: CachedRateRow | null, now: Date, accepterExpire = false): ChfToEurRate | null {
   if (
     !row || row.base_currency !== 'CHF' || row.target_currency !== 'EUR' || row.provider !== 'ECB' ||
     row.rate === null || row.provider_quote === null || !row.rate_date || !row.fetched_at || !row.expires_at
   ) return null
   const expiresAt = Date.parse(row.expires_at)
-  if (!Number.isFinite(expiresAt) || expiresAt <= now.getTime() || !rateDateIsAcceptable(row.rate_date, now)) return null
+  if (!Number.isFinite(expiresAt) || !rateDateIsAcceptable(row.rate_date, now)) return null
+  const expire = expiresAt <= now.getTime()
+  if (expire && !accepterExpire) return null
   const rate = normalizedDecimal(row.rate)
   const providerQuote = normalizedDecimal(row.provider_quote)
   const derivedFromProviderQuote = providerQuote ? inverseDecimal(providerQuote) : null
@@ -152,7 +162,7 @@ function fromCache(row: CachedRateRow | null, now: Date): ChfToEurRate | null {
     providerQuote: { baseCurrency: 'EUR', targetCurrency: 'CHF', rate: providerQuote },
     fetchedAt: row.fetched_at,
     expiresAt: row.expires_at,
-    cacheStatus: 'hit',
+    cacheStatus: expire ? 'stale' : 'hit',
   }
 }
 
@@ -195,21 +205,34 @@ export async function resolveChfToEurRate(
   const fresh = fromCache(cached, now)
   if (fresh) return { ok: true, rate: fresh }
 
+  // Le rafraichissement a echoue : on reprend le dernier taux connu s'il
+  // reste dans la limite d'age, plutot que de refuser la commande.
+  //
+  // Le 05/10, le cache a expire vers 13 h (heure de Paris) et le
+  // rafraichissement a echoue pendant les trois essais de #570030 et
+  // #570038, passees en echec definitif. Le taux expire etait celui du 02/10,
+  // parfaitement valable : rien ne justifiait de bloquer deux colis.
+  const repli = (reason: ChfRateUnavailableReason, ligne: CachedRateRow | null = cached): ChfRateResolution => {
+    const ancien = fromCache(ligne, now, true)
+    return ancien ? { ok: true, rate: ancien } : { ok: false, reason }
+  }
+
   let claimed: boolean
   try {
     claimed = await repository.claimRefresh('CHF', 'EUR')
   } catch {
-    return { ok: false, reason: 'cache_unavailable' }
+    return repli('cache_unavailable')
   }
   if (!claimed) {
     // A concurrent worker may have completed between the first read and claim.
     try {
-      const concurrent = fromCache(await repository.read('CHF', 'EUR'), now)
+      const relu = await repository.read('CHF', 'EUR')
+      const concurrent = fromCache(relu, now)
       return concurrent
         ? { ok: true, rate: concurrent }
-        : { ok: false, reason: 'refresh_suppressed' }
+        : repli('refresh_suppressed', relu ?? cached)
     } catch {
-      return { ok: false, reason: 'cache_unavailable' }
+      return repli('cache_unavailable')
     }
   }
 
@@ -217,14 +240,14 @@ export async function resolveChfToEurRate(
   try {
     quote = await (options.fetchQuote ?? (() => fetchLatestEcbChfQuote()))()
   } catch {
-    return { ok: false, reason: 'provider_unavailable' }
+    return repli('provider_unavailable')
   }
   if (!rateDateIsAcceptable(quote.rateDate, now)) {
-    return { ok: false, reason: 'provider_rate_too_old' }
+    return repli('provider_rate_too_old')
   }
   const derivedRate = inverseDecimal(quote.chfPerEur)
   if (!derivedRate || !isPlausibleChfToEurRate(derivedRate)) {
-    return { ok: false, reason: 'provider_unavailable' }
+    return repli('provider_unavailable')
   }
   const fetchedAt = now.toISOString()
   const rate: ChfToEurRate = {

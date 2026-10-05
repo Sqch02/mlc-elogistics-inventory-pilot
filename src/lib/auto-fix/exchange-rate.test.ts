@@ -116,6 +116,54 @@ describe('ECB CHF exchange rate', () => {
     expect(results).toContainEqual({ ok: false, reason: 'refresh_suppressed' })
   })
 
+  describe('taux expire repris quand le rafraichissement echoue', () => {
+    // Le 05/10, le cache a expire vers 13 h et le rafraichissement a echoue :
+    // #570030 et #570038 sont passees en echec definitif alors que le taux du
+    // 02/10, expire depuis quelques minutes, etait parfaitement valable.
+    const lundi = new Date('2026-10-05T11:10:00.000Z')
+    const tauxDuVendredi = (rateDate = '2026-10-02'): ChfToEurRate => ({
+      baseCurrency: 'CHF', targetCurrency: 'EUR', rate: '1.080030240847',
+      rateDate, provider: 'ECB', providerSeries: 'EXR.D.CHF.EUR.SP00.A',
+      providerQuote: { baseCurrency: 'EUR', targetCurrency: 'CHF', rate: '0.9259' },
+      fetchedAt: '2026-10-04T11:05:00.000Z', expiresAt: '2026-10-05T11:05:00.000Z', cacheStatus: 'hit',
+    })
+
+    it('reprend le dernier taux quand la BCE ne repond pas', async () => {
+      const repository = memoryRepository(tauxDuVendredi())
+      const fetchQuote = vi.fn(async () => { throw new Error('ECB HTTP 503') })
+
+      const result = await resolveChfToEurRate(repository, { now: lundi, fetchQuote })
+
+      expect(fetchQuote).toHaveBeenCalledOnce()
+      expect(result).toMatchObject({ ok: true, rate: { cacheStatus: 'stale', rateDate: '2026-10-02' } })
+      expect(repository.save).not.toHaveBeenCalled()
+    })
+
+    it('le reprend aussi quand un autre travailleur detient le rafraichissement', async () => {
+      const repository = memoryRepository(tauxDuVendredi(), false)
+      const result = await resolveChfToEurRate(repository, { now: lundi, fetchQuote: vi.fn() })
+      expect(result).toMatchObject({ ok: true, rate: { cacheStatus: 'stale' } })
+    })
+
+    it('ne reprend jamais un taux au-dela de sept jours', async () => {
+      const repository = memoryRepository(tauxDuVendredi('2026-09-27'))
+      const result = await resolveChfToEurRate(repository, {
+        now: lundi,
+        fetchQuote: async () => { throw new Error('ECB HTTP 503') },
+      })
+      expect(result).toEqual({ ok: false, reason: 'provider_unavailable' })
+    })
+
+    it('ne sert pas un taux expire quand le rafraichissement reussit', async () => {
+      const repository = memoryRepository(tauxDuVendredi())
+      const result = await resolveChfToEurRate(repository, {
+        now: lundi,
+        fetchQuote: async () => ({ rateDate: '2026-10-02', chfPerEur: '0.9311' }),
+      })
+      expect(result).toMatchObject({ ok: true, rate: { cacheStatus: 'refreshed' } })
+    })
+  })
+
   it('rejects a provider observation older than seven days', async () => {
     const repository = memoryRepository()
     const result = await resolveChfToEurRate(repository, {
