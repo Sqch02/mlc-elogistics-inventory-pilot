@@ -527,14 +527,19 @@ describe('runAutoFixLiveWorker — refus avant ecriture', () => {
       primary_pattern: 'currency_chf',
       detected_patterns: ['currency_chf'],
     })
-    const { client, names } = makeClient({ claim: [jobChf] })
+    const { client, calls, names } = makeClient({ claim: [jobChf] })
     const d = depsCommande({
-      chfRate: vi.fn(async () => ({ ok: false })),
+      chfRate: vi.fn(async () => ({ ok: false, reason: 'provider_unavailable' })),
       patchCurrency: vi.fn(),
     })
     await runAutoFixLiveWorker(client, LIVE_ENV, d)
     expect((d as unknown as { patchCurrency: ReturnType<typeof vi.fn> }).patchCurrency).not.toHaveBeenCalled()
     expect(names()).not.toContain('begin_auto_fix_write')
+    // Panne exterieure, pas un echec de la commande : en `retryable`, trois
+    // essais en quarante minutes jetaient la tache en echec definitif
+    // (#570030 et #570038, 05/10). La cause reelle est conservee.
+    const refus = calls.find((c) => c.name === 'fail_auto_fix_live')?.args.p_error
+    expect(refus).toEqual({ category: 'outage', reason: 'exchange_rate_unavailable', detail: 'provider_unavailable' })
   })
 
   it('enregistre la proposition MEME quand elle perd de l information', async () => {
