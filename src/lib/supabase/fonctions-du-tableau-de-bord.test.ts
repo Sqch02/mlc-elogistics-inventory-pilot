@@ -95,6 +95,33 @@ describe('chiffres du tableau de bord', () => {
   })
 })
 
+describe('ne compter que les colis etiquetes', () => {
+  // Les lignes de commande portent une date d'expedition des leur import. Le
+  // 09/10 chez Florna : 3 854 « expeditions » pour 3 491 vrais colis, et 361
+  // « tarifs manquants » qui etaient TOUS des commandes non etiquetees.
+  const sql = lire('00152_compter_les_colis_etiquetes.sql')
+
+  it('le tableau de bord et les transporteurs exigent un statut de transporteur', () => {
+    const tableau = sql.slice(sql.indexOf('CREATE MATERIALIZED VIEW public.mv_dashboard_daily_colis'), sql.indexOf('DROP MATERIALIZED VIEW public.mv_dashboard_daily;'))
+    expect(tableau).toMatch(/WHERE shipped_at IS NOT NULL\s+AND status_id IS NOT NULL/)
+    const transporteurs = sql.slice(sql.indexOf('CREATE MATERIALIZED VIEW public.mv_carrier_daily'))
+    expect(transporteurs).toContain('AND s.status_id IS NOT NULL')
+  })
+
+  it('les vues recreees gardent leur cle unique et restent fermees aux comptes connectes', () => {
+    // La cle unique est indispensable au rafraichissement CONCURRENTLY.
+    expect(sql).toContain('CREATE UNIQUE INDEX idx_mv_dashboard_daily_pk ON public.mv_dashboard_daily (tenant_id, day)')
+    expect(sql).toContain('CREATE UNIQUE INDEX mv_carrier_daily_cle ON public.mv_carrier_daily (tenant_id, day, carrier)')
+    expect(sql).toContain('REVOKE ALL ON public.mv_dashboard_daily FROM PUBLIC, anon, authenticated')
+    expect(sql).not.toMatch(/GRANT[^;]*TO[^;]*(anon|authenticated)/i)
+  })
+
+  it('« Ma journee » compte les memes colis', () => {
+    const route = readFileSync(join(process.cwd(), 'src', 'app', 'api', 'dashboard', 'today', 'route.ts'), 'utf8')
+    expect(route.match(/\.not\('status_id', 'is', null\)/g)).toHaveLength(2)
+  })
+})
+
 describe('transporteurs et bundles', () => {
   const sql = lire('00150_vues_transporteurs_et_bundles.sql')
 
