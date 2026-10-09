@@ -36,20 +36,24 @@ export async function GET(request: NextRequest) {
       { count: overdueClaims },
       { data: stockAlerts },
     ] = await Promise.all([
-      // Today's shipments count
+      // Today's shipments count. Seuls les colis etiquetes (statut de
+      // transporteur) : les commandes pas encore traitees portent aussi une
+      // date d'expedition et gonflaient le chiffre (cf migration 00152).
       db
         .from('shipments')
         .select('id', { count: 'exact', head: true })
         .eq('tenant_id', tenantId)
         .eq('is_return', false)
+        .not('status_id', 'is', null)
         .gte('shipped_at', dayStart.toISOString())
         .lte('shipped_at', dayEnd.toISOString()),
-      // Today's shipment costs
+      // Today's shipment costs (memes colis que le compteur ci-dessus)
       db
         .from('shipments')
         .select('computed_cost_eur')
         .eq('tenant_id', tenantId)
         .eq('is_return', false)
+        .not('status_id', 'is', null)
         .gte('shipped_at', dayStart.toISOString())
         .lte('shipped_at', dayEnd.toISOString()),
       // Open claims needing attention
