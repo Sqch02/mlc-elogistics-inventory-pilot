@@ -221,4 +221,30 @@ describe('GET /api/dashboard', () => {
       expect(response.headers.get('Cache-Control')).toBe('private, no-store')
     })
   })
+
+  describe('requete en echec', () => {
+    it('journalise l echec au lieu d afficher 0 en silence', async () => {
+      // Du 30/05 au 09/10, get_dashboard_metrics a echoue a chaque appel
+      // (colonne ambigue) et la page affichait 0 sans aucune trace.
+      const admin = createMockDashboardClient()
+      admin.rpc = vi.fn().mockReturnValue({
+        then: (resolve: (value: unknown) => void) =>
+          resolve({ data: null, error: { message: 'column reference "shipments_count" is ambiguous' } }),
+      })
+      mockGetFastUser.mockResolvedValue(mockUser)
+      mockGetAdminDb.mockReturnValue(admin)
+      mockGetServerDb.mockResolvedValue(createMockDashboardClient())
+      const journal = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      try {
+        await GET(createRequest())
+        expect(journal).toHaveBeenCalledWith(
+          '[Dashboard] get_dashboard_metrics en echec :',
+          'column reference "shipments_count" is ambiguous',
+        )
+      } finally {
+        journal.mockRestore()
+      }
+    })
+  })
 })

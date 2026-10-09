@@ -30,34 +30,28 @@ export async function GET() {
     }
 
     const now = new Date()
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
-    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString()
+    const jour = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const debutMois = jour(new Date(now.getFullYear(), now.getMonth(), 1))
+    const finMois = jour(new Date(now.getFullYear(), now.getMonth() + 1, 0))
+    const hier = jour(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))
 
     // Fetch per-tenant metrics in parallel
     const tenantMetrics = await Promise.all(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       tenants.map(async (tenant: any) => {
-        const [shipmentsRes, costRes, missingRes, stockRes, syncRes, userCountRes] = await Promise.all([
-          // Shipments count this month
-          db.from('shipments')
-            .select('*', { count: 'exact', head: true })
-            .eq('tenant_id', tenant.id)
-            .gte('shipped_at', startOfMonth)
-            .lte('shipped_at', endOfMonth),
-
-          // Total cost this month (only priced shipments)
-          db.from('shipments')
-            .select('computed_cost_eur')
-            .eq('tenant_id', tenant.id)
-            .eq('pricing_status', 'ok')
-            .gte('shipped_at', startOfMonth)
-            .lte('shipped_at', endOfMonth),
-
-          // Missing pricing count (total)
-          db.from('shipments')
-            .select('*', { count: 'exact', head: true })
-            .eq('tenant_id', tenant.id)
-            .eq('pricing_status', 'missing'),
+        const [metricsRes, stockRes, syncRes, userCountRes] = await Promise.all([
+          // Expeditions du mois, cout et tarifs manquants : les memes chiffres
+          // que le tableau de bord du client, lus dans mv_dashboard_daily.
+          // L'ancienne somme des couts colis par colis s'arretait aux 1 000
+          // premieres lignes renvoyees par l'API : 5 454,99 EUR affiches pour
+          // 19 242,02 EUR reels chez Florna le 09/10.
+          db.rpc('get_dashboard_metrics', {
+            p_tenant_id: tenant.id,
+            p_month_start: debutMois,
+            p_month_end: finMois,
+            p_yesterday: hier,
+          }),
 
           // Critical stock (qty < 20)
           db.from('stock_snapshots')
@@ -79,8 +73,17 @@ export async function GET() {
             .eq('tenant_id', tenant.id),
         ])
 
-        const costData = costRes.data as { computed_cost_eur: number | null }[] | null
-        const totalCost = costData?.reduce((sum, s) => sum + (Number(s.computed_cost_eur) || 0), 0) || 0
+        if (metricsRes.error) {
+          console.error(`[Hub] get_dashboard_metrics en echec pour ${tenant.code} :`, metricsRes.error.message ?? metricsRes.error)
+        }
+        const lignes = (metricsRes.data ?? []) as {
+          metric: string
+          shipments_count: number | string
+          shipments_cost: number | string
+          shipments_missing_pricing: number | string
+        }[]
+        const mois = lignes.find((l) => l.metric === 'month')
+        const manquants = lignes.find((l) => l.metric === 'all_time_missing')
 
         // Filter out bundles from critical stock
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -95,9 +98,9 @@ export async function GET() {
           id: tenant.id,
           name: tenant.name,
           code: tenant.code,
-          shipments: shipmentsRes.count || 0,
-          cost: totalCost,
-          missingPricing: missingRes.count || 0,
+          shipments: Number(mois?.shipments_count) || 0,
+          cost: Number(mois?.shipments_cost) || 0,
+          missingPricing: Number(manquants?.shipments_missing_pricing) || 0,
           criticalStock,
           userCount: userCountRes.count || 0,
           lastSync: lastSync ? {

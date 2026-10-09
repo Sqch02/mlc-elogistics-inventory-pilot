@@ -68,6 +68,15 @@ function toNum(v: number | string | null | undefined): number {
   return Number.isFinite(n) ? n : 0
 }
 
+/**
+ * Une section en echec s'affiche vide, mais l'echec doit laisser une trace.
+ * Le 09/10, l'evolution mensuelle, les transporteurs et les produits etaient
+ * coupes a 8 s depuis des jours sans un mot dans les journaux.
+ */
+function journaliserEchec(source: string, erreur: { message?: string }) {
+  console.error(`[Analytics] ${source} en echec :`, erreur.message ?? erreur)
+}
+
 export async function GET(request: Request) {
   try {
     const tenantId = await requireTenant()
@@ -109,6 +118,7 @@ export async function GET(request: Request) {
             p_end_date: endDate.toISOString(),
           } as never)
           .then(({ data, error }) => {
+            if (error) journaliserEchec('analytics_monthly_shipments', error)
             if (error || !data) return [] as MonthlyData[]
             return (data as MonthlyData[]) || []
           }),
@@ -121,6 +131,7 @@ export async function GET(request: Request) {
             p_end_date: endDate.toISOString(),
           } as never)
           .then(({ data, error }) => {
+            if (error) journaliserEchec('get_carrier_performance', error)
             if (error || !data) return [] as CarrierStats[]
             return ((data as CarrierRpcRow[]) || []).map((row) => ({
               carrier: row.carrier,
@@ -141,6 +152,7 @@ export async function GET(request: Request) {
           .eq('tenant_id' as never, tenantId)
           .eq('is_bundle' as never, false)
           .then(({ data, error }) => {
+            if (error) journaliserEchec('mv_sku_metrics', error)
             if (error || !data) return [] as StockForecast[]
             return ((data as unknown as SkuMetricRow[]) || [])
               .filter((m) => !m.sku_code.toUpperCase().includes('BU-'))
@@ -176,6 +188,7 @@ export async function GET(request: Request) {
             p_end_date: endDate.toISOString(),
           } as never)
           .then(({ data, error }) => {
+            if (error) journaliserEchec('analytics_sku_sales', error)
             if (error || !data) return [] as SkuSalesData[]
             return (
               (data as Array<{
