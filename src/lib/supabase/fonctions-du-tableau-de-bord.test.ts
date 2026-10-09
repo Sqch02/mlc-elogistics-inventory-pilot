@@ -122,6 +122,35 @@ describe('ne compter que les colis etiquetes', () => {
   })
 })
 
+describe('analyse des ventes sans les commandes', () => {
+  // Meme regle que la facturation et que analytics_sku_sales.
+  const sql = lire('00154_ventes_sans_les_commandes.sql')
+  const exclusion = "NOT IN ('On Hold', 'Cancelled', 'Cancelled - customer', 'Unfulfilled')"
+
+  it('produits et bundles excluent les memes statuts de commande', () => {
+    const bundles = sql.slice(sql.indexOf('CREATE MATERIALIZED VIEW public.mv_bundle_daily'), sql.indexOf('CREATE UNIQUE INDEX mv_bundle_daily_cle'))
+    expect(bundles).toContain(exclusion)
+    const produits = sql.slice(sql.indexOf('FUNCTION public.get_products_metrics'))
+    // Les trois lectures de v_physical_shipment_items : total, top, mensuel.
+    expect(produits.split(exclusion).length - 1).toBe(3)
+    expect(produits).toContain("SET plan_cache_mode TO 'force_custom_plan'")
+  })
+
+  it('la vue des bundles garde sa cle unique et reste fermee aux comptes connectes', () => {
+    expect(sql).toContain('CREATE UNIQUE INDEX mv_bundle_daily_cle ON public.mv_bundle_daily (tenant_id, day, sku_id)')
+    expect(sql).toContain('REVOKE ALL ON public.mv_bundle_daily FROM PUBLIC, anon, authenticated')
+  })
+})
+
+describe('purge des passages de synchro', () => {
+  it('est planifiee chaque nuit et garde 30 jours', () => {
+    // La fonction existait depuis le 13/07 sans que rien ne l'appelle :
+    // 234 908 passages conserves le 09/10.
+    expect(lire('00153_purge_quotidienne_des_synchros.sql'))
+      .toMatch(/cron\.schedule\(\s*'sync-runs-retention',\s*'40 3 \* \* \*',\s*\$\$SELECT public\.cleanup_old_sync_runs\(30\)\$\$/)
+  })
+})
+
 describe('transporteurs et bundles', () => {
   const sql = lire('00150_vues_transporteurs_et_bundles.sql')
 
