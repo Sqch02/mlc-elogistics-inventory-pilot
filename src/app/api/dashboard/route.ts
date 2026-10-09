@@ -114,6 +114,21 @@ export async function GET(request: NextRequest) {
           .limit(1),
       ])
 
+    // Une requete en echec n'arretait rien : la page affichait 0. C'est ainsi
+    // que get_dashboard_metrics a echoue a CHAQUE appel du 30/05 au 09/10
+    // (colonne ambigue, cf migration 00147) sans que personne ne le voie. Les
+    // echecs vont desormais dans les journaux du serveur.
+    const echecs: Record<string, { message?: string } | null> = {
+      get_dashboard_metrics: metricsResult.error,
+      get_monthly_indemnities: indemnityResult.error,
+      reclamations_hier: claimsYesterdayResult.error,
+      mv_sku_metrics: stockResult.error,
+      sync_runs: syncRunResult.error,
+    }
+    for (const [source, erreur] of Object.entries(echecs)) {
+      if (erreur) console.error(`[Dashboard] ${source} en echec :`, erreur.message ?? erreur)
+    }
+
     const metricRows = (metricsResult.data || []) as DashboardMetricRow[]
 
     // Parse metric rows by category
