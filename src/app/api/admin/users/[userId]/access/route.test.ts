@@ -62,25 +62,28 @@ describe('PATCH /api/admin/users/[userId]/access', () => {
     }))
   })
 
-  it('invalidates existing sessions, otherwise a disabled user stays connected', async () => {
+  it('ne passe pas l identifiant a signOut, qui attend un jeton de session', async () => {
+    // Verifie le 14/10 en production sur un compte jetable : signOut(userId)
+    // echouait a chaque fois (bad_jwt), et le test d'avant le simulait comme
+    // un succes. Le bannissement suffit : Supabase refuse ensuite la session
+    // deja ouverte (getUser -> 403 user_banned), son rafraichissement et
+    // toute nouvelle connexion.
     const { client, signOut } = adminClient()
     vi.mocked(createAdminClient).mockReturnValue(client as never)
 
     await call(false)
 
-    expect(signOut).toHaveBeenCalled()
+    expect(signOut).not.toHaveBeenCalled()
   })
 
   it('re-enables an account by lifting the ban', async () => {
-    const { client, updateUserById, signOut } = adminClient()
+    const { client, updateUserById } = adminClient()
     vi.mocked(createAdminClient).mockReturnValue(client as never)
 
     const response = await call(true)
 
     expect(response.status).toBe(200)
     expect(updateUserById).toHaveBeenCalledWith('user-1', { ban_duration: 'none' })
-    // Rien a invalider quand on rouvre un acces.
-    expect(signOut).not.toHaveBeenCalled()
   })
 
   it('is reserved to super_admin', async () => {

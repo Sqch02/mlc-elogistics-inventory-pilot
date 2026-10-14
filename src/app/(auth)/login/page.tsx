@@ -4,6 +4,7 @@ import { Suspense, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { messageDeConnexion } from '@/lib/auth/acces-du-compte'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -37,7 +38,7 @@ function LoginForm() {
       })
 
       if (error) {
-        setError(error.message)
+        setError(messageDeConnexion(error))
         return
       }
 

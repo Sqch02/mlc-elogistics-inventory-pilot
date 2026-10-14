@@ -4,6 +4,7 @@ import { requireRole, getCurrentUser } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 import { logAudit } from '@/lib/audit'
 import { genererLienMotDePasse } from '@/lib/auth/lien-mot-de-passe'
+import { estDesactive } from '@/lib/auth/acces-du-compte'
 
 /**
  * Genere un lien de reinitialisation de mot de passe pour un utilisateur.
@@ -47,6 +48,16 @@ export async function POST(
       return NextResponse.json(
         { error: 'Utilisateur introuvable' },
         { status: 404 }
+      )
+    }
+
+    // Supabase refuse le jeton d'un compte banni : le client tomberait sur
+    // « lien expire » sans comprendre pourquoi. On le dit a l'administrateur.
+    const { data: compte } = await supabase.auth.admin.getUserById(profile.id)
+    if (estDesactive(compte?.user)) {
+      return NextResponse.json(
+        { error: 'Ce compte est desactive : reactivez-le avant de generer un lien' },
+        { status: 409 }
       )
     }
 
