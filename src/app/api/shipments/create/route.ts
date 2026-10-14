@@ -4,6 +4,7 @@ import { requireRole, requireTenant } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
 import { createParcel, CreateParcelData } from '@/lib/sendcloud/client'
 import type { SendcloudCredentials } from '@/lib/sendcloud/types'
+import { isSameCarrier } from '@/lib/utils/pricing'
 import { z } from 'zod'
 
 const createShipmentSchema = z.object({
@@ -152,7 +153,7 @@ export async function POST(request: NextRequest) {
     if (pricingRules) {
       const matchingRule = (pricingRules as PricingRule[]).find(
         (rule: PricingRule) =>
-          rule.carrier.toLowerCase() === parcel.carrier.toLowerCase() &&
+          isSameCarrier(rule.carrier, parcel.carrier) &&
           rule.weight_min_grams <= parcel.weight_grams &&
           rule.weight_max_grams >= parcel.weight_grams
       )
