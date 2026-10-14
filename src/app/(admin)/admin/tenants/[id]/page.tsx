@@ -85,6 +85,9 @@ interface TenantSettings {
   default_vat_rate: number | null
   default_hs_code: string | null
   default_origin_country: string | null
+  invoice_email: string | null
+  stock_alert_email: string | null
+  inbound_email: string | null
 }
 
 interface User {
@@ -122,6 +125,9 @@ export default function TenantDetailPage() {
     default_vat_rate: 20.00,
     default_hs_code: null,
     default_origin_country: 'FR',
+    invoice_email: null,
+    stock_alert_email: null,
+    inbound_email: null,
   })
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
@@ -191,6 +197,9 @@ export default function TenantDetailPage() {
         default_vat_rate: data.settings?.default_vat_rate || 20.00,
         default_hs_code: data.settings?.default_hs_code || null,
         default_origin_country: data.settings?.default_origin_country || 'FR',
+        invoice_email: data.settings?.invoice_email || null,
+        stock_alert_email: data.settings?.stock_alert_email || null,
+        inbound_email: data.settings?.inbound_email || null,
       })
       setTenantForm({
         name: data.tenant?.name || '',
@@ -757,6 +766,61 @@ export default function TenantDetailPage() {
                 <p className="text-xs text-muted-foreground">
                   Apparait sur les factures pour le reglement
                 </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Jusqu'au 14/10, ces adresses ne se reglaient qu'en base : un
+              nouveau client n'en avait aucune, et rien ne partait sans que
+              personne le voie (VITALIENCE). */}
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle>Emails envoyes au client</CardTitle>
+              <CardDescription>
+                Une adresse par champ. Sans adresse, rien ne part pour ce client, pas meme la copie a l&apos;equipe HME.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="invoice_email">Factures</Label>
+                  <Input
+                    id="invoice_email"
+                    type="email"
+                    value={settings.invoice_email || ''}
+                    onChange={(e) => setSettings({ ...settings, invoice_email: e.target.value })}
+                    placeholder="compta@client.fr"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Recoit la facture et son PDF quand elle est marquee envoyee
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="stock_alert_email">Alertes de stock</Label>
+                  <Input
+                    id="stock_alert_email"
+                    type="email"
+                    value={settings.stock_alert_email || ''}
+                    onChange={(e) => setSettings({ ...settings, stock_alert_email: e.target.value })}
+                    placeholder="logistique@client.fr"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Prevenu quand un produit passe sous son seuil d&apos;alerte
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="inbound_email">Arrivages</Label>
+                  <Input
+                    id="inbound_email"
+                    type="email"
+                    value={settings.inbound_email || ''}
+                    onChange={(e) => setSettings({ ...settings, inbound_email: e.target.value })}
+                    placeholder="logistique@client.fr"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Prevenu quand un arrivage est entierement receptionne
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>
