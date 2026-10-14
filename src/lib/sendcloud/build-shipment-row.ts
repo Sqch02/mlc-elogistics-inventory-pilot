@@ -1,5 +1,5 @@
 import type { ParsedShipment } from '@/lib/sendcloud/types'
-import { getDestination, type PricingRule } from '@/lib/utils/pricing'
+import { getDestination, isSameCarrier, type PricingRule } from '@/lib/utils/pricing'
 
 export function buildShipmentRow(
   tenantId: string,
@@ -17,7 +17,7 @@ export function buildShipmentRow(
     )
     const matchingRule = pricingRules.find(
       (rule) =>
-        rule.carrier.toLowerCase() === parcel.carrier.toLowerCase() &&
+        isSameCarrier(rule.carrier, parcel.carrier) &&
         rule.destination === destination &&
         rule.weight_min_grams <= parcel.weight_grams &&
         rule.weight_max_grams >= parcel.weight_grams,

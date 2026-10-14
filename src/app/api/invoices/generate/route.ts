@@ -8,7 +8,7 @@ import {
   formatWeightBracket,
   buildShippingDescription,
 } from '@/lib/utils/invoice-calculations'
-import { getDestination } from '@/lib/utils/pricing'
+import { getDestination, isSameCarrier } from '@/lib/utils/pricing'
 
 interface TenantSettings {
   invoice_prefix: string | null
@@ -264,7 +264,7 @@ export async function POST(request: NextRequest) {
 
       const rule = (pricingRules as PricingRule[] | null)?.find(
         (r: PricingRule) =>
-          r.carrier.toLowerCase() === shipment.carrier.toLowerCase() &&
+          isSameCarrier(r.carrier, shipment.carrier) &&
           r.destination === destination &&
           r.weight_min_grams <= shipment.weight_grams &&
           r.weight_max_grams >= shipment.weight_grams

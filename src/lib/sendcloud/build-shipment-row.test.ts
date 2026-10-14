@@ -127,6 +127,28 @@ describe('buildShipmentRow', () => {
     })
   })
 
+  it.each([
+    { carrier: 'colisprive', rule: 'COLIS PRIVÉ', point: null, destination: 'france_domicile', price: 7.03 },
+    { carrier: 'mondial_relay', rule: 'MONDIAL RELAY', point: 'point-1', destination: 'france_relay', price: 5.55 },
+  ])(
+    'prices a $carrier parcel against a rule saved as $rule',
+    ({ carrier, rule, point, destination, price }) => {
+      // VITALIENCE and ANTEOS grids were typed with the display names the
+      // pricing screen suggests: none of their parcels was ever priced.
+      const typedRule: PricingRule = {
+        carrier: rule,
+        destination,
+        weight_min_grams: 0,
+        weight_max_grams: 250,
+        price_eur: price,
+      }
+
+      expect(
+        buildShipmentRow('tenant-1', { ...parcel, carrier, service_point_id: point, weight_grams: 60 }, [typedRule]),
+      ).toMatchObject({ pricing_status: 'ok', computed_cost_eur: price })
+    },
+  )
+
   it.each([null, [], [{ ...pricingRules[0], carrier: 'Chronopost' }]])(
     'marks pricing as missing when no rule matches (%j)',
     (rules) => {

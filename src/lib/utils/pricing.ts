@@ -6,6 +6,21 @@ export interface PricingRule {
   price_eur: number
 }
 
+// Parcels carry Sendcloud's carrier code (colisprive, mondial_relay), while a
+// rule typed in the pricing screen may carry the display name it suggests
+// (COLIS PRIVÉ, MONDIAL RELAY). Compare without case, accents or separators.
+export function isSameCarrier(a: string, b: string): boolean {
+  return carrierKey(a) === carrierKey(b)
+}
+
+function carrierKey(carrier: string): string {
+  return carrier
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+}
+
 // Detect if shipment is a relay (point relais) delivery
 function isRelay(carrier: string, servicePointId: string | null): boolean {
   const c = carrier.toLowerCase()
