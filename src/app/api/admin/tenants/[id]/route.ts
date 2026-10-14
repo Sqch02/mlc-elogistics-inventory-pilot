@@ -14,6 +14,13 @@ function isValidSiret(siret: string): boolean {
   return /^\d{14}$/.test(siret)
 }
 
+// Adresses des emails envoyes au client (facture, alerte de stock,
+// arrivage). La base saute l'envoi, sans erreur, quand l'adresse est vide :
+// on enregistre null, jamais '', et une seule adresse par champ (elle part
+// telle quelle comme destinataire).
+const EMAILS_CLIENT = ['invoice_email', 'stock_alert_email', 'inbound_email'] as const
+const FORMAT_EMAIL = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -100,6 +107,21 @@ export async function PATCH(
       )
     }
 
+    // Avant toute ecriture : une adresse refusee ne doit pas laisser la fiche
+    // a moitie enregistree.
+    const emailsClient: Record<string, string | null> = {}
+    for (const champ of EMAILS_CLIENT) {
+      if (body[champ] === undefined) continue
+      const adresse = typeof body[champ] === 'string' ? body[champ].trim() : ''
+      if (adresse && !FORMAT_EMAIL.test(adresse)) {
+        return NextResponse.json(
+          { error: `Adresse email invalide : ${adresse} (une seule adresse par champ)` },
+          { status: 400 }
+        )
+      }
+      emailsClient[champ] = adresse || null
+    }
+
     // Update tenant fields if any provided
     const tenantFields: Record<string, unknown> = {}
     const tenantFieldNames = [
@@ -155,6 +177,7 @@ export async function PATCH(
         settingsFields[field] = body[field]
       }
     }
+    Object.assign(settingsFields, emailsClient)
 
     let settingsError
     if (existing) {
