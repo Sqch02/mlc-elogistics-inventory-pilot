@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { genererLienMotDePasse } from '@/lib/auth/lien-mot-de-passe'
+import { estDesactive } from '@/lib/auth/acces-du-compte'
 import { resendSenderFromEnv } from '@/lib/notifications/resend-sender'
 
 /**
@@ -10,7 +11,7 @@ import { resendSenderFromEnv } from '@/lib/notifications/resend-sender'
 
 export const empreinte = (valeur: string) => createHash('sha256').update(valeur).digest('hex')
 
-export async function traiterDemande(email: string, ip: string, origine: string): Promise<'envoye' | 'limite' | 'inconnu' | 'non_configure' | 'echec'> {
+export async function traiterDemande(email: string, ip: string, origine: string): Promise<'envoye' | 'limite' | 'inconnu' | 'desactive' | 'non_configure' | 'echec'> {
   const admin = createAdminClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = admin as any
@@ -33,6 +34,12 @@ export async function traiterDemande(email: string, ip: string, origine: string)
     .ilike('email', email.replace(/[\\%_]/g, '\\$&'))
     .maybeSingle()
   if (!profil) return 'inconnu'
+
+  // Un compte desactive depuis l'administration ne recoit pas de lien : il ne
+  // pourrait pas s'en servir (Supabase refuse son jeton) et croirait a un lien
+  // perime. La reponse HTTP, elle, ne change pas.
+  const { data: compte } = await admin.auth.admin.getUserById(profil.id)
+  if (estDesactive(compte?.user)) return 'desactive'
 
   const expediteur = resendSenderFromEnv(process.env)
   if (!expediteur) {

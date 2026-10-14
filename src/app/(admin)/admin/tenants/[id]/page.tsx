@@ -92,6 +92,8 @@ interface User {
   email: string
   role: string
   created_at: string
+  // null : etat inconnu (Supabase Auth n'a pas repondu pour ce compte)
+  disabled: boolean | null
 }
 
 const roleLabels: Record<string, string> = {
@@ -330,6 +332,37 @@ export default function TenantDetailPage() {
       toast.error('Le serveur n a pas repondu')
     } finally {
       setResettingId(null)
+    }
+  }
+
+  // Activation / desactivation, par utilisateur. Comme le lien de
+  // reinitialisation avant lui, la route existait depuis le 26/07 sans
+  // qu'aucun ecran ne l'appelle.
+  const [accesId, setAccesId] = useState<string | null>(null)
+
+  async function handleAcces(user: User) {
+    const activer = user.disabled === true
+    if (!activer && !confirm(`Desactiver l'acces de ${user.email} ? Il est deconnecte immediatement et ne peut plus se connecter ni reinitialiser son mot de passe, jusqu'a ce que vous le reactiviez.`)) {
+      return
+    }
+    setAccesId(user.id)
+    try {
+      const response = await fetch(`/api/admin/users/${user.id}/access`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: activer }),
+      })
+      const data = await response.json()
+      if (response.ok && data.success) {
+        setUsers((liste) => liste.map((u) => (u.id === user.id ? { ...u, disabled: !data.enabled } : u)))
+        toast.success(activer ? 'Acces reactive' : 'Acces desactive')
+      } else {
+        toast.error(data.error || "Impossible de modifier l'acces")
+      }
+    } catch {
+      toast.error('Le serveur n a pas repondu')
+    } finally {
+      setAccesId(null)
     }
   }
 
@@ -1019,7 +1052,8 @@ export default function TenantDetailPage() {
                     <TableRow>
                       <TableHead>Email</TableHead>
                       <TableHead>Role</TableHead>
-                      <TableHead className="text-right">Mot de passe</TableHead>
+                      <TableHead>Acces</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1031,15 +1065,36 @@ export default function TenantDetailPage() {
                             {roleLabels[user.role] || user.role}
                           </Badge>
                         </TableCell>
+                        <TableCell>
+                          {user.disabled === null ? (
+                            <span className="text-xs text-muted-foreground">Inconnu</span>
+                          ) : (
+                            <Badge variant={user.disabled ? 'error' : 'success'}>
+                              {user.disabled ? 'Desactive' : 'Actif'}
+                            </Badge>
+                          )}
+                        </TableCell>
                         <TableCell className="text-right">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={resettingId === user.id}
-                            onClick={() => handleResetLink(user.id)}
-                          >
-                            {resettingId === user.id ? 'Generation...' : 'Lien de reinitialisation'}
-                          </Button>
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={resettingId === user.id}
+                              onClick={() => handleResetLink(user.id)}
+                            >
+                              {resettingId === user.id ? 'Generation...' : 'Lien de reinitialisation'}
+                            </Button>
+                            {user.disabled !== null && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={accesId === user.id}
+                                onClick={() => handleAcces(user)}
+                              >
+                                {accesId === user.id ? 'Patientez...' : user.disabled ? 'Reactiver' : 'Desactiver'}
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}

@@ -15,18 +15,19 @@ import { construireLien, origineDuLien, ORIGINE_PAR_DEFAUT } from './lien-mot-de
 
 const lire = (chemin: string) => readFileSync(join(process.cwd(), chemin), 'utf8')
 
-function faux({ autorise = true, profil = { id: 'u1', tenant_id: 't1' } as Record<string, string> | null, jeton = 'jeton-abc' } = {}) {
+function faux({ autorise = true, profil = { id: 'u1', tenant_id: 't1' } as Record<string, string> | null, jeton = 'jeton-abc', bannedUntil = undefined as string | undefined } = {}) {
   const rpc = vi.fn().mockResolvedValue({ data: autorise, error: null })
   const ilike = vi.fn(() => ({ maybeSingle: vi.fn().mockResolvedValue({ data: profil, error: null }) }))
   const generateLink = vi.fn().mockResolvedValue({
     data: jeton ? { properties: { hashed_token: jeton, action_link: 'https://x.supabase.co/verify' } } : null,
     error: jeton ? null : { message: 'User not found' },
   })
-  const client = { rpc, from: vi.fn(() => ({ select: vi.fn(() => ({ ilike })) })), auth: { admin: { generateLink } } }
+  const getUserById = vi.fn().mockResolvedValue({ data: { user: { id: 'u1', banned_until: bannedUntil } }, error: null })
+  const client = { rpc, from: vi.fn(() => ({ select: vi.fn(() => ({ ilike })) })), auth: { admin: { generateLink, getUserById } } }
   const send = vi.fn().mockResolvedValue({ ok: true })
   vi.mocked(createAdminClient).mockReturnValue(client as never)
   vi.mocked(resendSenderFromEnv).mockReturnValue({ name: 'resend', send } as never)
-  return { rpc, ilike, generateLink, send }
+  return { rpc, ilike, generateLink, getUserById, send }
 }
 
 describe('origine du lien', () => {
@@ -78,6 +79,15 @@ describe('traitement d une demande', () => {
   it('une adresse inconnue ne declenche rien', async () => {
     const { generateLink, send } = faux({ profil: null })
     expect(await traiterDemande('personne@exemple.fr', '1.2.3.4', '')).toBe('inconnu')
+    expect(generateLink).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('un compte desactive ne recoit pas de lien', async () => {
+    // Supabase refuserait son jeton : il croirait a un lien perime.
+    const { getUserById, generateLink, send } = faux({ bannedUntil: '2126-09-20T06:19:37.530857Z' })
+    expect(await traiterDemande('client@exemple.fr', '1.2.3.4', '')).toBe('desactive')
+    expect(getUserById).toHaveBeenCalledWith('u1')
     expect(generateLink).not.toHaveBeenCalled()
     expect(send).not.toHaveBeenCalled()
   })

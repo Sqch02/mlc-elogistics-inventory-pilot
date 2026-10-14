@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireRole } from '@/lib/supabase/auth'
 import { handleAuthError } from '@/lib/api/errors'
+import { estDesactive } from '@/lib/auth/acces-du-compte'
 
 // Helper to validate SIREN (9 digits)
 function isValidSiren(siren: string): boolean {
@@ -46,10 +47,19 @@ export async function GET(
       .select('id, email, role, created_at')
       .eq('tenant_id', id)
 
+    // L'etat d'acces vit dans Supabase Auth (bannissement), pas dans
+    // profiles. null = inconnu : Auth n'a pas repondu pour ce compte.
+    const users = await Promise.all(
+      ((profiles || []) as Array<{ id: string }>).map(async (profil) => {
+        const { data, error } = await supabase.auth.admin.getUserById(profil.id)
+        return { ...profil, disabled: error ? null : estDesactive(data.user) }
+      }),
+    )
+
     return NextResponse.json({
       tenant,
       settings,
-      users: profiles || [],
+      users,
     })
   } catch (error) {
     const authResponse = handleAuthError(error)

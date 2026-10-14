@@ -12,7 +12,11 @@ import { logAudit } from '@/lib/audit'
 
 function adminClient(profile: Record<string, unknown> | null = {
   id: 'user-1', email: 'client@example.test', tenant_id: 'tenant-1', role: 'client',
-}) {
+}, bannedUntil: string | undefined = undefined) {
+  const getUserById = vi.fn().mockResolvedValue({
+    data: { user: { id: 'user-1', banned_until: bannedUntil } },
+    error: null,
+  })
   const generateLink = vi.fn().mockResolvedValue({
     data: {
       properties: {
@@ -24,7 +28,7 @@ function adminClient(profile: Record<string, unknown> | null = {
   })
   return {
     client: {
-      auth: { admin: { generateLink } },
+      auth: { admin: { generateLink, getUserById } },
       from: vi.fn(() => ({
         select: vi.fn(() => ({
           eq: vi.fn(() => ({
@@ -86,6 +90,30 @@ describe('POST /api/admin/users/[userId]/reset-link', () => {
 
     expect(response.status).toBe(404)
     expect(generateLink).not.toHaveBeenCalled()
+  })
+
+  it('refuse un compte desactive au lieu d emettre un lien inutilisable', async () => {
+    // Supabase refuse le jeton d'un compte banni : le client verrait « lien
+    // expire » sans comprendre. L'administrateur doit savoir pourquoi.
+    const { client, generateLink } = adminClient(undefined, '2126-09-20T06:19:37.530857Z')
+    vi.mocked(createAdminClient).mockReturnValue(client as never)
+
+    const response = await call()
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining('desactive') })
+    expect(generateLink).not.toHaveBeenCalled()
+    expect(logAudit).not.toHaveBeenCalled()
+  })
+
+  it('emet le lien d un compte dont le bannissement est leve ou echu', async () => {
+    const { client, generateLink } = adminClient(undefined, '2020-01-01T00:00:00Z')
+    vi.mocked(createAdminClient).mockReturnValue(client as never)
+
+    const response = await call()
+
+    expect(response.status).toBe(200)
+    expect(generateLink).toHaveBeenCalled()
   })
 
   it('traces the action, because handing out an account link must be auditable', async () => {

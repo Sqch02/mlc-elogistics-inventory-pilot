@@ -13,8 +13,9 @@ const DISABLE_DURATION = '876000h' // ~100 ans
  *
  * Point important : desactiver le profil applicatif seul NE SUFFIT PAS. Le
  * compte Supabase Auth resterait valide, et une session deja ouverte
- * continuerait de fonctionner jusqu'a son expiration. On agit donc sur Auth,
- * et on invalide les sessions en cours.
+ * continuerait de fonctionner jusqu'a son expiration. On agit donc sur Auth :
+ * un compte banni est refuse a chaque appel, session ouverte comprise (voir
+ * `estDesactive`).
  */
 export async function PATCH(
   request: NextRequest,
@@ -74,14 +75,11 @@ export async function PATCH(
       )
     }
 
-    // Couper l'acces sans fermer les sessions ouvertes ne couperait rien
-    // avant l'expiration du jeton.
-    if (!enabled) {
-      const { error: signOutError } = await supabase.auth.admin.signOut(userId)
-      if (signOutError) {
-        console.error('[AdminAccess] session invalidation failed:', signOutError)
-      }
-    }
+    // Rien d'autre a fermer : le bannissement suffit, Supabase refuse la
+    // session deja ouverte des la requete suivante (verifie le 14/10). L'appel
+    // `auth.admin.signOut(userId)` qui figurait ici echouait a chaque fois
+    // (bad_jwt) : il attend le jeton de session de l'utilisateur, pas son
+    // identifiant.
 
     await logAudit({
       tenantId: profile.tenant_id,

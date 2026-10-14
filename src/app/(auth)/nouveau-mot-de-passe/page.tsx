@@ -4,6 +4,7 @@ import { Suspense, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { MESSAGE_COMPTE_DESACTIVE } from '@/lib/auth/acces-du-compte'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -60,7 +61,10 @@ function Formulaire() {
       const supabase = createClient()
       const { error: erreurLien } = await supabase.auth.verifyOtp({ type: 'recovery', token_hash: jeton })
       if (erreurLien) {
-        setLienPerime(true)
+        // Lien emis avant la desactivation du compte : il n'est pas perime,
+        // c'est le compte qui est ferme.
+        if (erreurLien.code === 'user_banned') setErreur(MESSAGE_COMPTE_DESACTIVE)
+        else setLienPerime(true)
         return
       }
       const { error } = await supabase.auth.updateUser({ password: motDePasse })
