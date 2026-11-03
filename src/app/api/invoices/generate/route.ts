@@ -7,6 +7,8 @@ import {
   getDeliveryType,
   formatWeightBracket,
   buildShippingDescription,
+  storageFeeEur,
+  STORAGE_MIN_EUR,
 } from '@/lib/utils/invoice-calculations'
 import { getDestination, isSameCarrier } from '@/lib/utils/pricing'
 
@@ -351,9 +353,8 @@ export async function POST(request: NextRequest) {
     const softwareVat = Math.round(softwareFee * vatRate * 100) / 100
 
     // 2. Storage fee (per m3) — apply optional discount for this invoice
-    const storageGross = storage_m3 * config.storage_fee_per_m3
-    const storageDiscountAmount = storageGross * (storageDiscountPct / 100)
-    const storageFee = Math.round((storageGross - storageDiscountAmount) * 100) / 100
+    const { amount: storageFee, atMinimum: storageAtMinimum } =
+      storageFeeEur(storage_m3, config.storage_fee_per_m3, storageDiscountPct)
     const storageVat = Math.round(storageFee * vatRate * 100) / 100
 
     // 3. Reception fee (per 15min quarter)
@@ -417,11 +418,6 @@ export async function POST(request: NextRequest) {
     const fuelSurcharge = shippingTotalEur * (config.fuel_surcharge_pct / 100)
     const fuelSurchargeVat = Math.round(fuelSurcharge * vatRate * 100) / 100
 
-    // Calculate totals - round HT first, then compute TVA on rounded HT to avoid floating-point drift
-    const subtotalHt = Math.round((softwareFee + storageFee + receptionFee + arrivageFee + shippingTotalEur + fuelSurcharge) * 100) / 100
-    const totalVat = Math.round(subtotalHt * vatRate * 100) / 100
-    const totalTtc = Math.round((subtotalHt + totalVat) * 100) / 100
-
     // Check if invoice already exists for this month
     const { data: existingInvoice } = await supabase
       .from('invoices_monthly')
@@ -429,6 +425,24 @@ export async function POST(request: NextRequest) {
       .eq('tenant_id', tenantId)
       .eq('month', month)
       .single()
+
+    // Manual avoir/charge lines survive a draft regeneration (see below), so
+    // they must stay in the totals; otherwise the PDF total misses them.
+    let manualLinesTotal = 0
+    if (existingInvoice) {
+      const { data: existingLines } = await supabase
+        .from('invoice_lines')
+        .select('line_type, total_eur')
+        .eq('invoice_id', existingInvoice.id)
+      manualLinesTotal = ((existingLines || []) as Array<{ line_type: string; total_eur: number }>)
+        .filter((l) => l.line_type.startsWith('avoir') || l.line_type.startsWith('charge'))
+        .reduce((sum, l) => sum + Number(l.total_eur), 0)
+    }
+
+    // Calculate totals - round HT first, then compute TVA on rounded HT to avoid floating-point drift
+    const subtotalHt = Math.round((softwareFee + storageFee + receptionFee + arrivageFee + shippingTotalEur + fuelSurcharge + manualLinesTotal) * 100) / 100
+    const totalVat = Math.round(subtotalHt * vatRate * 100) / 100
+    const totalTtc = Math.round((subtotalHt + totalVat) * 100) / 100
 
     let invoiceId: string
 
@@ -545,8 +559,9 @@ export async function POST(request: NextRequest) {
     if (storage_m3 > 0) {
       // Build description matching the historical format the customer expects:
       //   Stockage & Assurance (53m3 x 25€ (20% de remise))
-      const storageDescription =
-        storageDiscountPct > 0
+      const storageDescription = storageAtMinimum
+        ? `Stockage & Assurance (minimum de facturation, ${storage_m3}m3 stockés)`
+        : storageDiscountPct > 0
           ? `Stockage & Assurance (${storage_m3}m3 x ${config.storage_fee_per_m3}€ (${storageDiscountPct}% de remise))`
           : `Stockage & Assurance (${storage_m3}m3 x ${config.storage_fee_per_m3}€)`
       lines.push({
@@ -558,8 +573,8 @@ export async function POST(request: NextRequest) {
         weight_min_grams: null,
         weight_max_grams: null,
         shipment_count: 0,
-        quantity: storage_m3,
-        unit_price_eur: config.storage_fee_per_m3,
+        quantity: storageAtMinimum ? 1 : storage_m3,
+        unit_price_eur: storageAtMinimum ? STORAGE_MIN_EUR : config.storage_fee_per_m3,
         total_eur: storageFee,
         vat_amount: storageVat,
       })

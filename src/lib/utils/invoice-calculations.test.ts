@@ -3,6 +3,7 @@ import {
   isValidMonthFormat,
   calculateSoftwareFee,
   calculateStorageFee,
+  storageFeeEur,
   calculateReceptionFee,
   calculateFuelSurcharge,
   calculateInvoiceTotals,
@@ -69,6 +70,26 @@ describe('Invoice Calculations', () => {
 
     it('should return null for negative storage', () => {
       expect(calculateStorageFee(-5, config)).toBeNull()
+    })
+  })
+
+  describe('storageFeeEur', () => {
+    it('bills the 25 € minimum when the stock is small', () => {
+      expect(storageFeeEur(0.11, 25, 0)).toEqual({ amount: 25, atMinimum: true })
+    })
+
+    it('keeps the minimum after the discount', () => {
+      expect(storageFeeEur(0.11, 25, 20)).toEqual({ amount: 25, atMinimum: true })
+      expect(storageFeeEur(1.1, 25, 20)).toEqual({ amount: 25, atMinimum: true })
+    })
+
+    it('bills volume x price minus the discount above the minimum', () => {
+      expect(storageFeeEur(53, 25, 20)).toEqual({ amount: 1060, atMinimum: false })
+      expect(storageFeeEur(1, 25, 0)).toEqual({ amount: 25, atMinimum: false })
+    })
+
+    it('bills nothing without stock', () => {
+      expect(storageFeeEur(0, 25, 20)).toEqual({ amount: 0, atMinimum: false })
     })
   })
 
