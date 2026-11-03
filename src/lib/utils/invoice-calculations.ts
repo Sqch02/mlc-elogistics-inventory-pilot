@@ -19,6 +19,26 @@ export const DEFAULT_BILLING_CONFIG: BillingConfig = {
   vat_rate_pct: 20.00,
 }
 
+// HME bills at least 25 € HT of storage as soon as the client has stock
+// (rule given by HME on 03/11/2026), whatever the volume.
+export const STORAGE_MIN_EUR = 25
+
+/**
+ * Storage amount billed: volume x price minus the discount, floored at the
+ * minimum after the discount (the screen pre-fills a 20% discount).
+ */
+export function storageFeeEur(
+  storageM3: number,
+  feePerM3: number,
+  discountPct: number,
+): { amount: number; atMinimum: boolean } {
+  if (storageM3 <= 0) return { amount: 0, atMinimum: false }
+  const net = Math.round(storageM3 * feePerM3 * (1 - discountPct / 100) * 100) / 100
+  return net < STORAGE_MIN_EUR
+    ? { amount: STORAGE_MIN_EUR, atMinimum: true }
+    : { amount: net, atMinimum: false }
+}
+
 export interface InvoiceLineCalculation {
   line_type: string
   description: string
